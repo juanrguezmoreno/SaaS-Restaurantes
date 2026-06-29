@@ -1,0 +1,22 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "auditor",
+  "instructions": ["AGENTS.md"],
+  "agent": {
+    "auditor": {
+      "description": "Coordina el equipo, revisa cambios, valida arquitectura y calidad"
+    },
+    "frontend": {
+      "description": "React, TypeScript, Tailwind, componentes, formularios y estados"
+    },
+    "uiux": {
+      "description": "Diseño visual, UX, responsive, accesibilidad y dashboards"
+    },
+    "api-client": {
+      "description": "Spring Boot, Axios, JWT, interceptores y servicios HTTP"
+    },
+    "testing": {
+      "description": "Vitest, React Testing Library, tests unitarios y cobertura"
+    }
+  }
+}
