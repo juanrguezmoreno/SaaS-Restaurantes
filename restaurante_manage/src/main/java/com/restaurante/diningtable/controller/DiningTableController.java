@@ -27,7 +27,8 @@ public class DiningTableController {
     private final DiningTableService diningTableService;
 
     @GetMapping("/api/v1/restaurants/{restaurantId}/tables")
-    @Operation(summary = "Listar mesas", description = "Obtiene todas las mesas de un restaurante")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
+    @Operation(summary = "Listar mesas", description = "Obtiene todas las mesas de un restaurante (requiere rol de administración)")
     public ResponseEntity<ApiResponse<List<DiningTableResponse>>> findByRestaurant(
             @PathVariable Long restaurantId) {
         List<DiningTableResponse> tables = diningTableService.findByRestaurantId(restaurantId);
@@ -35,7 +36,8 @@ public class DiningTableController {
     }
 
     @GetMapping(Constants.TABLES_PATH + "/{id}")
-    @Operation(summary = "Obtener mesa", description = "Obtiene los detalles de una mesa por su ID")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
+    @Operation(summary = "Obtener mesa", description = "Obtiene los detalles de una mesa por su ID (requiere rol de administración)")
     public ResponseEntity<ApiResponse<DiningTableResponse>> findById(@PathVariable Long id) {
         DiningTableResponse response = diningTableService.findById(id);
         return ResponseEntity.ok(ApiResponse.success(response));

@@ -7,6 +7,8 @@ import com.restaurante.security.userdetails.UserPrincipal;
 import com.restaurante.user.entity.User;
 import com.restaurante.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -19,6 +21,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class CurrentUserService {
+
+    private static final Logger log = LoggerFactory.getLogger(CurrentUserService.class);
 
     private final UserRepository userRepository;
     private final RestaurantRepository restaurantRepository;
@@ -271,46 +275,70 @@ public class CurrentUserService {
      * - No autenticado: false
      */
     public boolean canAccessRestaurant(Long restaurantId) {
+        String username = getCurrentUsername();
+        Set<String> roles = getCurrentRoles();
+
         if (getCurrentPrincipal() == null) {
+            log.info("[AccessCheck] user=anonymous restaurantId={} result=DENY reason=not_authenticated", restaurantId);
             return false;
         }
+
         // SUPER_ADMIN puede acceder a todo
         if (isSuperAdmin()) {
+            log.info("[AccessCheck] user={} role=SUPER_ADMIN restaurantId={} result=ALLOW reason=super_admin", username, restaurantId);
             return true;
         }
+
         // Obtener datos del restaurante
         Long userTenantId = getCurrentTenantId();
         if (userTenantId == null) {
+            log.info("[AccessCheck] user={} roles={} restaurantId={} result=DENY reason=no_tenant", username, roles, restaurantId);
             return false;
         }
+
         Restaurant restaurant = restaurantRepository.findById(restaurantId).orElse(null);
         if (restaurant == null || restaurant.getDeleted()) {
+            log.info("[AccessCheck] user={} roles={} restaurantId={} result=DENY reason=restaurant_not_found_or_deleted", username, roles, restaurantId);
             return false;
         }
+
         Long restaurantTenantId = restaurant.getTenant() != null ? restaurant.getTenant().getId() : null;
+        String restaurantName = restaurant.getName();
+
         // El restaurante debe pertenecer al mismo tenant
         if (!userTenantId.equals(restaurantTenantId)) {
+            log.info("[AccessCheck] user={} roles={} restaurantId={} restaurantName={} userTenantId={} restaurantTenantId={} result=DENY reason=cross_tenant", username, roles, restaurantId, restaurantName, userTenantId, restaurantTenantId);
             return false;
         }
-        // ADMIN: acceso a todos los restaurantes del tenant
+
+        // ADMIN: acceso a todos los restaurantes del tenant (sin necesidad de asignación explícita)
         if (isAdmin()) {
+            log.info("[AccessCheck] user={} role=ADMIN restaurantId={} restaurantName={} tenantId={} result=ALLOW reason=admin_full_tenant_access", username, restaurantId, restaurantName, userTenantId);
             return true;
         }
+
         // MANAGER/EMPLOYEE: verificar asignación explícita
         Set<Long> assignedIds = getAssignedRestaurantIds();
+
         if (isManager()) {
-            // MANAGER sin asignaciones: acceso a todos los del tenant
             if (assignedIds.isEmpty()) {
+                // MANAGER sin asignaciones: acceso a todos los del tenant
+                log.info("[AccessCheck] user={} role=MANAGER restaurantId={} restaurantName={} tenantId={} result=ALLOW reason=manager_no_assignments", username, restaurantId, restaurantName, userTenantId);
                 return true;
             }
-            // MANAGER con asignaciones: solo los asignados
-            return assignedIds.contains(restaurantId);
+            boolean allowed = assignedIds.contains(restaurantId);
+            log.info("[AccessCheck] user={} role=MANAGER restaurantId={} restaurantName={} assignedIds={} result={} reason={}", username, restaurantId, restaurantName, assignedIds, allowed ? "ALLOW" : "DENY", allowed ? "manager_assigned" : "manager_not_assigned");
+            return allowed;
         }
+
         if (isEmployee()) {
-            // EMPLOYEE: solo si está asignado explícitamente
-            return assignedIds.contains(restaurantId);
+            boolean allowed = assignedIds.contains(restaurantId);
+            log.info("[AccessCheck] user={} role=EMPLOYEE restaurantId={} restaurantName={} assignedIds={} result={} reason={}", username, restaurantId, restaurantName, assignedIds, allowed ? "ALLOW" : "DENY", allowed ? "employee_assigned" : "employee_not_assigned");
+            return allowed;
         }
+
         // Otros roles: sin acceso
+        log.info("[AccessCheck] user={} roles={} restaurantId={} result=DENY reason=unrecognized_role", username, roles, restaurantId);
         return false;
     }
 }

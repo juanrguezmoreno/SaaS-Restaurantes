@@ -18,55 +18,84 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
+@RequestMapping(Constants.EMPLOYEES_PATH)
 @RequiredArgsConstructor
-@Tag(name = "Empleados", description = "Gestión de empleados")
+@Tag(name = "Employees", description = "Employee management (multi-tenant with role-based access)")
 @SecurityRequirement(name = "bearerAuth")
 public class EmployeeController {
 
     private final EmployeeService employeeService;
 
-    @GetMapping("/api/v1/restaurants/{restaurantId}/employees")
+    // ─── LISTAR TODOS ──────────────────────────────────────────────────────
+    @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
-    @Operation(summary = "Listar empleados", description = "Obtiene todos los empleados de un restaurante")
+    @Operation(summary = "List employees", description = "Returns all employees visible to the current user (tenant-scoped)")
+    public ResponseEntity<ApiResponse<List<EmployeeResponse>>> findAll() {
+        List<EmployeeResponse> employees = employeeService.findAll();
+        return ResponseEntity.ok(ApiResponse.success(employees));
+    }
+
+    // ─── LISTAR POR RESTAURANTE (legacy) ───────────────────────────────────
+    @GetMapping("/by-restaurant/{restaurantId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
+    @Operation(summary = "List employees by restaurant", description = "Returns all employees assigned to a specific restaurant")
     public ResponseEntity<ApiResponse<List<EmployeeResponse>>> findByRestaurant(
             @PathVariable Long restaurantId) {
         List<EmployeeResponse> employees = employeeService.findByRestaurantId(restaurantId);
         return ResponseEntity.ok(ApiResponse.success(employees));
     }
 
-    @GetMapping(Constants.EMPLOYEES_PATH + "/{id}")
+    // ─── OBTENER POR ID ────────────────────────────────────────────────────
+    @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
-    @Operation(summary = "Obtener empleado", description = "Obtiene los detalles de un empleado por su ID")
+    @Operation(summary = "Get employee by ID", description = "Returns the details of an employee by their ID")
     public ResponseEntity<ApiResponse<EmployeeResponse>> findById(@PathVariable Long id) {
         EmployeeResponse response = employeeService.findById(id);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    @PostMapping("/api/v1/restaurants/{restaurantId}/employees")
+    // ─── CREAR ─────────────────────────────────────────────────────────────
+    @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
-    @Operation(summary = "Crear empleado", description = "Crea un nuevo empleado en un restaurante")
+    @Operation(summary = "Create employee", description = "Creates a new employee with restaurant assignments (optionally creates system access)")
     public ResponseEntity<ApiResponse<EmployeeResponse>> create(
-            @PathVariable Long restaurantId,
             @Valid @RequestBody EmployeeRequest request) {
-        EmployeeResponse response = employeeService.create(restaurantId, request);
+        EmployeeResponse response = employeeService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Empleado creado exitosamente", response));
+                .body(ApiResponse.success("Employee created successfully", response));
     }
 
-    @PutMapping(Constants.EMPLOYEES_PATH + "/{id}")
+    // ─── ACTUALIZAR ────────────────────────────────────────────────────────
+    @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
-    @Operation(summary = "Actualizar empleado", description = "Actualiza un empleado existente")
+    @Operation(summary = "Update employee", description = "Updates an existing employee's information and assignments")
     public ResponseEntity<ApiResponse<EmployeeResponse>> update(@PathVariable Long id,
                                                                 @Valid @RequestBody EmployeeRequest request) {
         EmployeeResponse response = employeeService.update(id, request);
-        return ResponseEntity.ok(ApiResponse.success("Empleado actualizado exitosamente", response));
+        return ResponseEntity.ok(ApiResponse.success("Employee updated successfully", response));
     }
 
-    @DeleteMapping(Constants.EMPLOYEES_PATH + "/{id}")
+    // ─── CAMBIAR ESTADO ACTIVO ─────────────────────────────────────────────
+    @PatchMapping("/{id}/active")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    @Operation(summary = "Eliminar empleado", description = "Elimina un empleado (solo admin)")
+    @Operation(summary = "Toggle active status", description = "Activates or deactivates an employee (also enables/disables system access)")
+    public ResponseEntity<ApiResponse<EmployeeResponse>> toggleActive(
+            @PathVariable Long id,
+            @RequestBody ActiveRequest request) {
+        EmployeeResponse response = employeeService.toggleActive(id, request.active());
+        String msg = request.active() ? "Employee activated successfully" : "Employee deactivated successfully";
+        return ResponseEntity.ok(ApiResponse.success(msg, response));
+    }
+
+    // ─── ELIMINAR ──────────────────────────────────────────────────────────
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Delete employee", description = "Soft-deletes an employee (admin only)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         employeeService.delete(id);
-        return ResponseEntity.ok(ApiResponse.success("Empleado eliminado exitosamente", null));
+        return ResponseEntity.ok(ApiResponse.success("Employee deleted successfully", null));
     }
+
+    // ─── DTO interno para active toggle ───────────────────────────────────
+    record ActiveRequest(boolean active) {}
 }

@@ -1,7 +1,12 @@
 package com.restaurante.reservation.repository;
 
-import com.restaurante.reservation.entity.Reservation;
-import com.restaurante.reservation.enums.ReservationStatus;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,11 +14,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import com.restaurante.reservation.entity.Reservation;
+import com.restaurante.reservation.enums.ReservationStatus;
 
 @Repository
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
@@ -23,6 +25,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     Page<Reservation> findAllByDeletedFalse(Pageable pageable);
 
     List<Reservation> findByCustomerIdAndDeletedFalse(Long customerId);
+
+    /**
+     * Encuentra reservas de un cliente filtradas por restaurantes visibles.
+     * La consulta se realiza a nivel de base de datos, NO se cargan todas las
+     * reservas del cliente en memoria para filtrar después.
+     * Ordenadas por fecha descendente, hora descendente.
+     */
+    List<Reservation> findByCustomerIdAndRestaurantIdInAndDeletedFalseOrderByReservationDateDescReservationTimeDesc(
+            Long customerId, Collection<Long> restaurantIds);
 
     List<Reservation> findByRestaurantIdAndDeletedFalse(Long restaurantId);
 

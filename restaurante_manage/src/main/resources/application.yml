@@ -3,10 +3,10 @@ spring:
     name: restaurant-manage
 
   datasource:
-    url: jdbc:mysql://localhost:3307/restaurant_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:root}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+  url: ${DB_URL}
+  username: ${DB_USERNAME}
+  password: ${DB_PASSWORD}
+  driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
     hibernate:
@@ -29,7 +29,7 @@ spring:
     time-zone: America/Mexico_City
 
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 app:
   jwt:
