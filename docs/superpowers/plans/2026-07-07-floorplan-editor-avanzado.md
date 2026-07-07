@@ -16,7 +16,7 @@
 - Rutas y roles del backend como constantes en `common/util/Constants.java` — nunca strings inline.
 - Todas las queries de repositorio filtran soft delete (`...AndDeletedFalse`).
 - Scoping multi-tenant SIEMPRE vía `CurrentUserService.canAccessRestaurant(restaurantId)` en el servicio.
-- No hay migraciones: Hibernate crea la tabla (`ddl-auto: update` en prod, `create-drop` en dev).
+- El esquema en prod lo gestiona **Flyway** (`db/migration/V*.sql`, MySQL) con `ddl-auto: validate` — toda entidad nueva necesita su migración. En el perfil dev, Flyway está desactivado y `ddl-auto: create-drop` crea el esquema (H2).
 - Frontend sin tests: verificación = `pnpm lint` + walkthrough manual (Task 7).
 - Comandos backend se ejecutan desde `restaurante_manage/`; frontend desde `restaurante-frontend/`.
 
@@ -31,6 +31,7 @@
 - Create: `restaurante_manage/src/main/java/com/restaurante/floorplan/dto/FloorPlanElementRequest.java`
 - Create: `restaurante_manage/src/main/java/com/restaurante/floorplan/dto/FloorPlanElementResponse.java`
 - Create: `restaurante_manage/src/main/java/com/restaurante/floorplan/dto/FloorPlanElementMapper.java`
+- Create: `restaurante_manage/src/main/resources/db/migration/V3__floor_plan_elements.sql`
 - Modify: `restaurante_manage/src/main/java/com/restaurante/common/util/Constants.java` (tras la constante `TABLES_PATH`, línea ~24)
 
 **Interfaces:**
@@ -394,15 +395,45 @@ Tras el bloque `// Tables` (línea ~24), añadir:
     public static final String FLOOR_PLAN_ELEMENTS_SUBPATH = "/floor-plan/elements";
 ```
 
-- [ ] **Step 6: Compilar**
+- [ ] **Step 6: Crear la migración Flyway `V3__floor_plan_elements.sql`**
+
+Prod usa Flyway + `ddl-auto: validate`, así que la tabla debe crearse por migración
+(mismas convenciones que `V1__baseline_schema.sql`: InnoDB, utf8mb4, enum de MySQL
+para `@Enumerated(STRING)` — igual que `dining_tables.status`):
+
+```sql
+-- ============================================================================
+-- V3 — Elementos decorativos del plano de sala (barra, puerta...)
+-- ============================================================================
+
+CREATE TABLE `floor_plan_elements` (
+  `deleted` bit(1) NOT NULL,
+  `height` int DEFAULT NULL,
+  `rotation` int DEFAULT NULL,
+  `width` int DEFAULT NULL,
+  `x_position` int NOT NULL,
+  `y_position` int NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  `deleted_at` datetime(6) DEFAULT NULL,
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `restaurant_id` bigint NOT NULL,
+  `updated_at` datetime(6) NOT NULL,
+  `type` enum('BAR','DOOR') COLLATE utf8mb4_unicode_ci NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_floor_plan_elements_restaurant` (`restaurant_id`),
+  CONSTRAINT `fk_floor_plan_elements_restaurant` FOREIGN KEY (`restaurant_id`) REFERENCES `restaurants` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+- [ ] **Step 7: Compilar**
 
 Run: `mvn -q compile` (en `restaurante_manage/`)
 Expected: BUILD SUCCESS sin errores de compilación.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add restaurante_manage/src/main/java/com/restaurante/floorplan restaurante_manage/src/main/java/com/restaurante/common/util/Constants.java
+git add restaurante_manage/src/main/java/com/restaurante/floorplan restaurante_manage/src/main/java/com/restaurante/common/util/Constants.java restaurante_manage/src/main/resources/db/migration/V3__floor_plan_elements.sql
 git commit -m "feat(floorplan): modelo de elementos decorativos del plano de sala"
 ```
 
