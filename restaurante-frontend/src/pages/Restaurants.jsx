@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   getRestaurants,
   createRestaurant,
   updateRestaurant,
   deleteRestaurant,
 } from '../services/restaurantService';
+import QRModal from '../components/QRModal';
 
 // ─── Estado inicial del formulario ───────────────────────────────────────
 const INITIAL_FORM = {
@@ -45,6 +46,10 @@ const Restaurants = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingRestaurant, setDeletingRestaurant] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Estados del modal QR
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [qrModalRestaurant, setQRModalRestaurant] = useState(null);
 
   // Safe access: garantiza que restaurants siempre sea un array
   const safeRestaurants = Array.isArray(restaurants) ? restaurants : [];
@@ -272,6 +277,60 @@ const Restaurants = () => {
     if (!restaurant || !restaurant.id) return;
     const link = `${window.location.origin}/public/reservar/${restaurant.id}`;
     window.open(link, '_blank', 'noopener,noreferrer');
+  };
+
+  // ─── Abrir modal QR ────────────────────────────────────────────────────
+  const handleOpenQR = (restaurant) => {
+    if (!restaurant || !restaurant.id) return;
+    setQRModalRestaurant(restaurant);
+    setShowQRModal(true);
+  };
+
+  // ─── Cerrar modal QR ───────────────────────────────────────────────────
+  const handleCloseQR = useCallback(() => {
+    setShowQRModal(false);
+    // Pequeño retardo para limpiar el restaurante después de la animación
+    setTimeout(() => setQRModalRestaurant(null), 200);
+  }, []);
+
+  // ─── Descargar QR directamente (sin modal) ─────────────────────────────
+  const [qrDownloadingId, setQRDownloadingId] = useState(null);
+
+  const handleDownloadQR = async (restaurant) => {
+    if (!restaurant || !restaurant.id) return;
+    setQRDownloadingId(restaurant.id);
+
+    try {
+      const { default: QRCode } = await import('qrcode');
+      const url = `${window.location.origin}/public/reservar/${restaurant.id}`;
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 512,
+        margin: 2,
+        color: { dark: '#1e1e2a', light: '#ffffff' },
+      });
+
+      const restaurantName = restaurant.name || 'restaurante';
+      // Sanitizar nombre para filename
+      const fileName = 'qr-'
+        + restaurantName
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')
+        + '.png';
+
+      const link = document.createElement('a');
+      link.download = fileName || 'qr-restaurante.png';
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      // Silencioso — si falla la descarga directa, el usuario puede usar el modal
+    } finally {
+      setQRDownloadingId(null);
+    }
   };
 
   // ─── Generar enlace público ────────────────────────────────────────────
@@ -576,26 +635,63 @@ const Restaurants = () => {
               })}
             </div>
 
-            {/* ─── QR Code Placeholder ────────────────────────────────── */}
-            <div className="online-reservation-qr">
-              <div className="online-reservation-qr-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
-                  <rect x="14" y="14" width="7" height="7" rx="1" />
-                  <line x1="5" y1="5" x2="5" y2="5.01" />
-                  <line x1="16" y1="5" x2="16" y2="5.01" />
-                  <line x1="5" y1="16" x2="5" y2="16.01" />
-                  <line x1="16" y1="16" x2="18" y2="16" />
-                  <line x1="18" y1="14" x2="18" y2="18" />
-                  <line x1="14" y1="18" x2="18" y2="18" />
-                </svg>
-              </div>
-              <div className="online-reservation-qr-text">
-                <strong>Código QR</strong>
-                <p>Próximamente podrás descargar un QR para imprimirlo en cartas, mesas o escaparate.</p>
-              </div>
+            {/* ─── Código QR por restaurante ─────────────────────────── */}
+            <div className="online-reservation-qr-list">
+              {safeRestaurants.map((restaurant) => {
+                const isDownloading = qrDownloadingId === restaurant.id;
+                return (
+                  <div key={`qr-${restaurant.id}`} className="online-reservation-qr-item">
+                    <div className="online-reservation-qr-item-info">
+                      <span className="online-reservation-qr-item-name">
+                        {restaurant.name || 'No disponible'}
+                      </span>
+                      <span className="online-reservation-qr-item-hint">
+                        Comparte este c&oacute;digo QR para que tus clientes reserven online
+                      </span>
+                    </div>
+                    <div className="online-reservation-qr-item-actions">
+                      <button
+                        type="button"
+                        className="online-reservation-btn online-reservation-btn-qr-view"
+                        onClick={() => handleOpenQR(restaurant)}
+                        title="Ver c&oacute;digo QR"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="7" height="7" rx="1" />
+                          <rect x="14" y="3" width="7" height="7" rx="1" />
+                          <rect x="3" y="14" width="7" height="7" rx="1" />
+                          <rect x="14" y="14" width="7" height="7" rx="1" />
+                          <line x1="5" y1="5" x2="5" y2="5.01" />
+                          <line x1="16" y1="5" x2="17.5" y2="5.01" />
+                          <line x1="5" y1="16" x2="5" y2="16.01" />
+                          <line x1="16" y1="16" x2="18" y2="16" />
+                          <line x1="18" y1="14" x2="18" y2="18" />
+                          <line x1="14" y1="18" x2="18" y2="18" />
+                        </svg>
+                        Ver QR
+                      </button>
+                      <button
+                        type="button"
+                        className="online-reservation-btn online-reservation-btn-qr-download"
+                        onClick={() => handleDownloadQR(restaurant)}
+                        disabled={isDownloading}
+                        title="Descargar QR"
+                      >
+                        {isDownloading ? (
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                        )}
+                        Descargar QR
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -822,6 +918,11 @@ const Restaurants = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ═══ Modal: QR Code ════════════════════════════════════════════════ */}
+      {showQRModal && qrModalRestaurant && (
+        <QRModal restaurant={qrModalRestaurant} onClose={handleCloseQR} />
       )}
     </div>
   );

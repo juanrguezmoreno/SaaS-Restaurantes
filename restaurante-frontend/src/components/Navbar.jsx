@@ -2,7 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import NotificationBell from './NotificationBell';
-import { ROLE_LABELS } from '../config/permissions';
+import { ROLE_LABELS, normalizeRole } from '../config/permissions';
 
 // ─── Mapa de breadcrumbs ──────────────────────────────────────────────────
 const breadcrumbMap = {
@@ -80,7 +80,7 @@ const Navbar = ({ onToggleSidebar }) => {
               <span className="header-user-name">
                 {user.username || 'Usuario'}
               </span>
-              <span className="header-user-role">{ROLE_LABELS[user.role] || user.role}</span>
+              <span className="header-user-role">{ROLE_LABELS[normalizeRole(user.role)] || user.role}</span>
             </div>
           </div>
         )}

@@ -60,17 +60,41 @@ const extractData = (response) => {
 
 /**
  * Normaliza el error para extraer un mensaje legible.
+ * Proporciona mensajes específicos según el código HTTP.
  */
 const handleError = (error) => {
-  if (error.response && error.response.data) {
-    const body = error.response.data;
-    const message =
-      body.message || body.error || 'Error del servidor';
-    return new Error(message);
+  if (error.response) {
+    const { status, data: body } = error.response;
+
+    // Intentar obtener mensaje del cuerpo de la respuesta
+    if (body) {
+      const message = body.message || body.error;
+      if (message) return new Error(message);
+    }
+
+    // Mensajes por código de estado
+    switch (status) {
+      case 400:
+        return new Error('Solicitud inválida. Revisa los datos enviados.');
+      case 401:
+        return new Error('No autorizado. Inicia sesión nuevamente.');
+      case 403:
+        return new Error('No tienes permiso para realizar esta acción.');
+      case 404:
+        return new Error('El servicio de guardado no está disponible (404). Verifica que el servidor backend esté actualizado y funcionando.');
+      case 409:
+        return new Error('Conflicto. El recurso ya existe.');
+      case 500:
+        return new Error('Error interno del servidor. Intenta nuevamente más tarde.');
+      default:
+        return new Error(`Error del servidor (${status}). Intenta de nuevo.`);
+    }
   }
+
   if (error.message) {
     return error;
   }
+
   return new Error(
     'Error de conexión. Verifica que el servidor esté funcionando.'
   );
@@ -182,6 +206,30 @@ export const updateTableStatus = async (id, status) => {
     return body;
   } catch (error) {
     console.error('[tableService] updateTableStatus — Error:', error.response?.status, error.response?.data);
+    throw handleError(error);
+  }
+};
+
+/**
+ * Guarda el layout completo de mesas de un restaurante (posición, tamaño, forma).
+ * Endpoint batch: PUT /restaurants/{restaurantId}/tables/layout
+ *
+ * @param {number} restaurantId - ID del restaurante
+ * @param {Array<{tableId: number, xPosition: number, yPosition: number, width?: number, height?: number, shape?: string, rotation?: number}>} layoutData - Array con posiciones de cada mesa
+ */
+export const updateTablesLayout = async (restaurantId, layoutData) => {
+  const url = `/restaurants/${restaurantId}/tables/layout`;
+  console.log('[tableService] updateTablesLayout — Request URL:', url, '— Body:', layoutData);
+  try {
+    const response = await api.put(url, layoutData);
+    console.log('[tableService] updateTablesLayout — Response:', response.data);
+    const body = response.data;
+    if (!body) return null;
+    if (body.success && body.data) return body.data;
+    if (body.data) return body.data;
+    return body;
+  } catch (error) {
+    console.error('[tableService] updateTablesLayout — Error:', error.response?.status, error.response?.data);
     throw handleError(error);
   }
 };

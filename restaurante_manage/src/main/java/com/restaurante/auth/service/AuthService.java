@@ -6,6 +6,7 @@ import com.restaurante.auth.dto.RegisterRequest;
 import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.DuplicateResourceException;
 import com.restaurante.common.exception.ResourceNotFoundException;
+import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.role.entity.Role;
@@ -41,6 +42,7 @@ public class AuthService {
     private final TenantRepository tenantRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final CurrentUserService currentUserService;
 
     public JwtResponse login(LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
@@ -98,26 +100,47 @@ public class AuthService {
                     ". Roles válidos: ADMIN, MANAGER, EMPLOYEE, CLIENT");
         }
 
+        // Nunca se puede crear un SUPER_ADMIN por este endpoint
+        if (roleName == RoleName.ROLE_SUPER_ADMIN) {
+            throw new BadRequestException("Rol inválido: " + request.getRole() +
+                    ". Roles válidos: ADMIN, MANAGER, EMPLOYEE, CLIENT");
+        }
+
         // Si no es ADMIN, restaurantId es obligatorio
         if (roleName != RoleName.ROLE_ADMIN && request.getRestaurantId() == null) {
             throw new BadRequestException("restaurantId es obligatorio para el rol " + request.getRole());
         }
 
-        // Buscar restaurante si se proporcionó
+        // Buscar restaurante si se proporcionó; el creador debe tener acceso a él
         Restaurant restaurant = null;
         if (request.getRestaurantId() != null) {
             restaurant = restaurantRepository.findByIdAndDeletedFalse(request.getRestaurantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", request.getRestaurantId()));
+            currentUserService.validateRestaurantAccess(restaurant.getId());
         }
 
-        // Buscar tenant si se proporcionó
+        // Resolver tenant: un ADMIN solo puede crear usuarios en su propio tenant;
+        // el tenantId del request únicamente lo puede fijar un SUPER_ADMIN
         Tenant tenant = null;
-        if (request.getTenantId() != null) {
+        if (!currentUserService.isSuperAdmin()) {
+            Long creatorTenantId = currentUserService.getCurrentTenantId();
+            if (creatorTenantId == null) {
+                throw new BadRequestException("El usuario autenticado no tiene tenant asociado");
+            }
+            tenant = tenantRepository.findByIdAndDeletedFalse(creatorTenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", creatorTenantId));
+        } else if (request.getTenantId() != null) {
             tenant = tenantRepository.findByIdAndDeletedFalse(request.getTenantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", request.getTenantId()));
         } else if (restaurant != null && restaurant.getTenant() != null) {
             // Si no se especificó tenant pero sí restaurante, usar el tenant del restaurante
             tenant = restaurant.getTenant();
+        }
+
+        // El restaurante debe pertenecer al tenant resuelto
+        if (restaurant != null && tenant != null && restaurant.getTenant() != null
+                && !tenant.getId().equals(restaurant.getTenant().getId())) {
+            throw new BadRequestException("El restaurante no pertenece al tenant indicado");
         }
 
         User user = new User();

@@ -48,7 +48,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Permitir preflight OPTIONS sin autenticación
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(Constants.AUTH_PATH + "/**").permitAll()
+                        // Solo el login es público; el registro requiere ADMIN/SUPER_ADMIN autenticado
+                        .requestMatchers(HttpMethod.POST, Constants.AUTH_PATH + Constants.LOGIN_PATH).permitAll()
                         .requestMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
                         // Público: listar restaurantes y ver detalle (con tenant filtering)

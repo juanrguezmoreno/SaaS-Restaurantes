@@ -4,6 +4,7 @@ import com.restaurante.common.dto.ApiResponse;
 import com.restaurante.common.util.Constants;
 import com.restaurante.diningtable.dto.DiningTableRequest;
 import com.restaurante.diningtable.dto.DiningTableResponse;
+import com.restaurante.diningtable.dto.TableLayoutRequest;
 import com.restaurante.reservation.dto.ReservationStatusUpdateRequest;
 import com.restaurante.diningtable.service.DiningTableService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -11,6 +12,8 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,6 +27,8 @@ import java.util.List;
 @SecurityRequirement(name = "bearerAuth")
 public class DiningTableController {
 
+    private static final Logger log = LoggerFactory.getLogger(DiningTableController.class);
+
     private final DiningTableService diningTableService;
 
     @GetMapping("/api/v1/restaurants/{restaurantId}/tables")
@@ -33,6 +38,21 @@ public class DiningTableController {
             @PathVariable Long restaurantId) {
         List<DiningTableResponse> tables = diningTableService.findByRestaurantId(restaurantId);
         return ResponseEntity.ok(ApiResponse.success(tables));
+    }
+
+    @PutMapping("/api/v1/restaurants/{restaurantId}/tables/layout")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
+    @Operation(summary = "Guardar plano de sala",
+            description = "Actualiza las posiciones y visualización de todas las mesas del restaurante. " +
+                    "Recibe un array con {tableId, xPosition, yPosition, width, height, shape, rotation}. " +
+                    "Requiere rol de administración o gerencia.")
+    public ResponseEntity<ApiResponse<List<DiningTableResponse>>> updateLayout(
+            @PathVariable Long restaurantId,
+            @RequestBody List<TableLayoutRequest> layoutRequests) {
+        log.info("[TableLayout] Endpoint called — PUT /api/v1/restaurants/{}/tables/layout, received {} tables",
+                restaurantId, layoutRequests != null ? layoutRequests.size() : 0);
+        List<DiningTableResponse> updated = diningTableService.updateRestaurantTablesLayout(restaurantId, layoutRequests);
+        return ResponseEntity.ok(ApiResponse.success("Plano de sala guardado exitosamente", updated));
     }
 
     @GetMapping(Constants.TABLES_PATH + "/{id}")

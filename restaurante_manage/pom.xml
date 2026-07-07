@@ -50,6 +50,16 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Flyway (migraciones de esquema; versión gestionada por Spring Boot) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+
         <!-- H2 para tests y perfil dev -->
         <dependency>
             <groupId>com.h2database</groupId>

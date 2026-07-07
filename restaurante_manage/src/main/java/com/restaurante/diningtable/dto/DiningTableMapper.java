@@ -20,6 +20,12 @@ public class DiningTableMapper {
                 .capacity(table.getCapacity())
                 .location(table.getLocation())
                 .status(table.getStatus().name())
+                .xPosition(table.getXPosition())
+                .yPosition(table.getYPosition())
+                .width(table.getWidth())
+                .height(table.getHeight())
+                .shape(table.getShape())
+                .rotation(table.getRotation())
                 .createdAt(table.getCreatedAt())
                 .updatedAt(table.getUpdatedAt())
                 .build();

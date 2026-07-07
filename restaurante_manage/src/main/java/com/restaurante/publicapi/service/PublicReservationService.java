@@ -86,10 +86,12 @@ public class PublicReservationService {
         log.info("Solicitud de reserva pública creada: id={}, restaurante={}, cliente={}",
                 saved.getId(), restaurantId, customer.getEmail());
 
+        // Se devuelve el nombre tal como lo escribió el solicitante, nunca el
+        // almacenado en BD, para no confirmar identidades a partir de un email
         return PublicReservationResponse.builder()
                 .reservationId(saved.getId())
                 .customerId(customer.getId())
-                .customerName(customer.getFirstName() + " " + customer.getLastName())
+                .customerName(request.getCustomerName())
                 .reservationDate(saved.getReservationDate())
                 .reservationTime(saved.getReservationTime())
                 .partySize(saved.getPartySize())
@@ -101,10 +103,12 @@ public class PublicReservationService {
     /**
      * Busca un cliente por email en el restaurante dado.
      * Si no existe, lo crea con los datos de la solicitud.
+     * La búsqueda se limita al restaurante para no exponer ni reutilizar
+     * clientes de otros restaurantes/tenants.
      */
     private Customer findOrCreateCustomer(Restaurant restaurant, PublicReservationRequest request) {
-        // Buscar por email (global, no solo del restaurante)
-        return customerRepository.findByEmailAndDeletedFalse(request.getEmail())
+        return customerRepository
+                .findFirstByEmailAndRestaurantIdAndDeletedFalse(request.getEmail(), restaurant.getId())
                 .orElseGet(() -> createCustomer(restaurant, request));
     }
 

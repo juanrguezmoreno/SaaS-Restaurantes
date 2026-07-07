@@ -1,12 +1,14 @@
 package com.restaurante.diningtable.service;
 
 import com.restaurante.common.exception.AccessDeniedException;
+import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.DuplicateResourceException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.diningtable.dto.DiningTableMapper;
 import com.restaurante.diningtable.dto.DiningTableRequest;
 import com.restaurante.diningtable.dto.DiningTableResponse;
+import com.restaurante.diningtable.dto.TableLayoutRequest;
 import com.restaurante.diningtable.entity.DiningTable;
 import com.restaurante.diningtable.enums.TableStatus;
 import com.restaurante.diningtable.repository.DiningTableRepository;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -101,6 +104,99 @@ public class DiningTableService {
         table.setDeleted(true);
         table.setDeletedAt(LocalDateTime.now());
         diningTableRepository.save(table);
+    }
+
+    // ─── Gestión de layout (plano de sala) ──────────────────────────────
+
+    /**
+     * Actualiza las posiciones/visualización de todas las mesas del layout
+     * de un restaurante a partir del payload enviado por el frontend.
+     *
+     * @param restaurantId ID del restaurante
+     * @param requests     lista de posiciones de mesas
+     * @return lista de mesas actualizadas
+     */
+    @Transactional
+    public List<DiningTableResponse> updateRestaurantTablesLayout(
+            Long restaurantId, List<TableLayoutRequest> requests) {
+
+        log.info("[TableLayout] Saving layout for restaurantId={}, tables received={}",
+                restaurantId, requests != null ? requests.size() : 0);
+
+        // 1. Validar permiso de acceso
+        checkTableAccess(restaurantId, "GUARDAR_LAYOUT");
+
+        // 2. Validar que el restaurante existe
+        restaurantRepository.findByIdAndDeletedFalse(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
+
+        // 3. Si no hay mesas en el payload, devolver lista vacía (no es un error)
+        if (requests == null || requests.isEmpty()) {
+            log.warn("[TableLayout] Empty layout received for restaurantId={}", restaurantId);
+            return List.of();
+        }
+
+        // 4. Validar que cada elemento tenga tableId no nulo
+        for (int i = 0; i < requests.size(); i++) {
+            if (requests.get(i).getTableId() == null) {
+                throw new BadRequestException(
+                        "El elemento " + i + " del layout no tiene tableId. Todos los elementos deben tener un tableId.");
+            }
+        }
+
+        // 5. Extraer IDs de mesas del payload
+        List<Long> requestedTableIds = requests.stream()
+                .map(TableLayoutRequest::getTableId)
+                .collect(Collectors.toList());
+
+        // 4. Cargar las mesas del restaurante que coinciden con los IDs solicitados
+        List<DiningTable> existingTables = diningTableRepository
+                .findByRestaurantIdAndIdInAndDeletedFalse(restaurantId, requestedTableIds);
+
+        // 6. Validar que todos los IDs pertenecen al restaurante
+        Set<Long> existingIds = existingTables.stream()
+                .map(DiningTable::getId)
+                .collect(Collectors.toSet());
+
+        List<Long> invalidIds = requestedTableIds.stream()
+                .filter(id -> !existingIds.contains(id))
+                .collect(Collectors.toList());
+
+        if (!invalidIds.isEmpty()) {
+            throw new BadRequestException(
+                    "Las siguientes mesas no pertenecen al restaurante " + restaurantId + ": " + invalidIds);
+        }
+
+        // 7. Mapa para búsqueda rápida de mesas por ID
+        Map<Long, DiningTable> tableMap = existingTables.stream()
+                .collect(Collectors.toMap(DiningTable::getId, t -> t));
+
+        // 8. Actualizar campos de layout
+        for (TableLayoutRequest req : requests) {
+            DiningTable table = tableMap.get(req.getTableId());
+            if (table == null) {
+                // No debería ocurrir porque ya validamos, pero por seguridad
+                log.warn("[TableLayout] Table {} not found in map, skipping", req.getTableId());
+                continue;
+            }
+            table.setXPosition(req.getXPosition());
+            table.setYPosition(req.getYPosition());
+            table.setWidth(req.getWidth());
+            table.setHeight(req.getHeight());
+            table.setShape(req.getShape());
+            table.setRotation(req.getRotation());
+        }
+
+        // 9. Guardar todo en lote
+        diningTableRepository.saveAll(existingTables);
+
+        log.info("[TableLayout] Layout saved successfully for restaurantId={}, tables updated={}",
+                restaurantId, existingTables.size());
+
+        // 10. Devolver mesas actualizadas
+        return existingTables.stream()
+                .map(diningTableMapper::toResponse)
+                .collect(Collectors.toList());
     }
 
     // ─── Validación centralizada con logs [TableAccess] ─────────────────────

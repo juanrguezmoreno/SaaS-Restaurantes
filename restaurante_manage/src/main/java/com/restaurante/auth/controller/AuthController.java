@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(Constants.AUTH_PATH)
 @RequiredArgsConstructor
-@Tag(name = "Autenticación", description = "Endpoints públicos para registro e inicio de sesión")
+@Tag(name = "Autenticación", description = "Inicio de sesión público y registro de usuarios (solo administradores)")
 public class AuthController {
 
     private final AuthService authService;
@@ -33,7 +34,8 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    @Operation(summary = "Registrar usuario", description = "Registra un nuevo usuario y devuelve un token JWT")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Registrar usuario", description = "Registra un nuevo usuario dentro del tenant del administrador autenticado")
     public ResponseEntity<ApiResponse<JwtResponse>> register(@Valid @RequestBody RegisterRequest request) {
         JwtResponse response = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED)

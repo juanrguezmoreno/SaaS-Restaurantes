@@ -60,6 +60,10 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
 
+  /* ??? Public page ??? */
+  --public-bg-start: #f1f5f9;
+  --public-bg-end: #cbd5e1;
+
   /* ??? Radii ??? */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -129,6 +133,10 @@
   /* ??? Login ??? */
   --login-bg-start: #0f172a;
   --login-bg-end: #020617;
+
+  /* ??? Public page ??? */
+  --public-bg-start: #0f172a;
+  --public-bg-end: #020617;
 }
 
 /* Transici?n suave para todos los elementos al cambiar de tema */
@@ -1092,25 +1100,61 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   background-color: var(--bg-card);
+  /* Bootstrap asigna color: var(--bs-modal-color) -> #212529, que queda
+     negro sobre fondo oscuro en modo dark. Forzar var(--text-primary)
+     respeta el tema claro/oscuro automáticamente. */
+  color: var(--text-primary);
 }
 
 .modal-header {
   border-bottom: 1px solid var(--border);
   padding: 1rem 1.25rem;
+  color: var(--text-primary);
 }
 
 .modal-header .modal-title {
   font-size: 0.9375rem;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .modal-body {
   padding: 1.25rem;
+  color: var(--text-primary);
 }
 
 .modal-footer {
   border-top: 1px solid var(--border);
   padding: 1rem 1.25rem;
+  color: var(--text-primary);
+}
+
+/* ??? Form check labels (dentro de modales y formularios) ?????????????????? */
+.form-check-label {
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  user-select: none;
+}
+
+/* ??? Form check containers (alineación con checkbox) ?????????????????????? */
+.form-check {
+  min-height: auto;
+  margin-bottom: 0;
+}
+
+/* ??? Form check disabled — atenuado pero legible ????????????????????????? */
+.form-check-input:disabled ~ .form-check-label,
+.form-check-input[disabled] ~ .form-check-label {
+  opacity: 0.55;
+  color: var(--text-secondary);
+}
+
+/* ??? Input disabled genérico ?????????????????????????????????????????????? */
+.form-control:disabled,
+.form-select:disabled {
+  opacity: 0.55;
+  color: var(--text-secondary);
 }
 
 /* ??? No results empty row ?????????????????????????????????????????????????? */
@@ -2405,10 +2449,10 @@ a {
 .exec-dashboard {
   max-width: 1600px;
   margin: 0 auto;
-  padding: 2rem 2rem 3rem;
+  padding: 1.5rem 2rem 2rem;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 /* ??? Header ??? */
@@ -2589,15 +2633,27 @@ a {
 /* ??? KPI Grid ??? */
 .exec-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 1.25rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 991.98px) {
+  .exec-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 575.98px) {
+  .exec-kpi-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .exec-kpi {
   display: flex;
   align-items: center;
   gap: 0.875rem;
-  padding: 1.125rem 1.25rem;
+  padding: 1rem 1.125rem;
   border-radius: var(--radius-lg);
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -2661,6 +2717,19 @@ a {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
+}
+
+/* 60/40 layout para Dashboard */
+.exec-two-col-wide {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1.25rem;
+}
+
+@media (max-width: 991.98px) {
+  .exec-two-col-wide {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ??? Cards ??? */
@@ -2777,7 +2846,7 @@ a {
   display: flex;
   align-items: center;
   gap: 0.875rem;
-  padding: 0.875rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   cursor: pointer;
   transition: background 0.15s ease;
   border-left: 3px solid transparent;
@@ -3130,6 +3199,46 @@ a {
   border-color: var(--primary);
   color: var(--primary);
   background: var(--primary-light);
+}
+
+/* ??? Requiere atención — empty state "Todo en orden" ??? */
+.exec-attention-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.exec-attention-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--success-light, rgba(34, 197, 94, 0.1));
+  margin-bottom: 0.75rem;
+  color: var(--success);
+}
+
+.exec-attention-empty-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.exec-attention-empty-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem;
+}
+
+.exec-attention-empty-sub {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 0;
 }
 
 /* ??? Card footer link (Agenda "Ver todas") ??????????????????????????????? */
@@ -4353,8 +4462,435 @@ a {
   flex-shrink: 0;
 }
 
+/* ??? Toast notification ???????????????????????????????????????????????????? */
+
+.fp-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  animation: fpToastIn 0.25s ease-out;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid;
+}
+
+@keyframes fpToastIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fp-toast-success {
+  background: var(--success-light);
+  border-color: var(--success);
+  color: var(--success-text);
+}
+
+.fp-toast-error {
+  background: var(--danger-light);
+  border-color: var(--danger);
+  color: var(--danger-text);
+}
+
+.fp-toast-info {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.fp-toast svg {
+  flex-shrink: 0;
+}
+
+.fp-toast-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  opacity: 0.6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.fp-toast-close:hover {
+  opacity: 1;
+}
+
+/* ??? Edit mode toolbar ???????????????????????????????????????????????????? */
+
+.fp-edit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+}
+
+.fp-edit-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.fp-edit-toolbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.fp-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--bg-body);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.fp-edit-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.fp-edit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fp-edit-btn svg {
+  flex-shrink: 0;
+}
+
+.fp-edit-btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.fp-edit-btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  color: #fff;
+}
+
+.fp-edit-btn-save {
+  background: var(--success);
+  color: #fff;
+  border-color: var(--success);
+}
+
+.fp-edit-btn-save:hover:not(:disabled) {
+  background: #16a34a;
+  color: #fff;
+  border-color: #16a34a;
+}
+
+.fp-edit-btn-cancel {
+  color: var(--text-secondary);
+}
+
+.fp-edit-btn-reset {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.fp-edit-btn-reset:hover:not(:disabled) {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.fp-edit-badge-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.75rem;
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning-text);
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.fp-edit-mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ??? Canvas container ????????????????????????????????????????????????????? */
+
+.fp-canvas-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ??? FPC — FloorPlanCanvas ???????????????????????????????????????????????? */
+
+.fpc-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.fpc-info-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: rgba(245, 158, 11, 0.08);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.15);
+  font-size: 0.8125rem;
+  color: var(--warning-text);
+  font-weight: 500;
+}
+
+.fpc-saving-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.fpc-canvas {
+  position: relative;
+  min-width: 800px;
+  padding: 1.5rem;
+  background:
+    linear-gradient(90deg, var(--border-light) 1px, transparent 1px),
+    linear-gradient(var(--border-light) 1px, transparent 1px);
+  background-size: 30px 30px;
+  background-color: var(--bg-body);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.fpc-canvas-editable {
+  cursor: default;
+}
+
+.fpc-canvas-dragging {
+  cursor: grabbing;
+}
+
+/* ??? Mesa individual en el canvas ????????????????????????????????????????? */
+
+.fpc-table {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2.5px solid;
+  transition: box-shadow 0.15s ease, border-width 0.15s ease;
+  box-shadow: var(--shadow-sm);
+  will-change: left, top;
+}
+
+.fpc-table:hover {
+  box-shadow: var(--shadow-md);
+  z-index: 5;
+}
+
+.fpc-table:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.fpc-table-draggable {
+  cursor: grab;
+  transition: box-shadow 0.15s ease;
+}
+
+.fpc-table-draggable:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.fpc-table-dragging {
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2) !important;
+  opacity: 0.9;
+  z-index: 100 !important;
+  transition: none !important;
+}
+
+.fpc-table-selected {
+  border-width: 3px;
+  box-shadow: 0 0 0 3px var(--primary-ring), var(--shadow-md);
+  z-index: 10;
+}
+
+.fpc-table-number {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.fpc-table-capacity {
+  font-size: 0.5625rem;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-top: 1px;
+  letter-spacing: 0.02em;
+}
+
+.fpc-table-status-bar {
+  position: absolute;
+  bottom: 4px;
+  left: 20%;
+  right: 20%;
+  height: 3px;
+  border-radius: 2px;
+  opacity: 0.7;
+}
+
+/* ??? Empty state del canvas ??????????????????????????????????????????????? */
+
+.fpc-empty-canvas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  color: var(--text-muted);
+  gap: 0.75rem;
+}
+
+.fpc-empty-canvas p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* ??? Leyenda ?????????????????????????????????????????????????????????????? */
+
+.fpc-legend {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+  flex-wrap: wrap;
+}
+
+.fpc-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.fpc-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.fpc-legend-label {
+  white-space: nowrap;
+}
+
+.fpc-legend-hint {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ??? Canvas responsive ????????????????????????????????????????????????????? */
+
+@media (max-width: 992px) {
+  .fpc-canvas {
+    min-width: 600px;
+    padding: 1rem;
+    background-size: 25px 25px;
+  }
+  .fp-edit-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .fp-edit-toolbar-left {
+    justify-content: center;
+  }
+  .fp-edit-toolbar-right {
+    justify-content: center;
+  }
+  .fpc-legend {
+    gap: 0.75rem;
+  }
+  .fpc-legend-hint {
+    margin-left: 0;
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .fpc-canvas {
+    min-width: 500px;
+    padding: 0.75rem;
+    background-size: 20px 20px;
+  }
+  .fp-edit-btn {
+    font-size: 0.75rem;
+    padding: 0.375rem 0.625rem;
+  }
+  .fp-edit-toolbar {
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+  }
+  .fp-edit-badge-active {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .fpc-canvas {
+    min-width: 400px;
+    padding: 0.5rem;
+    background-size: 15px 15px;
+  }
+  .fpc-legend {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.375rem;
+  }
+}
+
 /* ???????????????????????????????????????????????????????????????????????????
-   FLOOR PLAN ? Responsive
+   FLOOR PLAN ? Responsive (existing)
    ??????????????????????????????????????????????????????????????????????????? */
 
 @media (max-width: 1200px) {
@@ -5757,7 +6293,7 @@ a {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, var(--login-bg-start, #0f172a) 0%, var(--login-bg-end, #1e293b) 100%);
+  background: linear-gradient(135deg, var(--public-bg-start) 0%, var(--public-bg-end) 100%);
 }
 
 .public-page {
@@ -5913,6 +6449,51 @@ a {
   margin: 0;
 }
 
+/* ??? Success detail card ??? */
+
+.public-success-detail-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
+
+.public-success-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.625rem 1rem;
+  gap: 0.75rem;
+}
+
+.public-success-detail-row + .public-success-detail-row {
+  border-top: 1px solid var(--border);
+}
+
+.public-success-detail-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.public-success-detail-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-word;
+}
+
+.public-success-btn {
+  max-width: 280px;
+}
+
 /* ??? Restaurant Header ??? */
 
 .public-header {
@@ -5949,7 +6530,7 @@ a {
 .public-header-title {
   font-size: 1.375rem;
   font-weight: 700;
-  color: var(--text-inverse);
+  color: var(--text-primary);
   margin: 0;
   letter-spacing: -0.02em;
   line-height: 1.3;
@@ -5957,16 +6538,42 @@ a {
 
 .public-header-subtitle {
   font-size: 0.9375rem;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-secondary);
   margin: 0;
+}
+
+.public-header-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0.875rem auto 0;
+  max-width: 400px;
+}
+
+.public-header-info-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.public-header-info-item svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .public-header-desc {
   font-size: 0.8125rem;
-  color: rgba(255, 255, 255, 0.5);
-  margin: 0.75rem auto 0;
+  color: var(--text-muted);
+  margin: 0.875rem auto 0;
   max-width: 400px;
   line-height: 1.5;
+  text-align: center;
 }
 
 /* ??? Form Card ??? */
@@ -6165,18 +6772,18 @@ a {
 
 .public-footer p {
   font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-muted);
   margin: 0;
 }
 
 .public-footer-link {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-secondary);
   text-decoration: none;
   transition: color 0.15s ease;
 }
 
 .public-footer-link:hover {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-primary);
   text-decoration: underline;
 }
 
@@ -6204,6 +6811,17 @@ a {
     font-size: 1.125rem;
   }
 
+  /* Inputs más grandes y cómodos para móvil */
+  .public-input {
+    padding: 0.6875rem 0.875rem;
+    font-size: 1rem;
+  }
+
+  .public-submit-btn {
+    padding: 0.8125rem 1.5rem;
+    font-size: 1rem;
+  }
+
   .public-success-title {
     font-size: 1.125rem;
   }
@@ -6216,6 +6834,10 @@ a {
   .public-success-icon svg {
     width: 26px;
     height: 26px;
+  }
+
+  .public-success-detail-row {
+    padding: 0.75rem 1rem;
   }
 }
 
@@ -6323,53 +6945,123 @@ a {
   background: var(--primary-light);
 }
 
-/* ??? QR Placeholder ??? */
+/* ??? QR List (per restaurant) ??? */
 
-.online-reservation-qr {
+.online-reservation-qr-list {
   display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  padding: 1rem 1.25rem;
-  background: var(--bg-body);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 
-.online-reservation-qr-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--radius-md);
-  background: var(--primary-light);
-  color: var(--primary);
+.online-reservation-qr-item {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 1rem;
+  background: var(--bg-body);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s ease;
+}
+
+.online-reservation-qr-item:hover {
+  border-color: var(--primary-ring);
+}
+
+.online-reservation-qr-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.online-reservation-qr-item-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.online-reservation-qr-item-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.online-reservation-qr-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   flex-shrink: 0;
 }
 
-.online-reservation-qr-icon svg {
-  width: 20px;
-  height: 20px;
+.online-reservation-btn-qr-view:hover,
+.online-reservation-btn-qr-download:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
 }
 
-.online-reservation-qr-text {
-  flex: 1;
-  min-width: 0;
+.online-reservation-btn-qr-download:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
-.online-reservation-qr-text strong {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 600;
+.online-reservation-btn-qr-download:disabled:hover {
+  border-color: var(--border);
   color: var(--text-primary);
-  margin-bottom: 0.125rem;
+  background: var(--bg-card);
 }
 
-.online-reservation-qr-text p {
+/* ??? QR Modal buttons ??? */
+
+.qr-modal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
   font-size: 0.8125rem;
-  color: var(--text-muted);
-  margin: 0;
-  line-height: 1.5;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.qr-modal-btn svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.qr-modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qr-modal-btn-copy:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.qr-modal-btn-download:hover {
+  border-color: var(--success);
+  color: var(--success);
+  background: var(--success-light);
+}
+
+.qr-modal-btn-open:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
 }
 
 /* ??? Responsive ??? */
@@ -6393,10 +7085,29 @@ a {
   .online-reservation-link {
     font-size: 0.6875rem;
   }
+
+  .online-reservation-qr-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.625rem;
+  }
+
+  .online-reservation-qr-item-actions {
+    width: 100%;
+  }
+
+  .online-reservation-qr-item-actions .online-reservation-btn {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 @media (max-width: 480px) {
   .online-reservation-actions {
+    flex-direction: column;
+  }
+
+  .online-reservation-qr-item-actions {
     flex-direction: column;
   }
 }
@@ -6618,6 +7329,274 @@ a {
 .exec-pending-banner:hover .exec-pending-banner-action {
   background: rgba(245, 158, 11, 0.15);
 }
+
+/* ???????????????????????????????????????????????????????????????????????????
+   CRM — Customer Detail Modal (lightweight CRM)
+   Tabla de clientes profesional, detalle con historial de reservas.
+   ??????????????????????????????????????????????????????????????????????????? */
+
+/* Customer name in table */
+.crm-customer-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.crm-customer-contact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 200px;
+  line-height: 1.3;
+  margin-top: 0.125rem;
+}
+
+.crm-customer-contact svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+/* Restaurant badges in table */
+.crm-restaurants-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.crm-restaurant-badge {
+  display: inline-block;
+  padding: 0.125rem 0.4375rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Last reservation column */
+.crm-last-reservation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  line-height: 1.3;
+}
+
+.crm-last-date {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+
+.crm-last-time {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* View (eye) icon button */
+.app-table .btn-icon.btn-view:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+  border-color: var(--primary-light);
+}
+
+/* Activate (reactivate) icon button */
+.app-table .btn-icon.btn-activate:hover {
+  color: var(--success);
+  background: var(--success-light);
+  border-color: var(--success-light);
+}
+
+/* ─── Detail Modal ───────────────────────────────────────────────────────── */
+
+.crm-detail-section {
+  margin-bottom: 1.5rem;
+}
+
+.crm-detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.crm-detail-section-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.75rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.crm-detail-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* Detail info grid */
+.crm-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+@media (max-width: 575.98px) {
+  .crm-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.crm-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
+.crm-detail-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.crm-detail-value {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* Notes box */
+.crm-detail-notes-box {
+  padding: 0.75rem 1rem;
+  background: var(--bg-body);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* Stats row */
+.crm-detail-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.crm-detail-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-body);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 100px;
+  flex: 1;
+}
+
+.crm-detail-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.crm-detail-stat-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+/* History table */
+.crm-history-table-wrapper {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.crm-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.crm-history-table thead th {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--bg-body);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.crm-history-table tbody td {
+  padding: 0.5rem 0.75rem;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
+  white-space: nowrap;
+}
+
+.crm-history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.crm-history-table tbody tr:hover {
+  background: var(--hover-color);
+}
+
+.crm-history-table .badge-status {
+  font-size: 0.625rem;
+  padding: 0.125rem 0.4375rem;
+}
+
+@media (max-width: 575.98px) {
+  .crm-history-table thead th,
+  .crm-history-table tbody td {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
+  }
+}
+
+/* ─── Customers page responsive tweaks ──────────────────────────────────── */
+@media (max-width: 767.98px) {
+  .crm-customer-contact {
+    max-width: 140px;
+  }
+
+  .crm-restaurant-badge {
+    max-width: 90px;
+  }
+}
+
+/* ─── Fin CRM styles ───────────────────────────────────────────────────── */
 
 @media (max-width: 767.98px) {
   .exec-pending-banner {

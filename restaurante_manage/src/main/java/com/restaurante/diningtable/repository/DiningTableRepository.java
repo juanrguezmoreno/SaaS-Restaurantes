@@ -25,4 +25,8 @@ public interface DiningTableRepository extends JpaRepository<DiningTable, Long> 
     List<DiningTable> findByRestaurantIdInAndDeletedFalse(Set<Long> restaurantIds);
 
     long countByRestaurantIdInAndDeletedFalse(Set<Long> restaurantIds);
+
+    List<DiningTable> findByRestaurantIdAndIdInAndDeletedFalse(Long restaurantId, List<Long> ids);
+
+    List<DiningTable> findByRestaurantIdAndIdInAndDeletedFalse(Long restaurantId, Set<Long> ids);
 }

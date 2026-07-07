@@ -1,9 +1,14 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getRestaurants } from '../services/restaurantService';
-import { getTablesByRestaurant, updateTableStatus } from '../services/tableService';
+import {
+  getTablesByRestaurant,
+  updateTableStatus,
+  updateTablesLayout,
+} from '../services/tableService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
+import FloorPlanCanvas from '../components/FloorPlanCanvas';
 
 // ─── Mapa de estados de mesa ────────────────────────────────────────────────
 const TABLE_STATUS = {
@@ -45,6 +50,17 @@ const FloorPlan = () => {
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsedZones, setCollapsedZones] = useState(() => new Set());
+
+  // ── Estados del plano interactivo ─────────────────────────────────────────
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [savingLayout, setSavingLayout] = useState(false);
+  const [layoutDirty, setLayoutDirty] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
+  const [toastType, setToastType] = useState('success');
+  const toastTimer = useRef(null);
+
+  // Al entrar en edición, guardamos las posiciones originales para poder cancelar
+  const originalPositionsRef = useRef({});
 
   // ── Cargar restaurantes al montar y auto-seleccionar el primero ─────────
   useEffect(() => {
@@ -225,6 +241,147 @@ const FloorPlan = () => {
     });
   }, []);
 
+  // ── Refs y estados para el plano interactivo ──────────────────────────────
+  const canvasSaveRef = useRef(null);
+  const [layoutResetKey, setLayoutResetKey] = useState(0);
+
+  /**
+   * Muestra un toast temporal con auto-dismiss.
+   */
+  const showToast = useCallback((message, type = 'success') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastMessage(message);
+    setToastType(type);
+    toastTimer.current = setTimeout(() => {
+      setToastMessage(null);
+      toastTimer.current = null;
+    }, 4000);
+  }, []);
+
+  /**
+   * Callback de FloorPlanCanvas cuando se arrastra una mesa.
+   */
+  // eslint-disable-next-line no-unused-vars
+  const handleTableDragEnd = useCallback((tableId, x, y) => {
+    setLayoutDirty(true);
+  }, []);
+
+  /**
+   * Callback de FloorPlanCanvas cuando se hace clic en una mesa (en modo vista).
+   */
+  const handleCanvasTableClick = useCallback((table) => {
+    setSelectedTable(table);
+  }, []);
+
+  /**
+   * Inicia el modo edición: guarda las posiciones actuales como referencia
+   * para poder cancelar cambios.
+   */
+  const handleStartEditMode = useCallback(() => {
+    const positions = {};
+    tables.forEach((table, index) => {
+      const hasPos =
+        table.xPosition !== null &&
+        table.xPosition !== undefined &&
+        table.yPosition !== null &&
+        table.yPosition !== undefined;
+      if (hasPos) {
+        positions[table.id] = { x: table.xPosition, y: table.yPosition };
+      } else {
+        // Auto-layout para mesas sin posición
+        const cols = 5;
+        const marginX = 140;
+        const marginY = 130;
+        const startX = 50;
+        const startY = 50;
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        positions[table.id] = {
+          x: startX + col * marginX,
+          y: startY + row * marginY,
+        };
+      }
+    });
+    originalPositionsRef.current = positions;
+    setLayoutDirty(false);
+    setIsEditMode(true);
+  }, [tables]);
+
+  /**
+   * Sale del modo edición sin guardar. Recarga las posiciones del servidor.
+   */
+  const handleCancelEdit = useCallback(() => {
+    setIsEditMode(false);
+    setLayoutDirty(false);
+    const loadOriginal = async () => {
+      if (!selectedRestaurantId) return;
+      try {
+        const data = await getTablesByRestaurant(Number(selectedRestaurantId));
+        const tableList = Array.isArray(data) ? data : [];
+        setTables(tableList);
+      } catch {
+        window.location.reload();
+      }
+    };
+    loadOriginal();
+  }, [selectedRestaurantId]);
+
+  /**
+   * Resetea las posiciones a auto-layout forzando remontaje del canvas.
+   */
+  const handleResetLayout = useCallback(() => {
+    setLayoutDirty(true);
+    setLayoutResetKey((prev) => prev + 1);
+    showToast('Posiciones restablecidas a la cuadrícula automática', 'success');
+  }, [showToast]);
+
+  /**
+   * Guarda el layout completo en el backend.
+   * Solo muestra éxito si el backend responde 200/201/204.
+   * Si hay cualquier error (incluyendo 404), muestra mensaje de error
+   * y mantiene el modo edición para no perder los cambios locales.
+   */
+  const handleSaveLayout = useCallback(async () => {
+    if (!selectedRestaurantId || !layoutDirty) return;
+    setSavingLayout(true);
+    try {
+      if (canvasSaveRef.current) {
+        const positions = canvasSaveRef.current.getPositions();
+        if (positions && positions.length > 0) {
+          console.log('[FloorPlan] Sending layout to backend:', {
+            restaurantId: Number(selectedRestaurantId),
+            tableCount: positions.length,
+            firstTable: positions[0],
+          });
+          await updateTablesLayout(Number(selectedRestaurantId), positions);
+          // Si llegamos aquí, el backend respondió 200 OK o 204 No Content
+          console.log('[FloorPlan] Layout saved successfully via backend API');
+          showToast('Plano guardado correctamente', 'success');
+          setLayoutDirty(false);
+          setIsEditMode(false);
+          // Recargar mesas para tener las posiciones confirmadas del servidor
+          const data = await getTablesByRestaurant(Number(selectedRestaurantId));
+          const tableList = Array.isArray(data) ? data : [];
+          setTables(tableList);
+        } else {
+          showToast('No hay cambios para guardar', 'info');
+        }
+      } else {
+        showToast('Error al obtener las posiciones del plano', 'error');
+      }
+    } catch (err) {
+      // Error real del backend (404, 403, 500, etc.) — no mostrar éxito
+      console.error('[FloorPlan] Error saving layout:', err);
+      showToast(
+        err?.message || 'Error al guardar el plano. Intenta de nuevo.',
+        'error'
+      );
+      // Mantener modo edición — el usuario puede corregir o cancelar
+    } finally {
+      setSavingLayout(false);
+    }
+  }, [selectedRestaurantId, layoutDirty, showToast]);
+
   // ── Render: Card en vista visual (SVG) ──────────────────────────────────
   const renderVisualCard = (table) => {
     const statusInfo = getStatusInfo(table.status);
@@ -372,7 +529,9 @@ const FloorPlan = () => {
         <div>
           <h1>Plano del Restaurante</h1>
           <p className="fp-header-subtitle">
-            Vista {viewMode === 'compact' ? 'compacta' : 'visual'} de las mesas agrupadas por ubicación
+            {viewMode === 'interactive'
+              ? 'Plano interactivo con mesas posicionadas en el espacio del restaurante'
+              : `Vista ${viewMode === 'compact' ? 'compacta' : 'visual'} de las mesas agrupadas por ubicación`}
           </p>
         </div>
       </div>
@@ -406,7 +565,7 @@ const FloorPlan = () => {
             <div className="fp-view-toggle" role="group" aria-label="Cambiar vista">
               <button
                 className={`fp-view-toggle-btn ${viewMode === 'visual' ? 'active' : ''}`}
-                onClick={() => setViewMode('visual')}
+                onClick={() => { setViewMode('visual'); setIsEditMode(false); }}
                 type="button"
                 title="Vista visual con SVG de mesas"
               >
@@ -420,7 +579,7 @@ const FloorPlan = () => {
               </button>
               <button
                 className={`fp-view-toggle-btn ${viewMode === 'compact' ? 'active' : ''}`}
-                onClick={() => setViewMode('compact')}
+                onClick={() => { setViewMode('compact'); setIsEditMode(false); }}
                 type="button"
                 title="Vista compacta para muchas mesas"
               >
@@ -433,6 +592,21 @@ const FloorPlan = () => {
                   <line x1="3" y1="18" x2="3.01" y2="18" />
                 </svg>
                 Compacta
+              </button>
+              <button
+                className={`fp-view-toggle-btn ${viewMode === 'interactive' ? 'active' : ''}`}
+                onClick={() => setViewMode('interactive')}
+                type="button"
+                title="Plano interactivo con mesas posicionadas"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="8" cy="8" r="2" />
+                  <circle cx="16" cy="8" r="2" />
+                  <circle cx="8" cy="16" r="2" />
+                  <circle cx="16" cy="16" r="2" />
+                </svg>
+                Plano
               </button>
             </div>
           )}
@@ -535,6 +709,118 @@ const FloorPlan = () => {
         )}
       </div>
 
+      {/* ═══ Toast de notificación ════════════════════════════════════════ */}
+      {toastMessage && (
+        <div className={`fp-toast fp-toast-${toastType}`} role="alert">
+          {toastType === 'success' && (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          )}
+          {toastType === 'error' && (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+          )}
+          {toastType === 'info' && (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          )}
+          <span>{toastMessage}</span>
+          <button className="fp-toast-close" onClick={() => setToastMessage(null)} type="button" aria-label="Cerrar notificación">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+      )}
+
+      {/* ═══ Edit mode toolbar (solo en modo interactivo) ════════════════ */}
+      {viewMode === 'interactive' && tables.length > 0 && (
+        <div className="fp-edit-toolbar">
+          <div className="fp-edit-toolbar-left">
+            {canAccess(user, PERMISSIONS.MANAGE_FLOOR_PLAN) && (
+              <>
+                {!isEditMode ? (
+                  <button
+                    className="fp-edit-btn fp-edit-btn-primary"
+                    onClick={handleStartEditMode}
+                    type="button"
+                    title="Activar modo edición para mover mesas"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    Modo edición
+                  </button>
+                ) : (
+                  <>
+                    <span className="fp-edit-badge-active">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                      Editando plano
+                    </span>
+                    <button
+                      className="fp-edit-btn fp-edit-btn-save"
+                      onClick={handleSaveLayout}
+                      disabled={savingLayout || !layoutDirty}
+                      type="button"
+                      title="Guardar posiciones actuales"
+                    >
+                      {savingLayout ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                          <polyline points="17 21 17 13 7 13 7 21" />
+                          <polyline points="7 3 7 8 15 8" />
+                        </svg>
+                      )}
+                      Guardar plano
+                    </button>
+                    <button
+                      className="fp-edit-btn fp-edit-btn-cancel"
+                      onClick={handleCancelEdit}
+                      disabled={savingLayout}
+                      type="button"
+                      title="Cancelar cambios"
+                    >
+                      Cancelar cambios
+                    </button>
+                    <button
+                      className="fp-edit-btn fp-edit-btn-reset"
+                      onClick={handleResetLayout}
+                      disabled={savingLayout}
+                      type="button"
+                      title="Restablecer posiciones automáticas"
+                    >
+                      Resetear plano
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+          <div className="fp-edit-toolbar-right">
+            {!isEditMode && (
+              <span className="fp-edit-mode-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                Modo operativo — haz clic en una mesa para ver información
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ═══ Alertas ════════════════════════════════════════════════════ */}
       {error && (
         <div className="fp-alert fp-alert-error" role="alert">
@@ -631,8 +917,24 @@ const FloorPlan = () => {
         </div>
       )}
 
-      {/* ═══ Plano por zonas ════════════════════════════════════════════ */}
-      {!loadingRestaurants && !loading && filteredTables.length > 0 && (
+      {/* ═══ Plano interactivo (modo canvas) ════════════════════════════ */}
+      {!loadingRestaurants && !loading && filteredTables.length > 0 && viewMode === 'interactive' && (
+        <div className="fp-canvas-container">
+          <FloorPlanCanvas
+            key={`canvas-${selectedRestaurantId}-${layoutResetKey}`}
+            ref={canvasSaveRef}
+            tables={filteredTables}
+            editMode={isEditMode}
+            selectedTableId={selectedTable?.id}
+            onTableClick={handleCanvasTableClick}
+            onTableDragEnd={handleTableDragEnd}
+            saving={savingLayout}
+          />
+        </div>
+      )}
+
+      {/* ═══ Plano por zonas (vista visual/compacta) ════════════════════ */}
+      {!loadingRestaurants && !loading && filteredTables.length > 0 && viewMode !== 'interactive' && (
         <div className="fp-plan">
           {groupedTables.map(renderZone)}
         </div>

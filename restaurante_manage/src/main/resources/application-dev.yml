@@ -20,6 +20,11 @@ spring:
         dialect: org.hibernate.dialect.H2Dialect
     defer-datasource-initialization: true
 
+  # Flyway se desactiva en dev: las migraciones son SQL de MySQL y el perfil dev
+  # usa H2 con create-drop + data.sql (roles y datos de demostración).
+  flyway:
+    enabled: false
+
   sql:
     init:
       mode: always

@@ -20,6 +20,7 @@ const RESERVATION_STATUSES = [
   { value: 'CONFIRMED', label: 'Confirmada' },
   { value: 'CANCELLED', label: 'Cancelada' },
   { value: 'COMPLETED', label: 'Completada' },
+  { value: 'NO_SHOW', label: 'No presentado' },
 ];
 
 const STATUS_MAP = Object.fromEntries(
@@ -373,7 +374,7 @@ const Reservations = () => {
     return (
       <div className="d-flex justify-content-end gap-1">
         {/* Menú de cambio de estado */}
-        {r?.status && r.status !== 'CANCELLED' && r.status !== 'COMPLETED' && (
+        {r?.status && r.status !== 'CANCELLED' && r.status !== 'COMPLETED' && r.status !== 'NO_SHOW' && (
           <div className="dropdown d-inline-block">
             <button
               className="btn-icon"
@@ -823,10 +824,28 @@ const Reservations = () => {
     if (reservation.status === newStatus) return;
 
     try {
-      await updateReservationStatus(reservation.id, newStatus);
-      setSuccessMessage(`Estado actualizado a "${
-        STATUS_MAP[newStatus]?.label || newStatus
-      }".`);
+      const updated = await updateReservationStatus(reservation.id, newStatus);
+
+      if (newStatus === 'CONFIRMED') {
+        // Verificar si el backend indica que el cliente no tiene email
+        const hasEmail = !(
+          updated?.customerEmail === null ||
+          updated?.customerEmail === undefined ||
+          updated?.customerEmail === '' ||
+          updated?.emailSent === false ||
+          updated?.notificationSent === false
+        );
+        setSuccessMessage(
+          hasEmail
+            ? 'Reserva confirmada. El cliente será notificado.'
+            : 'Reserva confirmada, pero el cliente no tiene email registrado.'
+        );
+      } else if (newStatus === 'CANCELLED') {
+        setSuccessMessage('Reserva rechazada. El cliente será notificado.');
+      } else {
+        setSuccessMessage(`Estado actualizado a "${STATUS_MAP[newStatus]?.label || newStatus}".`);
+      }
+
       await fetchReservations();
     } catch (err) {
       setError(getErrorMessage(err));

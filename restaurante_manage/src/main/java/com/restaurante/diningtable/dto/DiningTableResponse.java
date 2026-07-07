@@ -11,6 +11,15 @@ public class DiningTableResponse {
     private Integer capacity;
     private String location;
     private String status;
+
+    // ─── Campos de layout visual (plano de sala) ─────────────────────────
+    private Integer xPosition;
+    private Integer yPosition;
+    private Integer width;
+    private Integer height;
+    private String shape;
+    private Integer rotation;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -19,7 +28,11 @@ public class DiningTableResponse {
 
     public DiningTableResponse(Long id, Long restaurantId, String restaurantName,
                                String tableNumber, Integer capacity, String location,
-                               String status, LocalDateTime createdAt, LocalDateTime updatedAt) {
+                               String status,
+                               Integer xPosition, Integer yPosition,
+                               Integer width, Integer height,
+                               String shape, Integer rotation,
+                               LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.restaurantId = restaurantId;
         this.restaurantName = restaurantName;
@@ -27,6 +40,12 @@ public class DiningTableResponse {
         this.capacity = capacity;
         this.location = location;
         this.status = status;
+        this.xPosition = xPosition;
+        this.yPosition = yPosition;
+        this.width = width;
+        this.height = height;
+        this.shape = shape;
+        this.rotation = rotation;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -103,6 +122,54 @@ public class DiningTableResponse {
         this.updatedAt = updatedAt;
     }
 
+    public Integer getXPosition() {
+        return xPosition;
+    }
+
+    public void setXPosition(Integer xPosition) {
+        this.xPosition = xPosition;
+    }
+
+    public Integer getYPosition() {
+        return yPosition;
+    }
+
+    public void setYPosition(Integer yPosition) {
+        this.yPosition = yPosition;
+    }
+
+    public Integer getWidth() {
+        return width;
+    }
+
+    public void setWidth(Integer width) {
+        this.width = width;
+    }
+
+    public Integer getHeight() {
+        return height;
+    }
+
+    public void setHeight(Integer height) {
+        this.height = height;
+    }
+
+    public String getShape() {
+        return shape;
+    }
+
+    public void setShape(String shape) {
+        this.shape = shape;
+    }
+
+    public Integer getRotation() {
+        return rotation;
+    }
+
+    public void setRotation(Integer rotation) {
+        this.rotation = rotation;
+    }
+
     public static DiningTableResponseBuilder builder() {
         return new DiningTableResponseBuilder();
     }
@@ -115,6 +182,12 @@ public class DiningTableResponse {
         private Integer capacity;
         private String location;
         private String status;
+        private Integer xPosition;
+        private Integer yPosition;
+        private Integer width;
+        private Integer height;
+        private String shape;
+        private Integer rotation;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
 
@@ -156,6 +229,36 @@ public class DiningTableResponse {
             return this;
         }
 
+        public DiningTableResponseBuilder xPosition(Integer xPosition) {
+            this.xPosition = xPosition;
+            return this;
+        }
+
+        public DiningTableResponseBuilder yPosition(Integer yPosition) {
+            this.yPosition = yPosition;
+            return this;
+        }
+
+        public DiningTableResponseBuilder width(Integer width) {
+            this.width = width;
+            return this;
+        }
+
+        public DiningTableResponseBuilder height(Integer height) {
+            this.height = height;
+            return this;
+        }
+
+        public DiningTableResponseBuilder shape(String shape) {
+            this.shape = shape;
+            return this;
+        }
+
+        public DiningTableResponseBuilder rotation(Integer rotation) {
+            this.rotation = rotation;
+            return this;
+        }
+
         public DiningTableResponseBuilder createdAt(LocalDateTime createdAt) {
             this.createdAt = createdAt;
             return this;
@@ -168,7 +271,9 @@ public class DiningTableResponse {
 
         public DiningTableResponse build() {
             return new DiningTableResponse(id, restaurantId, restaurantName,
-                    tableNumber, capacity, location, status, createdAt, updatedAt);
+                    tableNumber, capacity, location, status,
+                    xPosition, yPosition, width, height, shape, rotation,
+                    createdAt, updatedAt);
         }
     }
 }

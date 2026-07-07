@@ -4,44 +4,27 @@ const RESOURCE = '/customers';
 
 /**
  * Extrae el array de datos de la respuesta del backend.
- * Soporta múltiples formatos:
- *   - Array directo:  [...]
- *   - Paginado:       { content: [...] }
- *   - Envoltorio:     { success: true, data: [...] }
- *   - Anidado:        { data: { content: [...] } }
- *   - Fallback:       body (si es array) o []
+ * Soporta múltiples formatos habituales en la API.
  */
 const extractData = (response) => {
-  if (!response || !response.data) {
-    return [];
-  }
+  if (!response || !response.data) return [];
 
   const body = response.data;
 
   // Array directo
-  if (Array.isArray(body)) {
-    return body;
-  }
+  if (Array.isArray(body)) return body;
 
   // Paginación de Spring Boot: { content: [...] }
-  if (body && Array.isArray(body.content)) {
-    return body.content;
-  }
+  if (body && Array.isArray(body.content)) return body.content;
 
   // Envoltorio con success: { success: true, data: [...] }
-  if (body && body.success && Array.isArray(body.data)) {
-    return body.data;
-  }
+  if (body && body.success && Array.isArray(body.data)) return body.data;
 
   // Envoltorio simple: { data: [...] }
-  if (body && Array.isArray(body.data)) {
-    return body.data;
-  }
+  if (body && Array.isArray(body.data)) return body.data;
 
-  // Envoltorio anidado: { data: { content: [...] } }
-  if (body && body.data && Array.isArray(body.data.content)) {
-    return body.data.content;
-  }
+  // Anidado: { data: { content: [...] } }
+  if (body && body.data && Array.isArray(body.data.content)) return body.data.content;
 
   // data.data o data.body
   if (body && body.data) {
@@ -50,6 +33,18 @@ const extractData = (response) => {
   }
 
   return [];
+};
+
+/**
+ * Extrae un objeto individual de la respuesta.
+ */
+const extractItem = (response) => {
+  if (!response || !response.data) return null;
+  const body = response.data;
+  if (body && (body.id !== undefined || body.fullName || body.firstName)) return body;
+  if (body && body.success && body.data) return body.data;
+  if (body && body.data) return body.data;
+  return body;
 };
 
 /**
@@ -66,11 +61,25 @@ const handleError = (error) => {
 };
 
 /**
- * Obtiene todos los clientes.
+ * Obtiene la lista de clientes visibles para el usuario actual.
+ * Soporta filtros opcionales: search, restaurantId, active.
+ *
+ * @param {object} [params]
+ * @param {string} [params.search]     - Búsqueda por nombre, email o teléfono
+ * @param {number} [params.restaurantId] - Filtrar por restaurante
+ * @param {boolean|string} [params.active] - Filtrar por estado activo/inactivo
  */
-export const getCustomers = async () => {
+export const getCustomers = async (params = {}) => {
   try {
-    const response = await api.get(RESOURCE);
+    const queryParams = new URLSearchParams();
+    if (params.search) queryParams.append('search', params.search);
+    if (params.restaurantId) queryParams.append('restaurantId', params.restaurantId);
+    if (params.active !== undefined && params.active !== '' && params.active !== null) {
+      queryParams.append('active', params.active);
+    }
+    const query = queryParams.toString();
+    const url = query ? `${RESOURCE}?${query}` : RESOURCE;
+    const response = await api.get(url);
     return extractData(response);
   } catch (error) {
     throw handleError(error);
@@ -78,27 +87,29 @@ export const getCustomers = async () => {
 };
 
 /**
- * Obtiene un cliente por su ID.
+ * Obtiene un cliente por su ID, incluyendo datos detallados
+ * y estadísticas básicas (totalReservations, confirmedReservations, etc.).
+ *
  * @param {number} id
  */
 export const getCustomerById = async (id) => {
-  const url = `${RESOURCE}/${id}`;
   try {
-    const response = await api.get(url);
-    const body = response.data;
+    const response = await api.get(`${RESOURCE}/${id}`);
+    return extractItem(response);
+  } catch (error) {
+    throw handleError(error);
+  }
+};
 
-    if (!body) return null;
-
-    // Si la respuesta es directamente el objeto cliente
-    if (body.id || body.firstName) return body;
-
-    // Si viene envuelto en { success, data }
-    if (body.success && body.data) return body.data;
-
-    // Si viene envuelto solo en { data }
-    if (body.data) return body.data;
-
-    return body;
+/**
+ * Obtiene el historial de reservas de un cliente específico.
+ *
+ * @param {number} id - ID del cliente
+ */
+export const getCustomerReservations = async (id) => {
+  try {
+    const response = await api.get(`${RESOURCE}/${id}/reservations`);
+    return extractData(response);
   } catch (error) {
     throw handleError(error);
   }
@@ -106,17 +117,13 @@ export const getCustomerById = async (id) => {
 
 /**
  * Crea un nuevo cliente.
- * @param {object} data - Datos del cliente
- * @returns {Promise<object>} - Objeto del cliente creado o null
+ *
+ * @param {object} data - { firstName?, lastName?, fullName?, email?, phone?, notes?, restaurantId? }
  */
 export const createCustomer = async (data) => {
   try {
     const response = await api.post(RESOURCE, data);
-    const body = response.data;
-    if (!body) return null;
-    if (body.success && body.data) return body.data;
-    if (body.data) return body.data;
-    return body;
+    return extractItem(response);
   } catch (error) {
     throw handleError(error);
   }
@@ -124,33 +131,29 @@ export const createCustomer = async (data) => {
 
 /**
  * Actualiza un cliente existente.
+ *
  * @param {number} id
- * @param {object} data - Datos actualizados
- * @returns {Promise<object>} - Objeto del cliente actualizado o null
+ * @param {object} data - Campos a actualizar
  */
 export const updateCustomer = async (id, data) => {
-  const url = `${RESOURCE}/${id}`;
   try {
-    const response = await api.put(url, data);
-    const body = response.data;
-    if (!body) return null;
-    if (body.success && body.data) return body.data;
-    if (body.data) return body.data;
-    return body;
+    const response = await api.put(`${RESOURCE}/${id}`, data);
+    return extractItem(response);
   } catch (error) {
     throw handleError(error);
   }
 };
 
 /**
- * Elimina un cliente por su ID.
+ * Activa o desactiva un cliente (toggle).
+ * No elimina físicamente al cliente.
+ *
  * @param {number} id
  */
-export const deleteCustomer = async (id) => {
-  const url = `${RESOURCE}/${id}`;
+export const toggleCustomerActive = async (id) => {
   try {
-    const response = await api.delete(url);
-    return response.data;
+    const response = await api.patch(`${RESOURCE}/${id}/active`);
+    return extractItem(response);
   } catch (error) {
     throw handleError(error);
   }

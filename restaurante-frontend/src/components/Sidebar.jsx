@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { canAccess, SIDEBAR_PERMISSIONS, ROLE_LABELS } from '../config/permissions';
+import { canAccess, SIDEBAR_PERMISSIONS, ROLE_LABELS, normalizeRole } from '../config/permissions';
 
 // ─── SVG icons para cada ruta ──────────────────────────────────────────────
 const icons = {
@@ -205,7 +205,7 @@ const Sidebar = ({ show, onClose }) => {
                 {user.email && (
                   <span className="sidebar-user-email">{user.email}</span>
                 )}
-                <span className="sidebar-user-role">{ROLE_LABELS[user.role] || user.role}</span>
+                <span className="sidebar-user-role">{ROLE_LABELS[normalizeRole(user.role)] || user.role}</span>
               </div>
             </div>
           </div>

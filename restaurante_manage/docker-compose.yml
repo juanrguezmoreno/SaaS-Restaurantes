@@ -9,7 +9,8 @@ services:
     environment:
       - DB_USERNAME=root
       - DB_PASSWORD=root
-      - JWT_SECRET=MySuperSecretKeyForJWTTokenGenerationMustBeAtLeast256BitsLongForHS256Algorithm!!
+      # Define JWT_SECRET en tu entorno o en un archivo .env (no committeado)
+      - JWT_SECRET=${JWT_SECRET:?Define JWT_SECRET en el entorno o en un archivo .env}
       - JWT_EXPIRATION_MS=86400000
       - SPRING_PROFILES_ACTIVE=dev
     depends_on:

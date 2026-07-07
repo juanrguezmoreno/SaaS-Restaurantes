@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# OpenCode agent files
+.opencode/
+AGENTS.md
+opencode.json
+agents/
+.cursor/
+.claude/
+.openai/

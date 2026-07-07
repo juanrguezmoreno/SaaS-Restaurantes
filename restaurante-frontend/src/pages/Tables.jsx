@@ -353,7 +353,7 @@ const Tables = () => {
             </select>
           </div>
 
-          {restaurantId && (
+          {restaurantId && canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
             <button
               className="btn btn-primary d-flex align-items-center gap-2"
               onClick={handleOpenCreate}
@@ -436,9 +436,11 @@ const Tables = () => {
             </div>
             <h5>No hay mesas registradas</h5>
             <p>Crea la primera mesa para empezar a gestionar tu restaurante.</p>
-            <button className="btn btn-primary" onClick={handleOpenCreate} type="button">
-              Crear Mesa
-            </button>
+            {canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
+              <button className="btn btn-primary" onClick={handleOpenCreate} type="button">
+                Crear Mesa
+              </button>
+            )}
           </div>
         </div>
       )}

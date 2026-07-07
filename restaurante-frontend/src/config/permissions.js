@@ -7,6 +7,7 @@
  * Roles del sistema.
  */
 export const ROLES = {
+  SUPER_ADMIN: 'SUPER_ADMIN',
   ADMIN: 'ADMIN',
   MANAGER: 'MANAGER',
   EMPLOYEE: 'EMPLOYEE',
@@ -16,8 +17,9 @@ export const ROLES = {
  * Etiquetas legibles para cada rol.
  */
 export const ROLE_LABELS = {
+  [ROLES.SUPER_ADMIN]: 'Superadministrador',
   [ROLES.ADMIN]: 'Administrador',
-  [ROLES.MANAGER]: 'Gerente',
+  [ROLES.MANAGER]: 'Encargado',
   [ROLES.EMPLOYEE]: 'Empleado',
 };
 
@@ -34,6 +36,7 @@ export const PERMISSIONS = {
   VIEW_RESERVATIONS: 'VIEW_RESERVATIONS',
   MANAGE_RESERVATIONS: 'MANAGE_RESERVATIONS',
   VIEW_FLOOR_PLAN: 'VIEW_FLOOR_PLAN',
+  MANAGE_FLOOR_PLAN: 'MANAGE_FLOOR_PLAN',
   VIEW_CUSTOMERS: 'VIEW_CUSTOMERS',
   MANAGE_CUSTOMERS: 'MANAGE_CUSTOMERS',
 
@@ -56,7 +59,11 @@ export const PERMISSIONS = {
  * MANAGER y EMPLOYEE tienen listas explícitas.
  */
 const ROLE_PERMISSIONS = {
-  [ROLES.ADMIN]: '*', // Comodín: todos los permisos
+  // SUPER_ADMIN tiene todos los permisos (comodín + lista explícita por seguridad)
+  [ROLES.SUPER_ADMIN]: '*',
+
+  // ADMIN tiene todos los permisos (comodín + lista explícita por seguridad)
+  [ROLES.ADMIN]: '*',
 
   [ROLES.MANAGER]: [
     PERMISSIONS.VIEW_DASHBOARD,
@@ -64,13 +71,18 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.VIEW_RESERVATIONS,
     PERMISSIONS.MANAGE_RESERVATIONS,
     PERMISSIONS.VIEW_FLOOR_PLAN,
+    PERMISSIONS.MANAGE_FLOOR_PLAN,
     PERMISSIONS.VIEW_CUSTOMERS,
     PERMISSIONS.MANAGE_CUSTOMERS,
     // Negocio
     PERMISSIONS.VIEW_ANALYTICS,
     PERMISSIONS.VIEW_NOTIFICATIONS,
-    // Admin — solo lectura de mesas
+    // Admin — Gestión completa de mesas (solo restaurantes asignados)
     PERMISSIONS.VIEW_TABLES,
+    PERMISSIONS.MANAGE_TABLES,
+    // Empleados — visión y gestión básica
+    PERMISSIONS.VIEW_EMPLOYEES,
+    PERMISSIONS.MANAGE_EMPLOYEES,
   ],
 
   [ROLES.EMPLOYEE]: [
@@ -81,6 +93,8 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.VIEW_CUSTOMERS,
   ],
 };
+
+
 
 /**
  * Rutas protegidas por permiso.
@@ -116,17 +130,39 @@ export const SIDEBAR_PERMISSIONS = {
 };
 
 /**
+ * Normaliza el nombre de un rol:
+ * - Spring Security suele devolver "ROLE_ADMIN" → lo pasa a "ADMIN"
+ * - También maneja mayúsculas/minúsculas
+ * @param {string} role
+ * @returns {string}
+ */
+export const normalizeRole = (role) => {
+  if (!role) return '';
+  // Quitar prefijo ROLE_ si existe
+  let normalized = role.startsWith('ROLE_') ? role.substring(5) : role;
+  // Asegurar mayúsculas
+  return normalized.toUpperCase();
+};
+
+/**
  * Verifica si un rol tiene un permiso específico.
- * @param {string} role - Rol del usuario (ADMIN, MANAGER, EMPLOYEE)
+ * @param {string} role - Rol del usuario (ADMIN, MANAGER, EMPLOYEE, SUPER_ADMIN)
  * @param {string} permission - Permiso a verificar
  * @returns {boolean}
  */
 export const hasPermission = (role, permission) => {
   if (!role || !permission) return false;
-  const permissions = ROLE_PERMISSIONS[role];
+
+  // Normalizar rol por si el backend devuelve "ROLE_ADMIN" en lugar de "ADMIN"
+  const normalizedRole = normalizeRole(role);
+  const permissions = ROLE_PERMISSIONS[normalizedRole];
+
   if (!permissions) return false;
-  // ADMIN tiene todos los permisos (comodín)
+
+  // Rol comodín (SUPER_ADMIN, ADMIN): tiene todos los permisos
   if (permissions === '*') return true;
+
+  // Lista explícita
   return permissions.includes(permission);
 };
 
@@ -138,8 +174,9 @@ export const hasPermission = (role, permission) => {
  */
 export const hasRole = (role, roles) => {
   if (!role || !roles) return false;
+  const normalizedRole = normalizeRole(role);
   const allowed = Array.isArray(roles) ? roles : [roles];
-  return allowed.includes(role);
+  return allowed.includes(normalizedRole);
 };
 
 /**
@@ -160,10 +197,10 @@ export const canAccess = (user, permission) => {
 const DENIED_MESSAGES = {
   [PERMISSIONS.VIEW_RESTAURANTS]: 'Esta zona está reservada para administradores.',
   [PERMISSIONS.MANAGE_RESTAURANTS]: 'Esta zona está reservada para administradores.',
-  [PERMISSIONS.VIEW_TABLES]: 'La gestión de mesas requiere permisos de administrador.',
-  [PERMISSIONS.MANAGE_TABLES]: 'La gestión de mesas requiere permisos de administrador.',
-  [PERMISSIONS.VIEW_EMPLOYEES]: 'La gestión de empleados requiere permisos de administrador.',
-  [PERMISSIONS.MANAGE_EMPLOYEES]: 'La gestión de empleados requiere permisos de administrador.',
+  [PERMISSIONS.VIEW_TABLES]: 'No tienes permiso para acceder a la gestión de mesas.',
+  [PERMISSIONS.MANAGE_TABLES]: 'No tienes permiso para gestionar mesas. Esta acción requiere permisos de administrador o encargado.',
+  [PERMISSIONS.VIEW_EMPLOYEES]: 'No tienes permisos para acceder a la gestión de empleados.',
+  [PERMISSIONS.MANAGE_EMPLOYEES]: 'No tienes permisos para gestionar empleados.',
   [PERMISSIONS.VIEW_ANALYTICS]: 'Esta sección está disponible para perfiles con permisos de negocio.',
   [PERMISSIONS.VIEW_NOTIFICATIONS]: 'Esta sección está disponible para perfiles con permisos de negocio.',
   [PERMISSIONS.VIEW_FLOOR_PLAN]: 'El plano de sala está disponible para perfiles operativos.',

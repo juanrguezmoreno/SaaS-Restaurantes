@@ -27,6 +27,8 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
 
     Optional<Customer> findByEmailAndDeletedFalse(String email);
 
+    Optional<Customer> findFirstByEmailAndRestaurantIdAndDeletedFalse(String email, Long restaurantId);
+
     Optional<Customer> findByUserIdAndDeletedFalse(Long userId);
 
     boolean existsByEmailAndDeletedFalse(String email);
