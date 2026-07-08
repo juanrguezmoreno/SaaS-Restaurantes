@@ -38,7 +38,7 @@
 - Consumes: `BaseEntity` (auditoría/soft delete), `Restaurant`.
 - Produces: entidad `FloorPlanElement` (getters/setters bean), `FloorPlanElementRepository.findByRestaurantIdAndDeletedFalse(Long)`, DTOs `FloorPlanElementRequest` (getId/getType/getXPosition/getYPosition/getWidth/getHeight/getRotation), `FloorPlanElementResponse` (mismos campos + restaurantId, `type` como String), `FloorPlanElementMapper.toResponse(FloorPlanElement)`, constante `Constants.FLOOR_PLAN_ELEMENTS_SUBPATH`.
 
-- [ ] **Step 1: Crear el enum `ElementType`**
+- [x] **Step 1: Crear el enum `ElementType`**
 
 ```java
 package com.restaurante.floorplan.enums;
@@ -52,7 +52,7 @@ public enum ElementType {
 }
 ```
 
-- [ ] **Step 2: Crear la entidad `FloorPlanElement`**
+- [x] **Step 2: Crear la entidad `FloorPlanElement`**
 
 ```java
 package com.restaurante.floorplan.entity;
@@ -166,7 +166,7 @@ public class FloorPlanElement extends BaseEntity {
 }
 ```
 
-- [ ] **Step 3: Crear el repositorio**
+- [x] **Step 3: Crear el repositorio**
 
 ```java
 package com.restaurante.floorplan.repository;
@@ -184,7 +184,7 @@ public interface FloorPlanElementRepository extends JpaRepository<FloorPlanEleme
 }
 ```
 
-- [ ] **Step 4: Crear los DTOs y el mapper**
+- [x] **Step 4: Crear los DTOs y el mapper**
 
 `FloorPlanElementRequest.java`:
 
@@ -386,7 +386,7 @@ public class FloorPlanElementMapper {
 }
 ```
 
-- [ ] **Step 5: Añadir la constante de ruta en `Constants.java`**
+- [x] **Step 5: Añadir la constante de ruta en `Constants.java`**
 
 Tras el bloque `// Tables` (línea ~24), añadir:
 
@@ -395,7 +395,7 @@ Tras el bloque `// Tables` (línea ~24), añadir:
     public static final String FLOOR_PLAN_ELEMENTS_SUBPATH = "/floor-plan/elements";
 ```
 
-- [ ] **Step 6: Crear la migración Flyway `V3__floor_plan_elements.sql`**
+- [x] **Step 6: Crear la migración Flyway `V3__floor_plan_elements.sql`**
 
 Prod usa Flyway + `ddl-auto: validate`, así que la tabla debe crearse por migración
 (mismas convenciones que `V1__baseline_schema.sql`: InnoDB, utf8mb4, enum de MySQL
@@ -425,12 +425,12 @@ CREATE TABLE `floor_plan_elements` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
-- [ ] **Step 7: Compilar**
+- [x] **Step 7: Compilar**
 
 Run: `mvn -q compile` (en `restaurante_manage/`)
 Expected: BUILD SUCCESS sin errores de compilación.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add restaurante_manage/src/main/java/com/restaurante/floorplan restaurante_manage/src/main/java/com/restaurante/common/util/Constants.java restaurante_manage/src/main/resources/db/migration/V3__floor_plan_elements.sql
@@ -449,7 +449,7 @@ git commit -m "feat(floorplan): modelo de elementos decorativos del plano de sal
 - Consumes: Task 1 (`FloorPlanElement`, `FloorPlanElementRepository`, DTOs, mapper), `CurrentUserService.canAccessRestaurant(Long)` / `getCurrentUsername()` / `getCurrentRoles()` / `getCurrentTenantId()` / `getAssignedRestaurantIds()`, `RestaurantRepository.findByIdAndDeletedFalse(Long)` y `findById(Long)`, excepciones `ResourceNotFoundException(String, String, Object)`, `BadRequestException(String)`, `AccessDeniedException(String)` de `com.restaurante.common.exception`.
 - Produces: `FloorPlanElementService.findByRestaurantId(Long) : List<FloorPlanElementResponse>` y `FloorPlanElementService.replaceElements(Long, List<FloorPlanElementRequest>) : List<FloorPlanElementResponse>`.
 
-- [ ] **Step 1: Escribir el test unitario (fallará al no existir el servicio)**
+- [x] **Step 1: Escribir el test unitario (fallará al no existir el servicio)**
 
 ```java
 package com.restaurante.floorplan.service;
@@ -645,12 +645,12 @@ class FloorPlanElementServiceTest {
 
 Nota: si la entidad `Restaurant` no tuviera constructor vacío + `setId`, adapta `setUp()` usando el constructor/builder que exista en `restaurant/entity/Restaurant.java` (comprueba el fichero); el resto del test no cambia.
 
-- [ ] **Step 2: Ejecutar el test y verificar que falla**
+- [x] **Step 2: Ejecutar el test y verificar que falla**
 
 Run: `mvn test -Dtest=FloorPlanElementServiceTest` (en `restaurante_manage/`)
 Expected: FALLA la compilación con "cannot find symbol: class FloorPlanElementService".
 
-- [ ] **Step 3: Implementar el servicio**
+- [x] **Step 3: Implementar el servicio**
 
 ```java
 package com.restaurante.floorplan.service;
@@ -809,12 +809,12 @@ public class FloorPlanElementService {
 }
 ```
 
-- [ ] **Step 4: Ejecutar los tests y verificar que pasan**
+- [x] **Step 4: Ejecutar los tests y verificar que pasan**
 
 Run: `mvn test -Dtest=FloorPlanElementServiceTest`
 Expected: PASS — `Tests run: 7, Failures: 0, Errors: 0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add restaurante_manage/src/main/java/com/restaurante/floorplan/service restaurante_manage/src/test/java/com/restaurante/floorplan
@@ -832,7 +832,7 @@ git commit -m "feat(floorplan): servicio de elementos del plano con reemplazo ba
 - Consumes: `FloorPlanElementService` (Task 2), `ApiResponse.success(...)` de `common/dto`, `Constants.RESTAURANTS_PATH` y `Constants.FLOOR_PLAN_ELEMENTS_SUBPATH` (Task 1).
 - Produces: `GET/PUT /api/v1/restaurants/{restaurantId}/floor-plan/elements` que consumirá `floorPlanService.js` (Task 4). Formato de respuesta: `{ success, message, data: [FloorPlanElementResponse] }`.
 
-- [ ] **Step 1: Crear el controlador**
+- [x] **Step 1: Crear el controlador**
 
 ```java
 package com.restaurante.floorplan.controller;
@@ -894,12 +894,12 @@ public class FloorPlanElementController {
 }
 ```
 
-- [ ] **Step 2: Compilar y correr toda la suite**
+- [x] **Step 2: Compilar y correr toda la suite**
 
 Run: `mvn test`
 Expected: BUILD SUCCESS (test de contexto + los 7 de Task 2 en verde).
 
-- [ ] **Step 3: Verificación manual con el perfil dev**
+- [x] **Step 3: Verificación manual con el perfil dev**
 
 Arrancar en una terminal (dejar corriendo): `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
 
@@ -939,7 +939,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/v1/restaurant
 
 Nota: si el restaurante 1 no existe en los datos demo, obtener un id válido con `GET /api/v1/restaurants` usando el mismo token. Ajustar el `"id":1` del paso 4 al id real devuelto en el paso 3. Parar el servidor al terminar.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add restaurante_manage/src/main/java/com/restaurante/floorplan/controller
@@ -957,7 +957,7 @@ git commit -m "feat(floorplan): endpoints GET/PUT de elementos del plano de sala
 - Consumes: cliente autenticado `api` de `src/api/axios.js`; endpoints de Task 3.
 - Produces: `getFloorPlanElements(restaurantId) : Promise<Array>` y `saveFloorPlanElements(restaurantId, elements) : Promise<Array>` donde cada elemento es `{ id?, type, xPosition, yPosition, width, height, rotation }`. Los consume Task 6.
 
-- [ ] **Step 1: Crear el servicio (mismo patrón que `tableService.js`)**
+- [x] **Step 1: Crear el servicio (mismo patrón que `tableService.js`)**
 
 ```js
 import api from '../api/axios';
@@ -1062,12 +1062,12 @@ export const saveFloorPlanElements = async (restaurantId, elements) => {
 };
 ```
 
-- [ ] **Step 2: Lint**
+- [x] **Step 2: Lint**
 
 Run: `pnpm lint` (en `restaurante-frontend/`)
 Expected: sin errores nuevos.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add restaurante-frontend/src/services/floorPlanService.js
@@ -1090,7 +1090,7 @@ git commit -m "feat(plano): servicio API de elementos del plano de sala"
   - **`getPositions()` desaparece** (sustituido por `getLayout()`).
   - Comportamiento: en modo edición, clic sin arrastre sobre mesa/elemento abre panel flotante (forma para mesas; rotar/eliminar para elementos); en modo vista, clic en mesa llama a `onTableClick` y los elementos son decorativos (sin eventos).
 
-- [ ] **Step 1: Reemplazar `FloorPlanCanvas.jsx` con este contenido completo**
+- [x] **Step 1: Reemplazar `FloorPlanCanvas.jsx` con este contenido completo**
 
 ```jsx
 import { useState, useRef, useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from 'react';
@@ -1799,7 +1799,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas(
 export default FloorPlanCanvas;
 ```
 
-- [ ] **Step 2: Añadir estilos al final de `restaurante-frontend/src/index.css`**
+- [x] **Step 2: Añadir estilos al final de `restaurante-frontend/src/index.css`**
 
 ```css
 /* ═══ Plano interactivo: elementos decorativos y panel de propiedades ═══ */
@@ -1909,12 +1909,12 @@ export default FloorPlanCanvas;
 }
 ```
 
-- [ ] **Step 3: Lint**
+- [x] **Step 3: Lint**
 
 Run: `pnpm lint`
 Expected: sin errores. (`FloorPlan.jsx` aún llama a `getPositions()`, que ya no existe — eso es runtime, no lint; se corrige en Task 6, por eso Task 5 y 6 deben ir en commits consecutivos sin probar la app entre medias.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add restaurante-frontend/src/components/FloorPlanCanvas.jsx restaurante-frontend/src/index.css
@@ -1932,7 +1932,7 @@ git commit -m "feat(plano): formas de mesa, elementos decorativos y panel de pro
 - Consumes: `getFloorPlanElements` / `saveFloorPlanElements` (Task 4); ref del canvas `getLayout()` / `addElement(type)` / `resetAutoLayout()` y props `elements` / `onLayoutChange` (Task 5).
 - Produces: página completa funcionando (es la hoja del árbol de dependencias).
 
-- [ ] **Step 1: Añadir import del servicio de elementos**
+- [x] **Step 1: Añadir import del servicio de elementos**
 
 Tras el import de `tableService` (línea ~9):
 
@@ -1943,7 +1943,7 @@ import {
 } from '../services/floorPlanService';
 ```
 
-- [ ] **Step 2: Añadir estado de elementos y clave de recarga del canvas**
+- [x] **Step 2: Añadir estado de elementos y clave de recarga del canvas**
 
 En el bloque «Estados de datos», tras `const [tables, setTables] = useState([]);`:
 
@@ -1959,7 +1959,7 @@ Reemplazar la línea `const [layoutResetKey, setLayoutResetKey] = useState(0);` 
   const [canvasReloadKey, setCanvasReloadKey] = useState(0);
 ```
 
-- [ ] **Step 3: Eliminar `originalPositionsRef` y simplificar `handleStartEditMode`**
+- [x] **Step 3: Eliminar `originalPositionsRef` y simplificar `handleStartEditMode`**
 
 Eliminar la declaración `const originalPositionsRef = useRef({});` (y su comentario). Reemplazar `handleStartEditMode` completo por:
 
@@ -1974,7 +1974,7 @@ Eliminar la declaración `const originalPositionsRef = useRef({});` (y su coment
   }, []);
 ```
 
-- [ ] **Step 4: Cargar elementos junto a las mesas**
+- [x] **Step 4: Cargar elementos junto a las mesas**
 
 En el `useEffect` de carga de mesas, reemplazar el cuerpo de `loadTables` para pedir ambas cosas en paralelo (el fallo de elementos no bloquea las mesas):
 
@@ -2013,7 +2013,7 @@ En el `useEffect` de carga de mesas, reemplazar el cuerpo de `loadTables` para p
     };
 ```
 
-- [ ] **Step 5: Helper de recarga + nuevos handlers de cancelar/resetear/añadir**
+- [x] **Step 5: Helper de recarga + nuevos handlers de cancelar/resetear/añadir**
 
 Reemplazar `handleCancelEdit` y `handleResetLayout` por:
 
@@ -2069,7 +2069,7 @@ Reemplazar `handleCancelEdit` y `handleResetLayout` por:
   }, []);
 ```
 
-- [ ] **Step 6: Reescribir `handleSaveLayout` para guardar mesas + elementos**
+- [x] **Step 6: Reescribir `handleSaveLayout` para guardar mesas + elementos**
 
 Reemplazar `handleSaveLayout` completo por:
 
@@ -2119,7 +2119,7 @@ Reemplazar `handleSaveLayout` completo por:
   }, [selectedRestaurantId, layoutDirty, showToast, reloadPlanData]);
 ```
 
-- [ ] **Step 7: Botones «+ Barra» y «+ Puerta» en la toolbar de edición**
+- [x] **Step 7: Botones «+ Barra» y «+ Puerta» en la toolbar de edición**
 
 Dentro del fragmento del modo edición (tras el `<span className="fp-edit-badge-active">…Editando plano…</span>` y antes del botón «Guardar plano»), añadir:
 
@@ -2144,7 +2144,7 @@ Dentro del fragmento del modo edición (tras el `<span className="fp-edit-badge-
                     </button>
 ```
 
-- [ ] **Step 8: Actualizar el uso de `FloorPlanCanvas`**
+- [x] **Step 8: Actualizar el uso de `FloorPlanCanvas`**
 
 Reemplazar el JSX del canvas por:
 
@@ -2163,12 +2163,12 @@ Reemplazar el JSX del canvas por:
           />
 ```
 
-- [ ] **Step 9: Lint y build**
+- [x] **Step 9: Lint y build**
 
 Run: `pnpm lint && pnpm build`
 Expected: sin errores (si lint se queja de `layoutResetKey`/`originalPositionsRef` residuales, es que algún paso anterior quedó a medias — buscar y eliminar todo uso restante).
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add restaurante-frontend/src/pages/FloorPlan.jsx
@@ -2200,11 +2200,11 @@ Abrir `http://localhost:5173`, login `juan.admin` / `admin123`.
 5. En modo vista (sin editar), clic en una mesa abre el modal de información; la barra y la puerta no responden a clics.
 6. Con las herramientas de red del navegador: al guardar se ven `PUT .../tables/layout` y `PUT .../floor-plan/elements` con 200, seguidos de los `GET` de recarga.
 
-- [ ] **Step 3: Verificación de aislamiento multi-tenant**
+- [x] **Step 3: Verificación de aislamiento multi-tenant**
 
 Con el token de un usuario de otro tenant (p. ej. login como un manager demo de otro tenant, ver `DemoDataInitializer`), `GET /api/v1/restaurants/{id}/floor-plan/elements` de un restaurante ajeno devuelve 403.
 
-- [ ] **Step 4: Suites completas**
+- [x] **Step 4: Suites completas**
 
 Run: `mvn test` (backend) y `pnpm lint && pnpm build` (frontend).
 Expected: todo en verde.
