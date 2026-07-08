@@ -7,6 +7,10 @@ import {
   updateTableStatus,
   updateTablesLayout,
 } from '../services/tableService';
+import {
+  getFloorPlanElements,
+  saveFloorPlanElements,
+} from '../services/floorPlanService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
 import FloorPlanCanvas from '../components/FloorPlanCanvas';
 
@@ -39,6 +43,7 @@ const FloorPlan = () => {
   const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
   const [selectedRestaurantName, setSelectedRestaurantName] = useState('');
   const [tables, setTables] = useState([]);
+  const [elements, setElements] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [error, setError] = useState(null);
@@ -58,9 +63,6 @@ const FloorPlan = () => {
   const [toastMessage, setToastMessage] = useState(null);
   const [toastType, setToastType] = useState('success');
   const toastTimer = useRef(null);
-
-  // Al entrar en edición, guardamos las posiciones originales para poder cancelar
-  const originalPositionsRef = useRef({});
 
   // ── Cargar restaurantes al montar y auto-seleccionar el primero ─────────
   useEffect(() => {
@@ -93,12 +95,20 @@ const FloorPlan = () => {
       setLoading(true);
       setError(null);
       setTables([]);
+      setElements([]);
 
       try {
-        const data = await getTablesByRestaurant(Number(selectedRestaurantId));
+        const [tablesData, elementsData] = await Promise.all([
+          getTablesByRestaurant(Number(selectedRestaurantId)),
+          getFloorPlanElements(Number(selectedRestaurantId)).catch((err) => {
+            console.warn('[FloorPlan] No se pudieron cargar los elementos del plano:', err?.message);
+            return [];
+          }),
+        ]);
         if (mounted) {
-          const tableList = Array.isArray(data) ? data : [];
+          const tableList = Array.isArray(tablesData) ? tablesData : [];
           setTables(tableList);
+          setElements(Array.isArray(elementsData) ? elementsData : []);
           // Auto-detectar vista según cantidad de mesas
           setViewMode(tableList.length > 8 ? 'compact' : 'visual');
         }
@@ -243,7 +253,9 @@ const FloorPlan = () => {
 
   // ── Refs y estados para el plano interactivo ──────────────────────────────
   const canvasSaveRef = useRef(null);
-  const [layoutResetKey, setLayoutResetKey] = useState(0);
+  // Fuerza el remontaje del canvas tras guardar/cancelar para sincronizar
+  // el estado local con lo persistido en el servidor
+  const [canvasReloadKey, setCanvasReloadKey] = useState(0);
 
   /**
    * Muestra un toast temporal con auto-dismiss.
@@ -274,113 +286,107 @@ const FloorPlan = () => {
   }, []);
 
   /**
-   * Inicia el modo edición: guarda las posiciones actuales como referencia
-   * para poder cancelar cambios.
+   * Inicia el modo edición. Los cambios locales viven en el canvas;
+   * cancelar recarga el estado persistido del servidor.
    */
   const handleStartEditMode = useCallback(() => {
-    const positions = {};
-    tables.forEach((table, index) => {
-      const hasPos =
-        table.xPosition !== null &&
-        table.xPosition !== undefined &&
-        table.yPosition !== null &&
-        table.yPosition !== undefined;
-      if (hasPos) {
-        positions[table.id] = { x: table.xPosition, y: table.yPosition };
-      } else {
-        // Auto-layout para mesas sin posición
-        const cols = 5;
-        const marginX = 140;
-        const marginY = 130;
-        const startX = 50;
-        const startY = 50;
-        const col = index % cols;
-        const row = Math.floor(index / cols);
-        positions[table.id] = {
-          x: startX + col * marginX,
-          y: startY + row * marginY,
-        };
-      }
-    });
-    originalPositionsRef.current = positions;
     setLayoutDirty(false);
     setIsEditMode(true);
-  }, [tables]);
+  }, []);
 
   /**
-   * Sale del modo edición sin guardar. Recarga las posiciones del servidor.
+   * Recarga mesas y elementos del servidor y remonta el canvas para
+   * descartar cualquier estado local (posiciones, formas, elementos).
+   */
+  const reloadPlanData = useCallback(async () => {
+    if (!selectedRestaurantId) return;
+    const [tablesData, elementsData] = await Promise.all([
+      getTablesByRestaurant(Number(selectedRestaurantId)),
+      getFloorPlanElements(Number(selectedRestaurantId)).catch(() => []),
+    ]);
+    setTables(Array.isArray(tablesData) ? tablesData : []);
+    setElements(Array.isArray(elementsData) ? elementsData : []);
+    setCanvasReloadKey((prev) => prev + 1);
+  }, [selectedRestaurantId]);
+
+  /**
+   * Sale del modo edición sin guardar. Recarga el estado del servidor.
    */
   const handleCancelEdit = useCallback(() => {
     setIsEditMode(false);
     setLayoutDirty(false);
-    const loadOriginal = async () => {
-      if (!selectedRestaurantId) return;
-      try {
-        const data = await getTablesByRestaurant(Number(selectedRestaurantId));
-        const tableList = Array.isArray(data) ? data : [];
-        setTables(tableList);
-      } catch {
-        window.location.reload();
-      }
-    };
-    loadOriginal();
-  }, [selectedRestaurantId]);
+    reloadPlanData().catch(() => {
+      window.location.reload();
+    });
+  }, [reloadPlanData]);
 
   /**
-   * Resetea las posiciones a auto-layout forzando remontaje del canvas.
+   * Recoloca las mesas en la cuadrícula automática (no toca los elementos).
    */
   const handleResetLayout = useCallback(() => {
+    canvasSaveRef.current?.resetAutoLayout();
     setLayoutDirty(true);
-    setLayoutResetKey((prev) => prev + 1);
     showToast('Posiciones restablecidas a la cuadrícula automática', 'success');
   }, [showToast]);
 
   /**
-   * Guarda el layout completo en el backend.
-   * Solo muestra éxito si el backend responde 200/201/204.
-   * Si hay cualquier error (incluyendo 404), muestra mensaje de error
-   * y mantiene el modo edición para no perder los cambios locales.
+   * Añade un elemento decorativo (BAR | DOOR) al plano en modo edición.
+   */
+  const handleAddElement = useCallback((type) => {
+    canvasSaveRef.current?.addElement(type);
+    setLayoutDirty(true);
+  }, []);
+
+  /**
+   * Callback del canvas cuando cambia el layout (forma, elementos...).
+   */
+  const handleLayoutChange = useCallback(() => {
+    setLayoutDirty(true);
+  }, []);
+
+  /**
+   * Guarda el layout completo (mesas + elementos) en el backend.
+   * Solo muestra éxito si ambas llamadas responden OK; después recarga
+   * el estado persistido del servidor. Si algo falla, mantiene el modo
+   * edición para no perder los cambios locales.
    */
   const handleSaveLayout = useCallback(async () => {
     if (!selectedRestaurantId || !layoutDirty) return;
+    if (!canvasSaveRef.current) {
+      showToast('Error al obtener el estado del plano', 'error');
+      return;
+    }
+
     setSavingLayout(true);
+    const { tables: tablesPayload, elements: elementsPayload } =
+      canvasSaveRef.current.getLayout();
+
+    let tablesSaved = false;
     try {
-      if (canvasSaveRef.current) {
-        const positions = canvasSaveRef.current.getPositions();
-        if (positions && positions.length > 0) {
-          console.log('[FloorPlan] Sending layout to backend:', {
-            restaurantId: Number(selectedRestaurantId),
-            tableCount: positions.length,
-            firstTable: positions[0],
-          });
-          await updateTablesLayout(Number(selectedRestaurantId), positions);
-          // Si llegamos aquí, el backend respondió 200 OK o 204 No Content
-          console.log('[FloorPlan] Layout saved successfully via backend API');
-          showToast('Plano guardado correctamente', 'success');
-          setLayoutDirty(false);
-          setIsEditMode(false);
-          // Recargar mesas para tener las posiciones confirmadas del servidor
-          const data = await getTablesByRestaurant(Number(selectedRestaurantId));
-          const tableList = Array.isArray(data) ? data : [];
-          setTables(tableList);
-        } else {
-          showToast('No hay cambios para guardar', 'info');
-        }
-      } else {
-        showToast('Error al obtener las posiciones del plano', 'error');
+      if (tablesPayload.length > 0) {
+        await updateTablesLayout(Number(selectedRestaurantId), tablesPayload);
       }
+      tablesSaved = true;
+
+      await saveFloorPlanElements(Number(selectedRestaurantId), elementsPayload);
+
+      showToast('Plano guardado correctamente', 'success');
+      setLayoutDirty(false);
+      setIsEditMode(false);
+      await reloadPlanData();
     } catch (err) {
-      // Error real del backend (404, 403, 500, etc.) — no mostrar éxito
-      console.error('[FloorPlan] Error saving layout:', err);
+      console.error('[FloorPlan] Error al guardar el plano:', err);
       showToast(
-        err?.message || 'Error al guardar el plano. Intenta de nuevo.',
+        tablesSaved
+          ? `Las mesas se guardaron, pero falló el guardado de los elementos: ${err?.message || 'error desconocido'}`
+          : err?.message || 'Error al guardar el plano. Intenta de nuevo.',
         'error'
       );
       // Mantener modo edición — el usuario puede corregir o cancelar
     } finally {
       setSavingLayout(false);
     }
-  }, [selectedRestaurantId, layoutDirty, showToast]);
+  }, [selectedRestaurantId, layoutDirty, showToast, reloadPlanData]);
 
   // ── Render: Card en vista visual (SVG) ──────────────────────────────────
   const renderVisualCard = (table) => {
@@ -767,6 +773,24 @@ const FloorPlan = () => {
                       Editando plano
                     </span>
                     <button
+                      className="fp-edit-btn"
+                      onClick={() => handleAddElement('BAR')}
+                      disabled={savingLayout}
+                      type="button"
+                      title="Añadir una barra de bar al plano"
+                    >
+                      + Barra
+                    </button>
+                    <button
+                      className="fp-edit-btn"
+                      onClick={() => handleAddElement('DOOR')}
+                      disabled={savingLayout}
+                      type="button"
+                      title="Añadir una puerta de entrada al plano"
+                    >
+                      + Puerta
+                    </button>
+                    <button
                       className="fp-edit-btn fp-edit-btn-save"
                       onClick={handleSaveLayout}
                       disabled={savingLayout || !layoutDirty}
@@ -921,13 +945,15 @@ const FloorPlan = () => {
       {!loadingRestaurants && !loading && filteredTables.length > 0 && viewMode === 'interactive' && (
         <div className="fp-canvas-container">
           <FloorPlanCanvas
-            key={`canvas-${selectedRestaurantId}-${layoutResetKey}`}
+            key={`canvas-${selectedRestaurantId}-${canvasReloadKey}`}
             ref={canvasSaveRef}
             tables={filteredTables}
+            elements={elements}
             editMode={isEditMode}
             selectedTableId={selectedTable?.id}
             onTableClick={handleCanvasTableClick}
             onTableDragEnd={handleTableDragEnd}
+            onLayoutChange={handleLayoutChange}
             saving={savingLayout}
           />
         </div>

@@ -2,6 +2,11 @@ spring:
   application:
     name: restaurant-manage
 
+  config:
+    # Carga el .env local (gitignorado) para desarrollo; en producción no existe
+    # y se ignora (optional). Las variables de entorno reales tienen precedencia.
+    import: optional:file:.env[.properties]
+
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3307/restaurant_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${DB_USERNAME:root}
@@ -31,8 +36,9 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
-    date-format: yyyy-MM-dd HH:mm:ss
-    time-zone: America/Mexico_City
+    # Solo afecta a tipos con zona horaria (Date/Instant); los java.time
+    # (LocalDate/LocalDateTime) se serializan en ISO-8601 tal cual.
+    time-zone: Europe/Madrid
 
 server:
   port: ${PORT:8080}

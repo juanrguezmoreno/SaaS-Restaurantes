@@ -33,8 +33,9 @@ Sigue el layout por features del proyecto (`controller/`, `service/`, `repositor
 
 ### Entidad `FloorPlanElement`
 
-Extiende `common/audit/BaseEntity` (auditoría + soft delete). Tabla `floor_plan_elements`
-(la crea Hibernate con `ddl-auto: update` / `create-drop`; no hay migraciones en este proyecto).
+Extiende `common/audit/BaseEntity` (auditoría + soft delete). Tabla `floor_plan_elements`,
+creada por migración Flyway `V3__floor_plan_elements.sql` (prod usa `ddl-auto: validate`;
+en dev Flyway está desactivado y H2 la crea con `create-drop`).
 
 | Campo        | Tipo                    | Notas                                   |
 |--------------|-------------------------|-----------------------------------------|

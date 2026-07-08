@@ -23,6 +23,9 @@ public final class Constants {
     // Tables
     public static final String TABLES_PATH = API_BASE_PATH + "/tables";
 
+    // Floor plan (elementos decorativos del plano de sala)
+    public static final String FLOOR_PLAN_ELEMENTS_SUBPATH = "/floor-plan/elements";
+
     // Customers
     public static final String CUSTOMERS_PATH = API_BASE_PATH + "/customers";
 

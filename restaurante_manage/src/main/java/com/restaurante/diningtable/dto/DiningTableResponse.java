@@ -1,5 +1,7 @@
 package com.restaurante.diningtable.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.LocalDateTime;
 
 public class DiningTableResponse {
@@ -122,18 +124,24 @@ public class DiningTableResponse {
         this.updatedAt = updatedAt;
     }
 
+    // @JsonProperty explícito: sin él, Jackson serializa "xposition" (regla JavaBeans)
+    // y el frontend espera "xPosition".
+    @JsonProperty("xPosition")
     public Integer getXPosition() {
         return xPosition;
     }
 
+    @JsonProperty("xPosition")
     public void setXPosition(Integer xPosition) {
         this.xPosition = xPosition;
     }
 
+    @JsonProperty("yPosition")
     public Integer getYPosition() {
         return yPosition;
     }
 
+    @JsonProperty("yPosition")
     public void setYPosition(Integer yPosition) {
         this.yPosition = yPosition;
     }
