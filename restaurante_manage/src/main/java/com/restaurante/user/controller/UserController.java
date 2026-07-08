@@ -5,6 +5,7 @@ import com.restaurante.common.dto.PagedResponse;
 import com.restaurante.common.util.Constants;
 import com.restaurante.user.dto.UserRequest;
 import com.restaurante.user.dto.UserResponse;
+import com.restaurante.user.dto.UserUpdateRequest;
 import com.restaurante.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -84,7 +85,7 @@ public class UserController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @Operation(summary = "Actualizar usuario", description = "Actualiza un usuario existente (solo admin)")
     public ResponseEntity<ApiResponse<UserResponse>> update(@PathVariable Long id,
-                                                            @Valid @RequestBody UserRequest request) {
+                                                            @Valid @RequestBody UserUpdateRequest request) {
         UserResponse response = userService.update(id, request);
         return ResponseEntity.ok(ApiResponse.success("Usuario actualizado exitosamente", response));
     }

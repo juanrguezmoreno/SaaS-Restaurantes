@@ -1,6 +1,7 @@
 package com.restaurante.reservation.service;
 
 import com.restaurante.common.exception.BadRequestException;
+import com.restaurante.common.exception.ConflictException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.customer.entity.Customer;
@@ -231,6 +232,8 @@ public class ReservationService {
         }
 
         if (table != null) {
+            // RES-03: impedir dos reservas activas (PENDING/CONFIRMED) en la misma mesa/fecha/hora.
+            assertNoOverlap(table, reservation.getReservationDate(), reservation.getReservationTime(), null);
             reservation.setDiningTable(table);
         }
 
@@ -289,8 +292,29 @@ public class ReservationService {
         }
 
         reservationMapper.updateEntity(reservation, request);
+
+        // RES-03: validar solape con el estado final (fecha/hora/mesa ya actualizadas),
+        // excluyendo la propia reserva.
+        if (reservation.getDiningTable() != null) {
+            assertNoOverlap(reservation.getDiningTable(), reservation.getReservationDate(),
+                    reservation.getReservationTime(), reservation.getId());
+        }
+
         Reservation saved = reservationRepository.save(reservation);
         return reservationMapper.toResponse(saved);
+    }
+
+    /**
+     * RES-03: lanza {@link ConflictException} (HTTP 409) si la mesa ya tiene otra
+     * reserva activa (PENDING o CONFIRMED) en esa fecha y hora exactas.
+     */
+    private void assertNoOverlap(DiningTable table, LocalDate date, LocalTime time, Long excludeId) {
+        List<Reservation> conflicts = reservationRepository
+                .findActiveConflicts(table.getId(), date, time, excludeId);
+        if (!conflicts.isEmpty()) {
+            throw new ConflictException("La mesa " + table.getTableNumber()
+                    + " ya tiene una reserva activa para el " + date + " a las " + time + ".");
+        }
     }
 
     // ════════════════════════════════════════════════════════════════

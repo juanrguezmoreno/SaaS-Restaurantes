@@ -5,7 +5,8 @@ import axios from 'axios';
  * No incluye interceptores de JWT ni redirección al login.
  * Útil para páginas públicas como la reserva online de clientes.
  */
-const API_BASE_URL = 'http://localhost:8080/api/v1';
+// Configurable por entorno (Vite): define VITE_API_URL en producción.
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
 
 const publicApi = axios.create({
   baseURL: API_BASE_URL,

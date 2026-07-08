@@ -1,5 +1,6 @@
 package com.restaurante.user.service;
 
+import com.restaurante.common.exception.AccessDeniedException;
 import com.restaurante.common.exception.DuplicateResourceException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
@@ -13,6 +14,7 @@ import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.dto.UserMapper;
 import com.restaurante.user.dto.UserRequest;
 import com.restaurante.user.dto.UserResponse;
+import com.restaurante.user.dto.UserUpdateRequest;
 import com.restaurante.user.entity.User;
 import com.restaurante.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -74,18 +76,36 @@ public class UserService {
     public UserResponse findById(Long id) {
         User user = userRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", id));
+        assertCanManageUser(user);
+        return userMapper.toResponse(user);
+    }
 
-        // Verificar acceso por tenant
-        if (!currentUserService.isSuperAdmin()) {
-            Long tenantId = currentUserService.getCurrentTenantId();
-            if (tenantId == null || user.getTenant() == null
-                    || !tenantId.equals(user.getTenant().getId())) {
-                throw new com.restaurante.common.exception.AccessDeniedException(
-                        "No tiene permiso para acceder a este usuario");
-            }
+    /**
+     * Autoriza que el usuario autenticado pueda gestionar (ver/editar/eliminar)
+     * al usuario objetivo. Misma regla en findById/update/delete (SEC-01):
+     * <ul>
+     *   <li>SUPER_ADMIN: acceso global.</li>
+     *   <li>Resto: solo usuarios de su MISMO inquilino, y NUNCA una cuenta SUPER_ADMIN.</li>
+     * </ul>
+     * Un SUPER_ADMIN no tiene tenant, por lo que la comprobación de inquilino ya
+     * lo bloquea; el check explícito de rol lo hace evidente y a prueba de futuro.
+     */
+    private void assertCanManageUser(User target) {
+        if (currentUserService.isSuperAdmin()) {
+            return;
         }
 
-        return userMapper.toResponse(user);
+        boolean targetIsSuperAdmin = target.getRoles() != null && target.getRoles().stream()
+                .anyMatch(r -> r.getName() == RoleName.ROLE_SUPER_ADMIN);
+
+        Long tenantId = currentUserService.getCurrentTenantId();
+        boolean sameTenant = tenantId != null
+                && target.getTenant() != null
+                && tenantId.equals(target.getTenant().getId());
+
+        if (targetIsSuperAdmin || !sameTenant) {
+            throw new AccessDeniedException("No tiene permiso para gestionar este usuario");
+        }
     }
 
     public UserResponse findByUsername(String username) {
@@ -98,17 +118,32 @@ public class UserService {
     public UserResponse create(UserRequest request) {
         validateUniqueFields(request);
 
+        boolean isSuperAdmin = currentUserService.isSuperAdmin();
+
+        // SEC-01: un no-SUPER_ADMIN no puede crear usuarios en otro inquilino
+        // ni otorgar el rol SUPER_ADMIN (escalada de privilegios).
+        if (!isSuperAdmin) {
+            Long callerTenantId = currentUserService.getCurrentTenantId();
+            if (request.getTenantId() != null && !request.getTenantId().equals(callerTenantId)) {
+                throw new AccessDeniedException("No puede crear usuarios en otro inquilino");
+            }
+            if (requestsSuperAdminRole(request.getRoles())) {
+                throw new AccessDeniedException("No puede asignar el rol SUPER_ADMIN");
+            }
+        }
+
         User user = userMapper.toEntity(request);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRoles(resolveRoles(request.getRoles()));
 
         // Asignar tenant
-        if (request.getTenantId() != null) {
+        if (isSuperAdmin && request.getTenantId() != null) {
             Tenant tenant = tenantRepository.findByIdAndDeletedFalse(request.getTenantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", request.getTenantId()));
             user.setTenant(tenant);
-        } else if (!currentUserService.isSuperAdmin()) {
-            // Si no es SUPER_ADMIN, asignar el tenant del usuario actual
+        } else if (!isSuperAdmin) {
+            // No-SUPER_ADMIN: el tenant siempre es el del usuario actual, se ignora
+            // cualquier tenantId del request (ya validado que coincide o es null).
             Long currentTenantId = currentUserService.getCurrentTenantId();
             if (currentTenantId != null) {
                 Tenant tenant = tenantRepository.findByIdAndDeletedFalse(currentTenantId)
@@ -117,8 +152,11 @@ public class UserService {
             }
         }
 
-        // Asignar restaurante
+        // Asignar restaurante (validando que el usuario actual tenga acceso a él)
         if (request.getRestaurantId() != null) {
+            if (!isSuperAdmin) {
+                currentUserService.validateRestaurantAccess(request.getRestaurantId());
+            }
             Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(request.getRestaurantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", request.getRestaurantId()));
             user.setRestaurant(restaurant);
@@ -128,13 +166,31 @@ public class UserService {
         return userMapper.toResponse(saved);
     }
 
+    private boolean requestsSuperAdminRole(Set<String> roleNames) {
+        return roleNames != null && roleNames.stream()
+                .anyMatch(name -> ("ROLE_" + name.toUpperCase())
+                        .equals(RoleName.ROLE_SUPER_ADMIN.name()));
+    }
+
     @Transactional
-    public UserResponse update(Long id, UserRequest request) {
+    public UserResponse update(Long id, UserUpdateRequest request) {
         User user = userRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", id));
 
-        if (!user.getUsername().equals(request.getUsername())) {
-            validateUniqueFields(request);
+        // SEC-01: solo se puede editar un usuario del propio inquilino (o SUPER_ADMIN global).
+        assertCanManageUser(user);
+
+        boolean isSuperAdmin = currentUserService.isSuperAdmin();
+
+        if (!user.getUsername().equals(request.getUsername())
+                && userRepository.existsByUsernameAndDeletedFalse(request.getUsername())) {
+            throw new DuplicateResourceException(
+                    "El username '" + request.getUsername() + "' ya está en uso");
+        }
+        if (!user.getEmail().equals(request.getEmail())
+                && userRepository.existsByEmailAndDeletedFalse(request.getEmail())) {
+            throw new DuplicateResourceException(
+                    "El email '" + request.getEmail() + "' ya está en uso");
         }
 
         user.setUsername(request.getUsername());
@@ -143,23 +199,34 @@ public class UserService {
         user.setLastName(request.getLastName());
         user.setPhone(request.getPhone());
 
+        // USR-04: contraseña opcional — solo se re-cifra si viene informada.
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             user.setPassword(passwordEncoder.encode(request.getPassword()));
         }
 
         if (request.getRoles() != null) {
+            // Un no-SUPER_ADMIN no puede elevar a nadie a SUPER_ADMIN.
+            if (!isSuperAdmin && requestsSuperAdminRole(request.getRoles())) {
+                throw new AccessDeniedException("No puede asignar el rol SUPER_ADMIN");
+            }
             user.setRoles(resolveRoles(request.getRoles()));
         }
 
-        // Actualizar tenant si se proporcionó
+        // El cambio de inquilino queda reservado a SUPER_ADMIN.
         if (request.getTenantId() != null) {
+            if (!isSuperAdmin) {
+                throw new AccessDeniedException("No puede cambiar el inquilino de un usuario");
+            }
             Tenant tenant = tenantRepository.findByIdAndDeletedFalse(request.getTenantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", request.getTenantId()));
             user.setTenant(tenant);
         }
 
-        // Actualizar restaurante si se proporcionó
+        // Actualizar restaurante si se proporcionó (validando acceso).
         if (request.getRestaurantId() != null) {
+            if (!isSuperAdmin) {
+                currentUserService.validateRestaurantAccess(request.getRestaurantId());
+            }
             Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(request.getRestaurantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", request.getRestaurantId()));
             user.setRestaurant(restaurant);
@@ -173,6 +240,8 @@ public class UserService {
     public void delete(Long id) {
         User user = userRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", id));
+        // SEC-01: mismo control de acceso que en update.
+        assertCanManageUser(user);
         user.setEnabled(false);
         user.setDeleted(true);
         user.setDeletedAt(LocalDateTime.now());
