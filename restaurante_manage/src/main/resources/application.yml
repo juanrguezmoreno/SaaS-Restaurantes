@@ -26,6 +26,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Railway/prod: si la BD ya tiene tablas (creadas antes por ddl-auto) pero no
+    # historial de Flyway, se marca como baseline V1 y se aplican V2, V3... en vez
+    # de fallar. En una BD vacía Flyway aplica todo desde V1 con normalidad.
+    baseline-on-migrate: true
+    baseline-version: 1
 
   # Deshabilitado: los datos de referencia (roles) los siembra Flyway (V2);
   # los datos de demostración solo se cargan en el perfil dev.
@@ -49,6 +54,10 @@ app:
     # Genera uno con: openssl rand -base64 48
     secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cors:
+    # Orígenes permitidos, separados por comas. En producción define
+    # CORS_ALLOWED_ORIGINS con el dominio real del frontend.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
 springdoc:
   api-docs:
