@@ -7604,3 +7604,109 @@ a {
     gap: 0.75rem;
   }
 }
+
+/* ═══ Plano interactivo: elementos decorativos y panel de propiedades ═══ */
+.fpc-element {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  user-select: none;
+  touch-action: none;
+}
+
+.fpc-element-bar {
+  background: var(--hover-color);
+  border: 2px solid var(--text-muted);
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fpc-element-door {
+  background: transparent;
+  border: none;
+}
+
+.fpc-element-selected {
+  outline: 2px dashed var(--primary);
+  outline-offset: 3px;
+}
+
+.fpc-props-panel {
+  position: absolute;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.fpc-props-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  padding-right: 18px;
+}
+
+.fpc-props-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.fpc-props-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  font-size: 0.8rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.fpc-props-btn:hover {
+  background: var(--hover-color);
+}
+
+.fpc-props-btn-active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+  font-weight: 600;
+}
+
+.fpc-props-btn-danger {
+  color: var(--danger);
+  border-color: var(--danger-light);
+}
+
+.fpc-props-btn-danger:hover {
+  background: var(--danger-light);
+}
+
+.fpc-props-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
