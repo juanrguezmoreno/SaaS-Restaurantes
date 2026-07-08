@@ -1,5 +1,7 @@
 package com.restaurante.floorplan.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * DTO de respuesta de un elemento del plano de sala.
  */
@@ -41,18 +43,24 @@ public class FloorPlanElementResponse {
         this.type = type;
     }
 
+    // @JsonProperty explícito: sin él, Jackson serializa "xposition" (regla JavaBeans)
+    // y el frontend espera "xPosition".
+    @JsonProperty("xPosition")
     public Integer getXPosition() {
         return xPosition;
     }
 
+    @JsonProperty("xPosition")
     public void setXPosition(Integer xPosition) {
         this.xPosition = xPosition;
     }
 
+    @JsonProperty("yPosition")
     public Integer getYPosition() {
         return yPosition;
     }
 
+    @JsonProperty("yPosition")
     public void setYPosition(Integer yPosition) {
         this.yPosition = yPosition;
     }

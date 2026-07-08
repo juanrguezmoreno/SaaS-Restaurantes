@@ -1,5 +1,6 @@
 package com.restaurante.floorplan.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.restaurante.floorplan.enums.ElementType;
 
 /**
@@ -36,18 +37,24 @@ public class FloorPlanElementRequest {
         this.type = type;
     }
 
+    // @JsonProperty explícito: sin él, Jackson expone getXPosition como "xposition"
+    // (regla JavaBeans) y no vincula el "xPosition" que envía el frontend.
+    @JsonProperty("xPosition")
     public Integer getXPosition() {
         return xPosition;
     }
 
+    @JsonProperty("xPosition")
     public void setXPosition(Integer xPosition) {
         this.xPosition = xPosition;
     }
 
+    @JsonProperty("yPosition")
     public Integer getYPosition() {
         return yPosition;
     }
 
+    @JsonProperty("yPosition")
     public void setYPosition(Integer yPosition) {
         this.yPosition = yPosition;
     }

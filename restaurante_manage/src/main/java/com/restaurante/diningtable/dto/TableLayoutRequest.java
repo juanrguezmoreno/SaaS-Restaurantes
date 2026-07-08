@@ -1,5 +1,6 @@
 package com.restaurante.diningtable.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotNull;
 
 /**
@@ -40,18 +41,24 @@ public class TableLayoutRequest {
         this.tableId = tableId;
     }
 
+    // @JsonProperty explícito: sin él, Jackson vincula la propiedad como "xposition"
+    // (regla JavaBeans) e ignora el "xPosition" que envía el frontend.
+    @JsonProperty("xPosition")
     public Integer getXPosition() {
         return xPosition;
     }
 
+    @JsonProperty("xPosition")
     public void setXPosition(Integer xPosition) {
         this.xPosition = xPosition;
     }
 
+    @JsonProperty("yPosition")
     public Integer getYPosition() {
         return yPosition;
     }
 
+    @JsonProperty("yPosition")
     public void setYPosition(Integer yPosition) {
         this.yPosition = yPosition;
     }
