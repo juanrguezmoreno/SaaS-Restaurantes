@@ -49,17 +49,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                    @Param("now") LocalTime now);
 
     /**
-     * Encuentra reservas CONFIRMED para una mesa en una fecha y hora específicas.
-     * Usado para verificar conflictos de disponibilidad.
-     */
-    @Query("SELECT r FROM Reservation r WHERE r.diningTable.id = :tableId " +
-           "AND r.deleted = false AND r.status = 'CONFIRMED' " +
-           "AND r.reservationDate = :date AND r.reservationTime = :time")
-    List<Reservation> findConfirmedByTableIdAndDateAndTime(@Param("tableId") Long tableId,
-                                                           @Param("date") LocalDate date,
-                                                           @Param("time") LocalTime time);
-
-    /**
      * RES-03: reservas ACTIVAS (PENDING o CONFIRMED) que ocupan una mesa en una
      * fecha/hora exactas. Las CANCELLED, COMPLETED y NO_SHOW no bloquean.
      * {@code excludeId} permite ignorar la propia reserva al editar (null = ninguna).

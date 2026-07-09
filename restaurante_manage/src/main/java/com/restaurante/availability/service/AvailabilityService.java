@@ -30,9 +30,10 @@ public class AvailabilityService {
      * Una mesa está disponible si:
      * - NO está en estado MAINTENANCE
      * - Su capacidad es >= partySize
-     * - NO tiene ninguna reserva CONFIRMED en la misma fecha y hora
+     * - NO tiene ninguna reserva activa (PENDING o CONFIRMED) en la misma fecha y hora
+     *   (misma regla RES-03 que aplica ReservationService al crear/confirmar reservas)
      *
-     * Las reservas PENDING, CANCELLED, COMPLETED y NO_SHOW NO bloquean disponibilidad.
+     * Las reservas CANCELLED, COMPLETED y NO_SHOW NO bloquean disponibilidad.
      */
     public List<AvailableTableResponse> checkAvailability(AvailabilityRequest request) {
         Long restaurantId = request.getRestaurantId();
@@ -52,10 +53,11 @@ public class AvailabilityService {
                 // 2. Capacidad suficiente
                 .filter(table -> request.getPartySize() == null
                         || table.getCapacity() >= request.getPartySize())
-                // 3. Sin reservas CONFIRMED conflictivas en la misma fecha/hora
+                // 3. Sin reservas activas (PENDING o CONFIRMED) conflictivas — misma regla RES-03
+                //    que usa ReservationService al crear/confirmar reservas.
                 .filter(table -> {
                     List<Reservation> conflicts = reservationRepository
-                            .findConfirmedByTableIdAndDateAndTime(table.getId(), date, time);
+                            .findActiveConflicts(table.getId(), date, time, null);
                     return conflicts.isEmpty();
                 })
                 .map(table -> {
