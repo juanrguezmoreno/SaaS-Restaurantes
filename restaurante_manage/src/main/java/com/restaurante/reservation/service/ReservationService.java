@@ -206,10 +206,14 @@ public class ReservationService {
             table = diningTableRepository.findByIdAndDeletedFalse(request.getDiningTableId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa", "id", request.getDiningTableId()));
 
+            // RES-03: el conflicto de hueco (409) tiene prioridad sobre el chequeo
+            // de disponibilidad (400) para que un solape devuelva siempre Conflict.
+            assertNoOverlap(table, reservation.getReservationDate(), reservation.getReservationTime(), null);
+
             // Si la reserva se crea como CONFIRMED, verificar disponibilidad y marcar mesa como RESERVED
             if (finalStatus == ReservationStatus.CONFIRMED) {
                 if (!isTableAvailableForReservation(table, reservation.getReservationDate(),
-                        reservation.getReservationTime(), reservation.getPartySize())) {
+                        reservation.getReservationTime(), reservation.getPartySize(), null)) {
                     throw new BadRequestException(
                             "La mesa " + table.getTableNumber() + " no está disponible para la fecha y hora solicitadas");
                 }
@@ -269,7 +273,7 @@ public class ReservationService {
             if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
                 // Verificar disponibilidad de la nueva mesa
                 if (!isTableAvailableForReservation(table, reservation.getReservationDate(),
-                        reservation.getReservationTime(), reservation.getPartySize())) {
+                        reservation.getReservationTime(), reservation.getPartySize(), reservation.getId())) {
                     throw new BadRequestException(
                             "La mesa " + table.getTableNumber() + " no está disponible para la fecha y hora solicitadas");
                 }
@@ -338,9 +342,8 @@ public class ReservationService {
         log.debug("Cambiando estado de reserva #{}: {} → {}", id, oldStatus, newStatus);
 
         // ─── Transición a CONFIRMED ─────────────────────────────────
-        // NOTA: No se cambia el estado antes de la verificación de disponibilidad
-        // para evitar que la consulta findConfirmedByTableIdAndDateAndTime
-        // encuentre esta misma reserva como conflicto (auto-conflicto).
+        // NOTA: la verificación de disponibilidad excluye esta misma reserva
+        // (excludeReservationId) para no detectarla como auto-conflicto.
         if (newStatus == ReservationStatus.CONFIRMED) {
             // Solo permitir confirmar desde PENDING
             if (oldStatus != ReservationStatus.PENDING) {
@@ -363,7 +366,7 @@ public class ReservationService {
             } else {
                 // Tiene mesa asignada → verificar que sigue disponible
                 if (!isTableAvailableForReservation(table, reservation.getReservationDate(),
-                        reservation.getReservationTime(), reservation.getPartySize())) {
+                        reservation.getReservationTime(), reservation.getPartySize(), reservation.getId())) {
                     // Intentar re-asignar otra mesa
                     DiningTable alternativeTable = assignAvailableTable(reservation);
                     if (alternativeTable != null) {
@@ -376,6 +379,11 @@ public class ReservationService {
                     }
                 }
             }
+
+            // RES-03: guarda final antes de confirmar — ninguna otra reserva activa
+            // (PENDING o CONFIRMED) puede ocupar ya esa mesa en esa fecha/hora.
+            assertNoOverlap(table, reservation.getReservationDate(),
+                    reservation.getReservationTime(), reservation.getId());
 
             // Marcar la mesa como RESERVED
             table.setStatus(TableStatus.RESERVED);
@@ -501,11 +509,13 @@ public class ReservationService {
      * Una mesa está disponible si:
      * - Su capacidad >= partySize
      * - Su estado NO es MAINTENANCE
-     * - NO tiene una reserva CONFIRMED que choque en la misma fecha y hora
+     * - NO tiene una reserva ACTIVA (PENDING o CONFIRMED) que choque en la misma fecha y hora
      *
-     * NOTA: Las reservas PENDING, CANCELLED, COMPLETED y NO_SHOW NO bloquean disponibilidad.
+     * NOTA: Las reservas CANCELLED, COMPLETED y NO_SHOW NO bloquean disponibilidad (RES-03).
+     * {@code excludeReservationId} ignora la propia reserva al reconfirmar/editar (null = ninguna).
      */
-    private boolean isTableAvailableForReservation(DiningTable table, LocalDate date, LocalTime time, Integer partySize) {
+    private boolean isTableAvailableForReservation(DiningTable table, LocalDate date, LocalTime time,
+                                                   Integer partySize, Long excludeReservationId) {
         // 1. Verificar capacidad
         if (table.getCapacity() < partySize) {
             log.debug("Mesa {} NO disponible: capacidad {} < comensales {}", table.getId(), table.getCapacity(), partySize);
@@ -518,12 +528,13 @@ public class ReservationService {
             return false;
         }
 
-        // 3. Verificar que no haya reservas CONFIRMED que choquen en la misma fecha/hora
+        // 3. RES-03: verificar que no haya reservas ACTIVAS (PENDING/CONFIRMED)
+        // que choquen en la misma fecha/hora, ignorando la propia reserva.
         List<Reservation> conflicts = reservationRepository
-                .findConfirmedByTableIdAndDateAndTime(table.getId(), date, time);
+                .findActiveConflicts(table.getId(), date, time, excludeReservationId);
 
         if (!conflicts.isEmpty()) {
-            log.debug("Mesa {} NO disponible: {} reserva(s) CONFIRMED conflictiva(s) en esa fecha/hora",
+            log.debug("Mesa {} NO disponible: {} reserva(s) activa(s) conflictiva(s) en esa fecha/hora",
                     table.getId(), conflicts.size());
             return false;
         }
@@ -540,7 +551,7 @@ public class ReservationService {
      * Busca mesas del mismo restaurante que:
      * - Tengan capacidad suficiente
      * - No estén en MAINTENANCE
-     * - No tengan una reserva CONFIRMED conflictiva en la misma fecha/hora
+     * - No tengan una reserva ACTIVA (PENDING/CONFIRMED) conflictiva en la misma fecha/hora
      *
      * @return la mesa asignada, o null si no hay ninguna disponible
      */
@@ -554,7 +565,7 @@ public class ReservationService {
                 .findByRestaurantIdAndDeletedFalse(restaurantId);
 
         for (DiningTable table : allTables) {
-            if (isTableAvailableForReservation(table, date, time, partySize)) {
+            if (isTableAvailableForReservation(table, date, time, partySize, reservation.getId())) {
                 return table;
             }
         }

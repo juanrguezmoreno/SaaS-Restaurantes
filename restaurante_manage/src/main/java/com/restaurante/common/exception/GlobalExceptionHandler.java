@@ -124,6 +124,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(ApiResponse.error("Credenciales incorrectas"));
     }
 
+    /**
+     * RES-03: red de seguridad ante condiciones de carrera. Si dos peticiones
+     * simultáneas superan la validación de solape del servicio, el índice único
+     * uk_reservations_active_slot (V4) rechaza la segunda inserción; se traduce
+     * a 409 en lugar de caer en el handler genérico (500).
+     */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(
+            org.springframework.dao.DataIntegrityViolationException ex) {
+        String causa = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : "";
+        String mensaje = causa != null && causa.contains("uk_reservations_active_slot")
+                ? "La mesa ya tiene una reserva en ese horario"
+                : "La operación entra en conflicto con datos existentes";
+        log.warn("Violación de integridad de datos: {}", causa);
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(mensaje));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGlobalException(Exception ex) {
         log.error("Error no manejado: {}", ex.getMessage(), ex);

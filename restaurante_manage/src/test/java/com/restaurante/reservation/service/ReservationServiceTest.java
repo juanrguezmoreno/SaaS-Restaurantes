@@ -123,4 +123,73 @@ class ReservationServiceTest {
         assertDoesNotThrow(() -> service.create(request()));
         verify(reservationRepository).save(any(Reservation.class));
     }
+
+    @Test
+    void create_permiteReservaEnOtraMesaALaMismaHora() {
+        Long otraMesaId = 11L;
+        DiningTable otraMesa = new DiningTable();
+        otraMesa.setId(otraMesaId);
+        otraMesa.setTableNumber("2");
+        otraMesa.setCapacity(4);
+        when(diningTableRepository.findByIdAndDeletedFalse(otraMesaId)).thenReturn(Optional.of(otraMesa));
+
+        stubMapperPending();
+        // La mesa 1 está ocupada, pero se pide la mesa 2, que está libre
+        when(reservationRepository.findActiveConflicts(eq(TABLE_ID), eq(DATE), eq(TIME), any()))
+                .thenReturn(List.of(new Reservation()));
+        when(reservationRepository.findActiveConflicts(eq(otraMesaId), eq(DATE), eq(TIME), any()))
+                .thenReturn(List.of());
+
+        ReservationRequest req = request();
+        req.setDiningTableId(otraMesaId);
+
+        assertDoesNotThrow(() -> service.create(req));
+        verify(reservationRepository).save(any(Reservation.class));
+    }
+
+    // ─── RES-03: confirmar una reserva tampoco puede pisar un hueco ocupado ───
+
+    /** Reserva PENDING sin mesa asignada, lista para confirmar. */
+    private Reservation reservaPendienteSinMesa(Long id) {
+        Reservation r = new Reservation();
+        r.setId(id);
+        r.setCustomer(customer);
+        r.setRestaurant(restaurant);
+        r.setReservationDate(DATE);
+        r.setReservationTime(TIME);
+        r.setPartySize(2);
+        r.setStatus(ReservationStatus.PENDING);
+        return r;
+    }
+
+    @Test
+    void updateStatus_noConfirmaSiLaUnicaMesaTieneOtraReservaActivaEnElHueco() {
+        Reservation reserva = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reserva));
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(table));
+        // La única mesa ya tiene una reserva activa (p.ej. PENDING) en ese hueco
+        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, 5L))
+                .thenReturn(List.of(new Reservation()));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(5L, "CONFIRMED"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_confirmaYAsignaMesaCuandoElHuecoEstaLibre() {
+        Reservation reserva = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reserva));
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(table));
+        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, 5L))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        assertDoesNotThrow(() -> service.updateStatus(5L, "CONFIRMED"));
+        assertEquals(ReservationStatus.CONFIRMED, reserva.getStatus());
+        assertEquals(table, reserva.getDiningTable());
+    }
 }
