@@ -41,9 +41,6 @@ public final class Constants {
     // Availability
     public static final String AVAILABILITY_PATH = API_BASE_PATH + "/availability";
 
-    // Dashboard
-    public static final String DASHBOARD_PATH = API_BASE_PATH + "/dashboard";
-
     // Roles
     public static final String ROLE_SUPER_ADMIN = "ROLE_SUPER_ADMIN";
     public static final String ROLE_ADMIN = "ROLE_ADMIN";
