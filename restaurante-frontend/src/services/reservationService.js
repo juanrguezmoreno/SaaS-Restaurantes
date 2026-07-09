@@ -87,18 +87,6 @@ export const getReservationById = async (id) => {
 };
 
 /**
- * Obtiene las reservas del usuario autenticado (cliente).
- */
-export const getMyReservations = async () => {
-  try {
-    const response = await api.get(`${RESOURCE}/my`);
-    return extractData(response);
-  } catch (error) {
-    throw handleError(error);
-  }
-};
-
-/**
  * Crea una nueva reserva.
  * @param {object} data - { customerId, diningTableId, restaurantId, reservationDate, reservationTime, partySize, notes, status }
  */
