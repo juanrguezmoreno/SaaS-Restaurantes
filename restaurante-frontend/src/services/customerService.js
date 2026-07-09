@@ -1,39 +1,7 @@
 import api from '../api/axios';
+import { extractData } from '../lib/apiHelpers';
 
 const RESOURCE = '/customers';
-
-/**
- * Extrae el array de datos de la respuesta del backend.
- * Soporta múltiples formatos habituales en la API.
- */
-const extractData = (response) => {
-  if (!response || !response.data) return [];
-
-  const body = response.data;
-
-  // Array directo
-  if (Array.isArray(body)) return body;
-
-  // Paginación de Spring Boot: { content: [...] }
-  if (body && Array.isArray(body.content)) return body.content;
-
-  // Envoltorio con success: { success: true, data: [...] }
-  if (body && body.success && Array.isArray(body.data)) return body.data;
-
-  // Envoltorio simple: { data: [...] }
-  if (body && Array.isArray(body.data)) return body.data;
-
-  // Anidado: { data: { content: [...] } }
-  if (body && body.data && Array.isArray(body.data.content)) return body.data.content;
-
-  // data.data o data.body
-  if (body && body.data) {
-    if (Array.isArray(body.data)) return body.data;
-    if (body.data.content && Array.isArray(body.data.content)) return body.data.content;
-  }
-
-  return [];
-};
 
 /**
  * Extrae un objeto individual de la respuesta.
