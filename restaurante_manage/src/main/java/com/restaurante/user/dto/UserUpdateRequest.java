@@ -3,6 +3,7 @@ package com.restaurante.user.dto;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -34,8 +35,9 @@ public class UserUpdateRequest {
     @Size(max = 100, message = "El email no debe exceder 100 caracteres")
     private String email;
 
-    // Opcional al editar: @Size solo valida cuando hay valor (null se ignora).
-    @Size(min = 6, max = 100, message = "La contraseña debe tener entre 6 y 100 caracteres")
+    // Opcional al editar: null o vacía conservan la contraseña actual (USR-04);
+    // si viene informada debe tener entre 6 y 100 caracteres.
+    @Pattern(regexp = "^$|^.{6,100}$", message = "La contraseña debe tener entre 6 y 100 caracteres")
     private String password;
 
     @Size(max = 50, message = "El nombre no debe exceder 50 caracteres")
