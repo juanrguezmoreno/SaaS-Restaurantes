@@ -81,7 +81,7 @@ const icons = {
 const navGroups = [
   {
     items: [
-      { path: '/dashboard', label: 'Inicio', icon: 'dashboard' },
+      { path: '/inicio', label: 'Inicio', icon: 'dashboard' },
     ],
   },
   {
@@ -90,13 +90,6 @@ const navGroups = [
       { path: '/reservations', label: 'Reservas', icon: 'reservations' },
       { path: '/floor-plan', label: 'Plano de sala', icon: 'floorPlan' },
       { path: '/customers', label: 'Clientes', icon: 'customers' },
-    ],
-  },
-  {
-    title: 'NEGOCIO',
-    items: [
-      { path: '/analytics', label: 'Analítica', icon: 'analytics' },
-      { path: '/notifications', label: 'Notificaciones', icon: 'notifications' },
     ],
   },
   {
@@ -166,11 +159,7 @@ const Sidebar = ({ show, onClose }) => {
                   )}
                   <ul className="sidebar-nav-items">
                     {visibleItems.map((item) => {
-                      // Para "Inicio" (dashboard), acepta también /inicio como activo
-                      const isDashboard = item.path === '/dashboard';
-                      const isActivePath = isDashboard
-                        ? location.pathname === '/dashboard' || location.pathname === '/inicio'
-                        : location.pathname === item.path;
+                      const isActivePath = location.pathname === item.path;
                       return (
                         <li key={item.path} className="nav-item">
                           <NavLink
