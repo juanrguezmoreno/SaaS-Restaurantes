@@ -1,7 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import NotificationBell from './NotificationBell';
 import { ROLE_LABELS, normalizeRole } from '../config/permissions';
 
 // ─── Mapa de breadcrumbs ──────────────────────────────────────────────────
@@ -84,9 +83,6 @@ const Navbar = ({ onToggleSidebar }) => {
             </div>
           </div>
         )}
-
-        {/* Notification Bell */}
-        <NotificationBell />
 
         {/* Theme Toggle Button */}
         <button

@@ -12,7 +12,6 @@ import Restaurants from './pages/Restaurants';
 import Tables from './pages/Tables';
 import FloorPlan from './pages/FloorPlan';
 import PublicReservation from './pages/PublicReservation';
-import { NotificationProvider } from './context/NotificationContext';
 import { PERMISSIONS } from './config/permissions';
 
 function App() {
@@ -25,16 +24,11 @@ function App() {
         <Route path="/r/:restaurantId" element={<PublicReservation />} />
       </Route>
 
-      {/* Rutas protegidas con layout — NotificationProvider solo para rutas privadas.
-          Se mantiene aquí hasta que la Tarea 9 retire NotificationBell/NotificationContext;
-          si se quitara antes, NotificationBell (renderizado por Navbar dentro de MainLayout)
-          rompería en runtime al llamar useNotifications() sin provider. */}
+      {/* Rutas protegidas con layout */}
       <Route
         element={
           <ProtectedRoute>
-            <NotificationProvider>
-              <MainLayout />
-            </NotificationProvider>
+            <MainLayout />
           </ProtectedRoute>
         }
       >
