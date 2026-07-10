@@ -754,13 +754,15 @@ const FloorPlan = () => {
           </div>
           <h5>Este restaurante no tiene mesas</h5>
           <p>{selectedRestaurantName} todavía no tiene mesas registradas. Crea la primera mesa para empezar a visualizar el plano.</p>
-          <button
-            className="btn btn-primary"
-            onClick={handleAddTableClick}
-            type="button"
-          >
-            Crear primera mesa
-          </button>
+          {canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
+            <button
+              className="btn btn-primary"
+              onClick={handleAddTableClick}
+              type="button"
+            >
+              Crear primera mesa
+            </button>
+          )}
         </div>
       )}
 

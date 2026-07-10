@@ -154,7 +154,6 @@ const TableDrawer = ({
       if (onTableDeleted) onTableDeleted();
     } catch (err) {
       setTableFormErrors({ submit: getErrorMessage(err) });
-      setConfirmingDelete(false);
     } finally {
       setDeletingTable(false);
     }
@@ -290,7 +289,10 @@ const TableDrawer = ({
                   </button>
                   <button
                     className="btn btn-outline-danger btn-sm"
-                    onClick={() => setConfirmingDelete(true)}
+                    onClick={() => {
+                      setTableFormErrors({});
+                      setConfirmingDelete(true);
+                    }}
                     type="button"
                   >
                     Eliminar mesa
@@ -307,6 +309,9 @@ const TableDrawer = ({
             <p className="table-drawer-danger-text">
               Se eliminará la mesa {table.tableNumber || table.id}. Esta acción no se puede deshacer.
             </p>
+            {tableFormErrors.submit && (
+              <div className="alert alert-danger py-2 px-3 small">{tableFormErrors.submit}</div>
+            )}
             <div className="table-drawer-action-buttons">
               <button
                 className="btn btn-danger btn-sm"
@@ -318,7 +323,10 @@ const TableDrawer = ({
               </button>
               <button
                 className="btn btn-outline-secondary btn-sm"
-                onClick={() => setConfirmingDelete(false)}
+                onClick={() => {
+                  setTableFormErrors({});
+                  setConfirmingDelete(false);
+                }}
                 disabled={deletingTable}
                 type="button"
               >
