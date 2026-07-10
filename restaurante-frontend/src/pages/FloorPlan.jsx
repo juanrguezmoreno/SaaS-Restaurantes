@@ -14,6 +14,7 @@ import {
 import { getReservationsByRestaurantAndDate } from '../services/reservationService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
 import FloorPlanCanvas from '../components/FloorPlanCanvas';
+import TableDrawer from '../components/TableDrawer';
 
 // ─── Mapa de estados de mesa ────────────────────────────────────────────────
 const TABLE_STATUS = {
@@ -765,141 +766,28 @@ const FloorPlan = () => {
         </div>
       )}
 
-      {/* ═══ Modal de detalle de mesa ═══════════════════════════════════ */}
-      {selectedTable && (
-        <div
-          className="modal-backdrop show"
-          style={{ zIndex: 1050 }}
-          onClick={() => setSelectedTable(null)}
-        >
-          <div
-            className="modal d-block"
-            tabIndex="-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-dialog modal-dialog-centered">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title d-flex align-items-center gap-2">
-                    <span
-                      className="fp-modal-badge-dot"
-                      style={{ backgroundColor: getStatusInfo(selectedTable.status).color }}
-                    />
-                    Mesa {selectedTable.tableNumber || selectedTable.id}
-                  </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setSelectedTable(null)}
-                    aria-label="Cerrar"
-                  />
-                </div>
-                <div className="modal-body">
-                  <div className="fp-modal-details">
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Restaurante</span>
-                      <span className="fp-modal-value">{selectedRestaurantName || '—'}</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Mesa</span>
-                      <span className="fp-modal-value">Mesa {selectedTable.tableNumber || selectedTable.id}</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Capacidad</span>
-                      <span className="fp-modal-value">{selectedTable.capacity || '—'} personas</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Ubicación</span>
-                      <span className="fp-modal-value">{selectedTable.location || 'Sin ubicación'}</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Estado</span>
-                      <span className="fp-modal-value">
-                        <span
-                          className="fp-modal-badge"
-                          style={{ backgroundColor: getStatusInfo(selectedTable.status).color }}
-                        >
-                          {getStatusInfo(selectedTable.status).label}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Acciones rápidas */}
-                  <div className="fp-modal-actions">
-                    <p className="fp-modal-actions-title">Acciones</p>
-                    <div className="fp-modal-actions-grid">
-                      {canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
-                        <button
-                          className="fp-modal-action-btn"
-                          onClick={() => { setSelectedTable(null); navigate('/tables'); }}
-                          type="button"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                          Editar mesa
-                        </button>
-                      )}
-
-                      {/* Cambiar estado */}
-                      <div className="fp-modal-status-group">
-                        <span className="fp-modal-status-label">Cambiar estado</span>
-                        <div className="fp-modal-status-options">
-                          {Object.entries(TABLE_STATUS).map(([key, st]) => {
-                            if (key === selectedTable.status) return null;
-                            return (
-                              <button
-                                key={key}
-                                className="fp-modal-status-btn"
-                                style={{ '--status-color': st.color }}
-                                onClick={() => handleStatusChange(selectedTable, key)}
-                                disabled={statusUpdating === selectedTable.id}
-                                type="button"
-                              >
-                                {statusUpdating === selectedTable.id ? (
-                                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                                ) : (
-                                  <span className="fp-modal-status-dot" style={{ backgroundColor: st.color }} />
-                                )}
-                                {st.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <button
-                        className="fp-modal-action-btn"
-                        onClick={() => { setSelectedTable(null); navigate('/reservations'); }}
-                        type="button"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                          <line x1="16" y1="2" x2="16" y2="6" />
-                          <line x1="8" y1="2" x2="8" y2="6" />
-                          <line x1="3" y1="10" x2="21" y2="10" />
-                        </svg>
-                        Ver reservas
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setSelectedTable(null)}
-                  >
-                    Cerrar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ═══ Drawer lateral de detalle de mesa ═══════════════════════════ */}
+      <TableDrawer
+        open={!!selectedTable}
+        table={selectedTable}
+        isCreating={false}
+        restaurantId={selectedRestaurantId ? Number(selectedRestaurantId) : null}
+        restaurantName={selectedRestaurantName}
+        reservation={selectedTable ? nextReservationByTableId[selectedTable.id] : null}
+        otherReservations={
+          selectedTable
+            ? (reservationsByTableId[selectedTable.id] || []).filter(
+                (r) => r.id !== nextReservationByTableId[selectedTable.id]?.id
+              )
+            : []
+        }
+        getStatusInfo={getStatusInfo}
+        statusUpdating={statusUpdating}
+        canManageTables={canAccess(user, PERMISSIONS.MANAGE_TABLES)}
+        canManageReservations={canAccess(user, PERMISSIONS.MANAGE_RESERVATIONS)}
+        onClose={() => setSelectedTable(null)}
+        onStatusChange={handleStatusChange}
+      />
     </div>
   );
 };
