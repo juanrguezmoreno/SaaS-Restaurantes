@@ -4763,6 +4763,30 @@ a {
   letter-spacing: 0.02em;
 }
 
+.fpc-table-reservation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 92%;
+  margin-top: 1px;
+  line-height: 1.15;
+}
+
+.fpc-table-reservation-name {
+  font-size: 0.625rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.fpc-table-reservation-meta {
+  font-size: 0.5625rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
 .fpc-table-status-bar {
   position: absolute;
   bottom: 4px;

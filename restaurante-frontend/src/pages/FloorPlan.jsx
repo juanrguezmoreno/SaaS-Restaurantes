@@ -216,8 +216,6 @@ const FloorPlan = () => {
   }, [reservations]);
 
   // ── Próxima reserva de hoy por mesa (o la última en curso si todas pasaron) ──
-  // Aún sin consumir en esta tarea (solo carga de datos); lo usará Task 5/6.
-  // eslint-disable-next-line no-unused-vars
   const nextReservationByTableId = useMemo(() => {
     const nowStr = getNowTimeStr();
     const map = {};
@@ -758,6 +756,7 @@ const FloorPlan = () => {
             elements={elements}
             editMode={isEditMode}
             selectedTableId={selectedTable?.id}
+            nextReservationByTableId={nextReservationByTableId}
             onTableClick={handleCanvasTableClick}
             onTableDragEnd={handleTableDragEnd}
             onLayoutChange={handleLayoutChange}
