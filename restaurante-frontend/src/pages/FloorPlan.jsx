@@ -65,6 +65,7 @@ const FloorPlan = () => {
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTable, setSelectedTable] = useState(null);
+  const [isCreatingTable, setIsCreatingTable] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(null);
 
   // ── Estados de UI ─────────────────────────────────────────────────────────
@@ -307,6 +308,33 @@ const FloorPlan = () => {
     setCanvasReloadKey((prev) => prev + 1);
   }, [selectedRestaurantId]);
 
+  const handleCloseDrawer = useCallback(() => {
+    setSelectedTable(null);
+    setIsCreatingTable(false);
+  }, []);
+
+  const handleAddTableClick = useCallback(() => {
+    setSelectedTable(null);
+    setIsCreatingTable(true);
+  }, []);
+
+  const handleTableCreated = useCallback(
+    async (created) => {
+      setIsCreatingTable(false);
+      await reloadPlanData();
+      if (created?.id) {
+        setSelectedTable(created);
+      }
+    },
+    [reloadPlanData]
+  );
+
+  const handleTableMutated = useCallback(async () => {
+    setSelectedTable(null);
+    setIsCreatingTable(false);
+    await reloadPlanData();
+  }, [reloadPlanData]);
+
   /**
    * Sale del modo edición sin guardar. Recarga el estado del servidor.
    */
@@ -422,6 +450,20 @@ const FloorPlan = () => {
               ))}
             </select>
           </div>
+
+          {selectedRestaurantId && canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
+            <button
+              className="btn btn-primary btn-sm d-flex align-items-center gap-2"
+              onClick={handleAddTableClick}
+              type="button"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Añadir mesa
+            </button>
+          )}
         </div>
 
         {/* ─── Summary Bar ─────────────────────────────────────────── */}
@@ -714,7 +756,7 @@ const FloorPlan = () => {
           <p>{selectedRestaurantName} todavía no tiene mesas registradas. Crea la primera mesa para empezar a visualizar el plano.</p>
           <button
             className="btn btn-primary"
-            onClick={() => navigate('/tables')}
+            onClick={handleAddTableClick}
             type="button"
           >
             Crear primera mesa
@@ -768,9 +810,9 @@ const FloorPlan = () => {
 
       {/* ═══ Drawer lateral de detalle de mesa ═══════════════════════════ */}
       <TableDrawer
-        open={!!selectedTable}
+        open={!!selectedTable || isCreatingTable}
         table={selectedTable}
-        isCreating={false}
+        isCreating={isCreatingTable}
         restaurantId={selectedRestaurantId ? Number(selectedRestaurantId) : null}
         restaurantName={selectedRestaurantName}
         reservation={selectedTable ? nextReservationByTableId[selectedTable.id] : null}
@@ -785,8 +827,11 @@ const FloorPlan = () => {
         statusUpdating={statusUpdating}
         canManageTables={canAccess(user, PERMISSIONS.MANAGE_TABLES)}
         canManageReservations={canAccess(user, PERMISSIONS.MANAGE_RESERVATIONS)}
-        onClose={() => setSelectedTable(null)}
+        onClose={handleCloseDrawer}
         onStatusChange={handleStatusChange}
+        onTableCreated={handleTableCreated}
+        onTableSaved={handleTableMutated}
+        onTableDeleted={handleTableMutated}
       />
     </div>
   );
