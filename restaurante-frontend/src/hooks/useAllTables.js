@@ -7,7 +7,7 @@ import { extractArray } from '../lib/apiHelpers';
  * Carga los restaurantes visibles y, para cada uno, sus mesas
  * (no existe un endpoint global GET /tables).
  */
-export const useAllTables = () => {
+export const useAllTables = ({ auto = true } = {}) => {
   const [restaurants, setRestaurants] = useState([]);
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -46,9 +46,10 @@ export const useAllTables = () => {
   }, []);
 
   useEffect(() => {
+    if (!auto) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchAll();
-  }, [fetchAll]);
+  }, [auto, fetchAll]);
 
   return { restaurants, tables, loading, error, refetch: fetchAll };
 };

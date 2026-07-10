@@ -5,7 +5,6 @@ import { ROLE_LABELS, normalizeRole } from '../config/permissions';
 
 // ─── Mapa de breadcrumbs ──────────────────────────────────────────────────
 const breadcrumbMap = {
-  '/dashboard': { parent: null, label: 'Inicio' },
   '/inicio': { parent: null, label: 'Inicio' },
   '/restaurants': { parent: null, label: 'Restaurantes' },
   '/tables': { parent: null, label: 'Gestión de mesas' },
@@ -13,8 +12,6 @@ const breadcrumbMap = {
   '/employees': { parent: null, label: 'Empleados' },
   '/reservations': { parent: null, label: 'Reservas' },
   '/floor-plan': { parent: null, label: 'Plano de sala' },
-  '/notifications': { parent: null, label: 'Notificaciones' },
-  '/analytics': { parent: null, label: 'Analítica' },
 };
 
 const parentLabels = {

@@ -144,7 +144,7 @@ const Inicio = () => {
   const navigate = useNavigate();
   const canViewTrends = canAccess(user, PERMISSIONS.VIEW_ANALYTICS);
 
-  const { restaurants, tables, loading: tablesLoading, error: tablesError, refetch: refetchTables } = useAllTables();
+  const { restaurants, tables, loading: tablesLoading, error: tablesError, refetch: refetchTables } = useAllTables({ auto: false });
   const [reservations, setReservations] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
