@@ -104,3 +104,19 @@ export const updateReservationStatus = async (id, status) => {
     throw handleError(error);
   }
 };
+
+/**
+ * Obtiene las reservas de un restaurante para una fecha concreta.
+ * @param {number} restaurantId
+ * @param {string} date - formato YYYY-MM-DD
+ */
+export const getReservationsByRestaurantAndDate = async (restaurantId, date) => {
+  try {
+    const response = await api.get(`/restaurants/${restaurantId}/reservations`, {
+      params: { date },
+    });
+    return extractData(response);
+  } catch (error) {
+    throw handleError(error);
+  }
+};

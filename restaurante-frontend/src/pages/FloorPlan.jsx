@@ -11,6 +11,7 @@ import {
   getFloorPlanElements,
   saveFloorPlanElements,
 } from '../services/floorPlanService';
+import { getReservationsByRestaurantAndDate } from '../services/reservationService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
 import FloorPlanCanvas from '../components/FloorPlanCanvas';
 
@@ -30,6 +31,23 @@ const FILTER_OPTIONS = [
   { value: 'MAINTENANCE', label: 'Mantenimiento' },
 ];
 
+// ─── Fecha de hoy en formato YYYY-MM-DD (huso horario local) ──────────────
+const getTodayDateStr = () => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// ─── Hora actual en formato HH:mm:ss para comparar con reservationTime ────
+const getNowTimeStr = () => {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mi}:00`;
+};
+
 // ─── Componente principal ───────────────────────────────────────────────────
 const FloorPlan = () => {
   const { user } = useAuth();
@@ -41,6 +59,7 @@ const FloorPlan = () => {
   const [selectedRestaurantName, setSelectedRestaurantName] = useState('');
   const [tables, setTables] = useState([]);
   const [elements, setElements] = useState([]);
+  const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [error, setError] = useState(null);
@@ -91,12 +110,17 @@ const FloorPlan = () => {
       setError(null);
       setTables([]);
       setElements([]);
+      setReservations([]);
 
       try {
-        const [tablesData, elementsData] = await Promise.all([
+        const [tablesData, elementsData, reservationsData] = await Promise.all([
           getTablesByRestaurant(Number(selectedRestaurantId)),
           getFloorPlanElements(Number(selectedRestaurantId)).catch((err) => {
             console.warn('[FloorPlan] No se pudieron cargar los elementos del plano:', err?.message);
+            return [];
+          }),
+          getReservationsByRestaurantAndDate(Number(selectedRestaurantId), getTodayDateStr()).catch((err) => {
+            console.warn('[FloorPlan] No se pudieron cargar las reservas de hoy:', err?.message);
             return [];
           }),
         ]);
@@ -104,6 +128,7 @@ const FloorPlan = () => {
           const tableList = Array.isArray(tablesData) ? tablesData : [];
           setTables(tableList);
           setElements(Array.isArray(elementsData) ? elementsData : []);
+          setReservations(Array.isArray(reservationsData) ? reservationsData : []);
         }
       } catch {
         if (mounted) {
@@ -174,6 +199,35 @@ const FloorPlan = () => {
     return { total, available, reserved, occupied, outOfService };
   }, [tables]);
 
+  // ── Reservas de hoy agrupadas por mesa (PENDING/CONFIRMED, orden por hora) ──
+  const reservationsByTableId = useMemo(() => {
+    const map = {};
+    reservations
+      .filter((r) => r.status === 'PENDING' || r.status === 'CONFIRMED')
+      .forEach((r) => {
+        if (!r.diningTableId) return;
+        if (!map[r.diningTableId]) map[r.diningTableId] = [];
+        map[r.diningTableId].push(r);
+      });
+    Object.values(map).forEach((list) =>
+      list.sort((a, b) => String(a.reservationTime).localeCompare(String(b.reservationTime)))
+    );
+    return map;
+  }, [reservations]);
+
+  // ── Próxima reserva de hoy por mesa (o la última en curso si todas pasaron) ──
+  // Aún sin consumir en esta tarea (solo carga de datos); lo usará Task 5/6.
+  // eslint-disable-next-line no-unused-vars
+  const nextReservationByTableId = useMemo(() => {
+    const nowStr = getNowTimeStr();
+    const map = {};
+    Object.entries(reservationsByTableId).forEach(([tableId, list]) => {
+      const upcoming = list.find((r) => String(r.reservationTime) >= nowStr);
+      map[tableId] = upcoming || list[list.length - 1];
+    });
+    return map;
+  }, [reservationsByTableId]);
+
   // ── Cambiar estado de mesa ──────────────────────────────────────────────
   const handleStatusChange = async (table, newStatus) => {
     setStatusUpdating(table.id);
@@ -243,12 +297,14 @@ const FloorPlan = () => {
    */
   const reloadPlanData = useCallback(async () => {
     if (!selectedRestaurantId) return;
-    const [tablesData, elementsData] = await Promise.all([
+    const [tablesData, elementsData, reservationsData] = await Promise.all([
       getTablesByRestaurant(Number(selectedRestaurantId)),
       getFloorPlanElements(Number(selectedRestaurantId)).catch(() => []),
+      getReservationsByRestaurantAndDate(Number(selectedRestaurantId), getTodayDateStr()).catch(() => []),
     ]);
     setTables(Array.isArray(tablesData) ? tablesData : []);
     setElements(Array.isArray(elementsData) ? elementsData : []);
+    setReservations(Array.isArray(reservationsData) ? reservationsData : []);
     setCanvasReloadKey((prev) => prev + 1);
   }, [selectedRestaurantId]);
 
