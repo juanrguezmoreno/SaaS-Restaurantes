@@ -30,9 +30,6 @@ const FILTER_OPTIONS = [
   { value: 'MAINTENANCE', label: 'Mantenimiento' },
 ];
 
-// ─── Orden canónico para ubicaciones ────────────────────────────────────────
-const ZONE_ORDER = ['Sala', 'Sala principal', 'Interior', 'Terraza', 'Exterior', 'VIP', 'Sin ubicación'];
-
 // ─── Componente principal ───────────────────────────────────────────────────
 const FloorPlan = () => {
   const { user } = useAuth();
@@ -51,10 +48,8 @@ const FloorPlan = () => {
   const [statusUpdating, setStatusUpdating] = useState(null);
 
   // ── Estados de UI ─────────────────────────────────────────────────────────
-  const [viewMode, setViewMode] = useState('visual');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [collapsedZones, setCollapsedZones] = useState(() => new Set());
 
   // ── Estados del plano interactivo ─────────────────────────────────────────
   const [isEditMode, setIsEditMode] = useState(false);
@@ -109,8 +104,6 @@ const FloorPlan = () => {
           const tableList = Array.isArray(tablesData) ? tablesData : [];
           setTables(tableList);
           setElements(Array.isArray(elementsData) ? elementsData : []);
-          // Auto-detectar vista según cantidad de mesas
-          setViewMode(tableList.length > 8 ? 'compact' : 'visual');
         }
       } catch {
         if (mounted) {
@@ -171,33 +164,6 @@ const FloorPlan = () => {
     return result;
   }, [tables, filterStatus, searchQuery, getStatusInfo]);
 
-  // ── Agrupar mesas filtradas por ubicación ───────────────────────────────
-  const groupedTables = useMemo(() => {
-    const groups = {};
-
-    filteredTables.forEach((table) => {
-      const location = table.location && table.location.trim() !== ''
-        ? table.location.trim()
-        : 'Sin ubicación';
-      if (!groups[location]) {
-        groups[location] = [];
-      }
-      groups[location].push(table);
-    });
-
-    // Ordenar grupos según ZONE_ORDER, el resto va al final
-    const sorted = Object.entries(groups).sort(([a], [b]) => {
-      const ai = ZONE_ORDER.indexOf(a);
-      const bi = ZONE_ORDER.indexOf(b);
-      if (ai !== -1 && bi !== -1) return ai - bi;
-      if (ai !== -1) return -1;
-      if (bi !== -1) return 1;
-      return a.localeCompare(b);
-    });
-
-    return sorted;
-  }, [filteredTables]);
-
   // ── Resumen de estados ──────────────────────────────────────────────────
   const summary = useMemo(() => {
     const total = tables.length;
@@ -207,16 +173,6 @@ const FloorPlan = () => {
     const outOfService = tables.filter((t) => t.status === 'MAINTENANCE').length;
     return { total, available, reserved, occupied, outOfService };
   }, [tables]);
-
-  // ── Resumen de estados por zona ─────────────────────────────────────────
-  const getZoneSummary = useCallback((zoneTables) => {
-    const total = zoneTables.length;
-    const available = zoneTables.filter((t) => t.status === 'AVAILABLE').length;
-    const reserved = zoneTables.filter((t) => t.status === 'RESERVED').length;
-    const occupied = zoneTables.filter((t) => t.status === 'OCCUPIED').length;
-    const maintenance = zoneTables.filter((t) => t.status === 'MAINTENANCE').length;
-    return { total, available, reserved, occupied, maintenance };
-  }, []);
 
   // ── Cambiar estado de mesa ──────────────────────────────────────────────
   const handleStatusChange = async (table, newStatus) => {
@@ -237,19 +193,6 @@ const FloorPlan = () => {
       setStatusUpdating(null);
     }
   };
-
-  // ── Alternar colapso de zona ────────────────────────────────────────────
-  const toggleZoneCollapse = useCallback((zoneName) => {
-    setCollapsedZones((prev) => {
-      const next = new Set(prev);
-      if (next.has(zoneName)) {
-        next.delete(zoneName);
-      } else {
-        next.add(zoneName);
-      }
-      return next;
-    });
-  }, []);
 
   // ── Refs y estados para el plano interactivo ──────────────────────────────
   const canvasSaveRef = useRef(null);
@@ -388,145 +331,6 @@ const FloorPlan = () => {
     }
   }, [selectedRestaurantId, layoutDirty, showToast, reloadPlanData]);
 
-  // ── Render: Card en vista visual (SVG) ──────────────────────────────────
-  const renderVisualCard = (table) => {
-    const statusInfo = getStatusInfo(table.status);
-    const location = table.location && table.location.trim() !== '' ? table.location.trim() : 'Sin ubicación';
-    return (
-      <div
-        key={table.id}
-        className={`fp-card fp-card-visual ${statusInfo.class}`}
-        onClick={() => setSelectedTable(table)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTable(table); } }}
-        title={`Mesa ${table.tableNumber || table.id} — ${statusInfo.label}`}
-      >
-        <div className="fp-card-top">
-          <span className="fp-card-dot" style={{ backgroundColor: statusInfo.color }} />
-          <span className="fp-card-status-label">{statusInfo.label}</span>
-        </div>
-
-        <div className="fp-card-icon-wrap" style={{ color: statusInfo.color }}>
-          <svg viewBox="0 0 48 48" fill="none" stroke={statusInfo.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="fp-card-svg">
-            <rect x="10" y="18" width="28" height="20" rx="3" strokeWidth="1.3" />
-            <line x1="14" y1="38" x2="12" y2="44" strokeWidth="1.3" />
-            <line x1="34" y1="38" x2="36" y2="44" strokeWidth="1.3" />
-            <rect x="4" y="8" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <rect x="36" y="8" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <rect x="20" y="4" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <rect x="20" y="28" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <text x="24" y="38" textAnchor="middle" fontSize="9" fontWeight="700" fill={statusInfo.color}>
-              {table.capacity || '—'}
-            </text>
-          </svg>
-        </div>
-
-        <div className="fp-card-info">
-          <div className="fp-card-title">Mesa {table.tableNumber || table.id}</div>
-          <div className="fp-card-meta">
-            <span>{table.capacity || '—'} pers.</span>
-            <span className="fp-card-sep">·</span>
-            <span>{location}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Render: Card en vista compacta ──────────────────────────────────────
-  const renderCompactCard = (table) => {
-    const statusInfo = getStatusInfo(table.status);
-    const location = table.location && table.location.trim() !== '' ? table.location.trim() : '';
-    return (
-      <div
-        key={table.id}
-        className={`fp-card-compact ${statusInfo.class}`}
-        onClick={() => setSelectedTable(table)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTable(table); } }}
-        title={`Mesa ${table.tableNumber || table.id} — ${statusInfo.label}`}
-      >
-        <div className="fp-compact-indicator" style={{ backgroundColor: statusInfo.color }} />
-        <div className="fp-compact-body">
-          <div className="fp-compact-top">
-            <span className="fp-compact-name">Mesa {table.tableNumber || table.id}</span>
-            <span className="fp-compact-capacity">{table.capacity || '—'}</span>
-          </div>
-          <div className="fp-compact-bottom">
-            <span className="fp-compact-status" style={{ color: statusInfo.color }}>
-              {statusInfo.label}
-            </span>
-            {location && (
-              <>
-                <span className="fp-compact-sep">·</span>
-                <span className="fp-compact-location">{location}</span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Render de zona (con colapso) ────────────────────────────────────────
-  const renderZone = ([zoneName, zoneTables]) => {
-    const zoneKey = zoneName.toLowerCase().replace(/\s+/g, '-');
-    const isCollapsed = collapsedZones.has(zoneName);
-    const zs = getZoneSummary(zoneTables);
-
-    return (
-      <div key={zoneKey} className={`fp-zone ${isCollapsed ? 'fp-zone-collapsed' : ''}`}>
-        <button
-          className="fp-zone-header"
-          onClick={() => toggleZoneCollapse(zoneName)}
-          type="button"
-          aria-expanded={!isCollapsed}
-          aria-controls={`zone-content-${zoneKey}`}
-        >
-          <svg
-            className="fp-zone-chevron"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="fp-zone-icon">
-            <rect x="3" y="3" width="7" height="7" />
-            <rect x="14" y="3" width="7" height="7" />
-            <rect x="3" y="14" width="7" height="7" />
-            <rect x="14" y="14" width="7" height="7" />
-          </svg>
-          <span className="fp-zone-name">{zoneName}</span>
-          <span className="fp-zone-summary">
-            {zs.total} mesa{zs.total !== 1 ? 's' : ''}
-            {zs.available > 0 && <span className="fp-zone-stat fp-zone-stat-available" title="Libres">{zs.available}</span>}
-            {zs.reserved > 0 && <span className="fp-zone-stat fp-zone-stat-reserved" title="Reservadas">{zs.reserved}</span>}
-            {zs.occupied > 0 && <span className="fp-zone-stat fp-zone-stat-occupied" title="Ocupadas">{zs.occupied}</span>}
-            {zs.maintenance > 0 && <span className="fp-zone-stat fp-zone-stat-maintenance" title="Mantenimiento">{zs.maintenance}</span>}
-          </span>
-        </button>
-
-        <div
-          id={`zone-content-${zoneKey}`}
-          className={`fp-zone-content ${isCollapsed ? 'fp-zone-content-hidden' : ''}`}
-        >
-          <div className={viewMode === 'compact' ? 'fp-grid-compact' : 'fp-grid-visual'}>
-            {zoneTables.map(viewMode === 'compact' ? renderCompactCard : renderVisualCard)}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // ── Render principal ────────────────────────────────────────────────────
   return (
     <div className="fp-container">
@@ -535,9 +339,7 @@ const FloorPlan = () => {
         <div>
           <h1>Plano del Restaurante</h1>
           <p className="fp-header-subtitle">
-            {viewMode === 'interactive'
-              ? 'Plano interactivo con mesas posicionadas en el espacio del restaurante'
-              : `Vista ${viewMode === 'compact' ? 'compacta' : 'visual'} de las mesas agrupadas por ubicación`}
+            Plano interactivo con mesas posicionadas en el espacio del restaurante
           </p>
         </div>
       </div>
@@ -565,57 +367,6 @@ const FloorPlan = () => {
               ))}
             </select>
           </div>
-
-          {/* ─── View Mode Toggle ──────────────────────────────────── */}
-          {tables.length > 0 && (
-            <div className="fp-view-toggle" role="group" aria-label="Cambiar vista">
-              <button
-                className={`fp-view-toggle-btn ${viewMode === 'visual' ? 'active' : ''}`}
-                onClick={() => { setViewMode('visual'); setIsEditMode(false); }}
-                type="button"
-                title="Vista visual con SVG de mesas"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="3" y="14" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                </svg>
-                Visual
-              </button>
-              <button
-                className={`fp-view-toggle-btn ${viewMode === 'compact' ? 'active' : ''}`}
-                onClick={() => { setViewMode('compact'); setIsEditMode(false); }}
-                type="button"
-                title="Vista compacta para muchas mesas"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="8" y1="6" x2="21" y2="6" />
-                  <line x1="8" y1="12" x2="21" y2="12" />
-                  <line x1="8" y1="18" x2="21" y2="18" />
-                  <line x1="3" y1="6" x2="3.01" y2="6" />
-                  <line x1="3" y1="12" x2="3.01" y2="12" />
-                  <line x1="3" y1="18" x2="3.01" y2="18" />
-                </svg>
-                Compacta
-              </button>
-              <button
-                className={`fp-view-toggle-btn ${viewMode === 'interactive' ? 'active' : ''}`}
-                onClick={() => setViewMode('interactive')}
-                type="button"
-                title="Plano interactivo con mesas posicionadas"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="8" cy="8" r="2" />
-                  <circle cx="16" cy="8" r="2" />
-                  <circle cx="8" cy="16" r="2" />
-                  <circle cx="16" cy="16" r="2" />
-                </svg>
-                Plano
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ─── Summary Bar ─────────────────────────────────────────── */}
@@ -746,7 +497,7 @@ const FloorPlan = () => {
       )}
 
       {/* ═══ Edit mode toolbar (solo en modo interactivo) ════════════════ */}
-      {viewMode === 'interactive' && tables.length > 0 && (
+      {tables.length > 0 && (
         <div className="fp-edit-toolbar">
           <div className="fp-edit-toolbar-left">
             {canAccess(user, PERMISSIONS.MANAGE_FLOOR_PLAN) && (
@@ -942,7 +693,7 @@ const FloorPlan = () => {
       )}
 
       {/* ═══ Plano interactivo (modo canvas) ════════════════════════════ */}
-      {!loadingRestaurants && !loading && filteredTables.length > 0 && viewMode === 'interactive' && (
+      {!loadingRestaurants && !loading && filteredTables.length > 0 && (
         <div className="fp-canvas-container">
           <FloorPlanCanvas
             key={`canvas-${selectedRestaurantId}-${canvasReloadKey}`}
@@ -956,13 +707,6 @@ const FloorPlan = () => {
             onLayoutChange={handleLayoutChange}
             saving={savingLayout}
           />
-        </div>
-      )}
-
-      {/* ═══ Plano por zonas (vista visual/compacta) ════════════════════ */}
-      {!loadingRestaurants && !loading && filteredTables.length > 0 && viewMode !== 'interactive' && (
-        <div className="fp-plan">
-          {groupedTables.map(renderZone)}
         </div>
       )}
 
