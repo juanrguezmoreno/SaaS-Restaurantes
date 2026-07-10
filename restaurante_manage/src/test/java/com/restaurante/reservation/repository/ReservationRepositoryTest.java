@@ -160,4 +160,57 @@ class ReservationRepositoryTest {
 
         assertTrue(conflictos.isEmpty());
     }
+
+    @Test
+    void filtraReservasPorRestauranteYFechaExacta() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.CONFIRMED);
+        crearReserva(mesa2, DATE, TIME.plusHours(1), ReservationStatus.PENDING);
+        crearReserva(mesa1, DATE.plusDays(1), TIME, ReservationStatus.CONFIRMED);
+
+        List<Reservation> resultado = repository
+                .findByRestaurantIdAndReservationDateAndDeletedFalse(restaurant.getId(), DATE);
+
+        assertEquals(2, resultado.size());
+    }
+
+    @Test
+    void noDevuelveReservasBorradasLogicamenteParaLaFecha() {
+        Reservation borrada = crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+        borrada.setDeleted(true);
+        borrada.setDeletedAt(LocalDateTime.now());
+        em.persistAndFlush(borrada);
+
+        List<Reservation> resultado = repository
+                .findByRestaurantIdAndReservationDateAndDeletedFalse(restaurant.getId(), DATE);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void noDevuelveReservasDeOtroRestaurante() {
+        Restaurant otro = new Restaurant();
+        otro.setName("Otro Restaurante");
+        em.persist(otro);
+        DiningTable mesaOtro = new DiningTable();
+        mesaOtro.setRestaurant(otro);
+        mesaOtro.setTableNumber("X1");
+        mesaOtro.setCapacity(2);
+        em.persist(mesaOtro);
+        em.flush();
+
+        Reservation r = new Reservation();
+        r.setCustomer(customer);
+        r.setRestaurant(otro);
+        r.setDiningTable(mesaOtro);
+        r.setReservationDate(DATE);
+        r.setReservationTime(TIME);
+        r.setPartySize(2);
+        r.setStatus(ReservationStatus.CONFIRMED);
+        em.persistAndFlush(r);
+
+        List<Reservation> resultado = repository
+                .findByRestaurantIdAndReservationDateAndDeletedFalse(restaurant.getId(), DATE);
+
+        assertTrue(resultado.isEmpty());
+    }
 }

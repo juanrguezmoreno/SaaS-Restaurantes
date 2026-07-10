@@ -33,6 +33,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     Page<Reservation> findByRestaurantIdInAndDeletedFalse(Set<Long> restaurantIds, Pageable pageable);
 
+    List<Reservation> findByRestaurantIdAndReservationDateAndDeletedFalse(Long restaurantId, LocalDate date);
+
     long countByStatusAndDeletedFalse(ReservationStatus status);
 
     // ─── Queries para gestión de disponibilidad y liberación de mesas ───
