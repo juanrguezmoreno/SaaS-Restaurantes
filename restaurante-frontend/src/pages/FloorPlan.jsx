@@ -295,17 +295,21 @@ const FloorPlan = () => {
    * Recarga mesas y elementos del servidor y remonta el canvas para
    * descartar cualquier estado local (posiciones, formas, elementos).
    */
+  // Devuelve el array de mesas recién obtenido para permitir a los callers
+  // re-seleccionar una mesa concreta sin depender del próximo render.
   const reloadPlanData = useCallback(async () => {
-    if (!selectedRestaurantId) return;
+    if (!selectedRestaurantId) return [];
     const [tablesData, elementsData, reservationsData] = await Promise.all([
       getTablesByRestaurant(Number(selectedRestaurantId)),
       getFloorPlanElements(Number(selectedRestaurantId)).catch(() => []),
       getReservationsByRestaurantAndDate(Number(selectedRestaurantId), getTodayDateStr()).catch(() => []),
     ]);
-    setTables(Array.isArray(tablesData) ? tablesData : []);
+    const tableList = Array.isArray(tablesData) ? tablesData : [];
+    setTables(tableList);
     setElements(Array.isArray(elementsData) ? elementsData : []);
     setReservations(Array.isArray(reservationsData) ? reservationsData : []);
     setCanvasReloadKey((prev) => prev + 1);
+    return tableList;
   }, [selectedRestaurantId]);
 
   const handleCloseDrawer = useCallback(() => {
@@ -325,15 +329,45 @@ const FloorPlan = () => {
       if (created?.id) {
         setSelectedTable(created);
       }
+      showToast('Mesa creada correctamente.', 'success');
     },
-    [reloadPlanData]
+    [reloadPlanData, showToast]
   );
 
-  const handleTableMutated = useCallback(async () => {
+  // Usado solo al eliminar mesa: cierra el drawer, ya que la mesa
+  // seleccionada deja de existir.
+  const handleTableDeleted = useCallback(async () => {
     setSelectedTable(null);
     setIsCreatingTable(false);
     await reloadPlanData();
-  }, [reloadPlanData]);
+    showToast('Mesa eliminada correctamente.', 'success');
+  }, [reloadPlanData, showToast]);
+
+  // Usado al editar una mesa: recarga los datos y vuelve a seleccionar la
+  // misma mesa (con los datos frescos) para que el drawer permanezca
+  // abierto en modo Detalle, en vez de cerrarse.
+  const handleTableEdited = useCallback(
+    async (tableId) => {
+      const freshTables = await reloadPlanData();
+      const updated = freshTables.find((t) => t.id === tableId) || null;
+      setSelectedTable(updated);
+      showToast('Mesa actualizada correctamente.', 'success');
+    },
+    [reloadPlanData, showToast]
+  );
+
+  // Usado al editar una reserva: la mesa seleccionada no cambia, solo las
+  // reservas asociadas, así que basta con recargar datos sin tocar
+  // `selectedTable` para que el drawer permanezca abierto.
+  const handleReservationSaved = useCallback(async () => {
+    await reloadPlanData();
+    showToast('Reserva actualizada correctamente.', 'success');
+  }, [reloadPlanData, showToast]);
+
+  const handleReservationCancelled = useCallback(async () => {
+    await reloadPlanData();
+    showToast('Reserva cancelada correctamente.', 'success');
+  }, [reloadPlanData, showToast]);
 
   /**
    * Sale del modo edición sin guardar. Recarga el estado del servidor.
@@ -832,8 +866,10 @@ const FloorPlan = () => {
         onClose={handleCloseDrawer}
         onStatusChange={handleStatusChange}
         onTableCreated={handleTableCreated}
-        onTableSaved={handleTableMutated}
-        onTableDeleted={handleTableMutated}
+        onTableSaved={() => handleTableEdited(selectedTable?.id)}
+        onTableDeleted={handleTableDeleted}
+        onReservationSaved={handleReservationSaved}
+        onReservationCancelled={handleReservationCancelled}
       />
     </div>
   );

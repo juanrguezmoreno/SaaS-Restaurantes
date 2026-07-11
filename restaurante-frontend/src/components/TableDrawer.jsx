@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createTable, updateTable, deleteTable } from '../services/tableService';
+import { updateReservation, deleteReservation } from '../services/reservationService';
 
 // ─── Formateo ────────────────────────────────────────────────────────────
 const formatTime = (timeStr) => (timeStr ? String(timeStr).substring(0, 5) : '—');
@@ -29,6 +30,25 @@ const getErrorMessage = (err) => {
   return 'Error al procesar la solicitud.';
 };
 
+const RESERVATION_STATUS_OPTIONS = [
+  { value: 'PENDING', label: 'Pendiente' },
+  { value: 'CONFIRMED', label: 'Confirmada' },
+  { value: 'CANCELLED', label: 'Cancelada' },
+  { value: 'COMPLETED', label: 'Completada' },
+  { value: 'NO_SHOW', label: 'No presentado' },
+];
+
+const validateReservationForm = (form) => {
+  const errors = {};
+  if (!form.reservationDate) errors.reservationDate = 'La fecha es obligatoria.';
+  if (!form.reservationTime) errors.reservationTime = 'La hora es obligatoria.';
+  const partySize = Number(form.partySize);
+  if (!form.partySize || partySize < 1 || !Number.isInteger(partySize)) {
+    errors.partySize = 'Debe ser un número entero mayor a 0.';
+  }
+  return errors;
+};
+
 const TableDrawer = ({
   open,
   table,
@@ -40,13 +60,14 @@ const TableDrawer = ({
   getStatusInfo,
   statusUpdating,
   canManageTables,
-  // eslint-disable-next-line no-unused-vars -- usado por los modos de las tareas 7/8
   canManageReservations,
   onClose,
   onStatusChange,
   onTableCreated,
   onTableSaved,
   onTableDeleted,
+  onReservationSaved,
+  onReservationCancelled,
 }) => {
   const [mode, setMode] = useState('detail');
   const [tableForm, setTableForm] = useState(EMPTY_TABLE_FORM);
@@ -54,6 +75,11 @@ const TableDrawer = ({
   const [savingTable, setSavingTable] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletingTable, setDeletingTable] = useState(false);
+  const [reservationForm, setReservationForm] = useState(null);
+  const [reservationFormErrors, setReservationFormErrors] = useState({});
+  const [savingReservation, setSavingReservation] = useState(false);
+  const [confirmingCancelReservation, setConfirmingCancelReservation] = useState(false);
+  const [cancelingReservation, setCancelingReservation] = useState(false);
 
   // Al cambiar de mesa (o al pasar a modo creación) siempre se vuelve a 'detail'
   useEffect(() => {
@@ -61,6 +87,8 @@ const TableDrawer = ({
     setMode(isCreating ? 'create-table' : 'detail');
     setConfirmingDelete(false);
     setTableFormErrors({});
+    setConfirmingCancelReservation(false);
+    setReservationFormErrors({});
     if (isCreating) {
       setTableForm(EMPTY_TABLE_FORM);
     } else if (table) {
@@ -159,6 +187,79 @@ const TableDrawer = ({
     }
   };
 
+  const handleStartEditReservation = () => {
+    if (!reservation) return;
+    setReservationForm({
+      reservationDate: reservation.reservationDate
+        ? String(reservation.reservationDate).substring(0, 10)
+        : '',
+      reservationTime: reservation.reservationTime
+        ? String(reservation.reservationTime).substring(0, 5)
+        : '',
+      partySize: reservation.partySize ?? '2',
+      notes: reservation.notes || '',
+      status: reservation.status || 'PENDING',
+    });
+    setReservationFormErrors({});
+    setMode('edit-reservation');
+  };
+
+  const handleReservationFormChange = (e) => {
+    const { name, value } = e.target;
+    setReservationForm((prev) => ({ ...prev, [name]: value }));
+    setReservationFormErrors((prev) => {
+      if (!prev[name]) return prev;
+      const updated = { ...prev };
+      delete updated[name];
+      return updated;
+    });
+  };
+
+  const handleSubmitReservationForm = async (e) => {
+    e.preventDefault();
+    const errors = validateReservationForm(reservationForm);
+    if (Object.keys(errors).length > 0) {
+      setReservationFormErrors(errors);
+      return;
+    }
+
+    setSavingReservation(true);
+    setReservationFormErrors({});
+    try {
+      const payload = {
+        customerId: reservation.customerId,
+        restaurantId: Number(restaurantId),
+        diningTableId: reservation.diningTableId,
+        reservationDate: reservationForm.reservationDate,
+        reservationTime: `${String(reservationForm.reservationTime).substring(0, 5)}:00`,
+        partySize: Number(reservationForm.partySize),
+        notes: (reservationForm.notes || '').trim(),
+        status: reservationForm.status || 'PENDING',
+      };
+      await updateReservation(reservation.id, payload);
+      setMode('detail');
+      if (onReservationSaved) onReservationSaved();
+    } catch (err) {
+      setReservationFormErrors({ submit: getErrorMessage(err) });
+    } finally {
+      setSavingReservation(false);
+    }
+  };
+
+  const handleConfirmCancelReservation = async () => {
+    if (!reservation) return;
+    setCancelingReservation(true);
+    try {
+      await deleteReservation(reservation.id);
+      setConfirmingCancelReservation(false);
+      if (onReservationCancelled) onReservationCancelled();
+    } catch (err) {
+      setReservationFormErrors({ submit: getErrorMessage(err) });
+    } finally {
+      setCancelingReservation(false);
+    }
+  };
+
   if (!open) return null;
 
   const statusInfo = table ? getStatusInfo(table.status) : null;
@@ -233,6 +334,23 @@ const TableDrawer = ({
                   <div className="table-drawer-row">
                     <span className="table-drawer-label">Notas</span>
                     <span className="table-drawer-value">{reservation.notes}</span>
+                  </div>
+                )}
+                {canManageReservations && (
+                  <div className="table-drawer-action-buttons">
+                    <button className="btn btn-outline-primary btn-sm" onClick={handleStartEditReservation} type="button">
+                      Editar reserva
+                    </button>
+                    <button
+                      className="btn btn-outline-danger btn-sm"
+                      onClick={() => {
+                        setReservationFormErrors({});
+                        setConfirmingCancelReservation(true);
+                      }}
+                      type="button"
+                    >
+                      Cancelar reserva
+                    </button>
                   </div>
                 )}
               </div>
@@ -408,6 +526,135 @@ const TableDrawer = ({
                 type="button"
                 disabled={savingTable}
                 onClick={() => (mode === 'create-table' ? handleClose() : setMode('detail'))}
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        )}
+
+        {mode === 'detail' && reservation && confirmingCancelReservation && (
+          <div className="table-drawer-danger-zone">
+            <p className="table-drawer-section-title">Cancelar reserva</p>
+            <p className="table-drawer-danger-text">
+              Se cancelará la reserva de {reservation.customerName || 'este cliente'} a las{' '}
+              {formatTime(reservation.reservationTime)}.
+            </p>
+            {reservationFormErrors.submit && (
+              <div className="alert alert-danger py-2 px-3 small">{reservationFormErrors.submit}</div>
+            )}
+            <div className="table-drawer-action-buttons">
+              <button
+                className="btn btn-danger btn-sm"
+                onClick={handleConfirmCancelReservation}
+                disabled={cancelingReservation}
+                type="button"
+              >
+                {cancelingReservation ? 'Cancelando...' : 'Confirmar cancelación'}
+              </button>
+              <button
+                className="btn btn-outline-secondary btn-sm"
+                onClick={() => {
+                  setReservationFormErrors({});
+                  setConfirmingCancelReservation(false);
+                }}
+                disabled={cancelingReservation}
+                type="button"
+              >
+                Volver
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'edit-reservation' && reservationForm && (
+          <form onSubmit={handleSubmitReservationForm} className="table-drawer-form">
+            <div className="mb-3">
+              <label className="form-label" htmlFor="drawer-res-date">Fecha</label>
+              <input
+                id="drawer-res-date"
+                name="reservationDate"
+                type="date"
+                className={`form-control ${reservationFormErrors.reservationDate ? 'is-invalid' : ''}`}
+                value={reservationForm.reservationDate}
+                onChange={handleReservationFormChange}
+              />
+              {reservationFormErrors.reservationDate && (
+                <div className="invalid-feedback">{reservationFormErrors.reservationDate}</div>
+              )}
+            </div>
+
+            <div className="mb-3">
+              <label className="form-label" htmlFor="drawer-res-time">Hora</label>
+              <input
+                id="drawer-res-time"
+                name="reservationTime"
+                type="time"
+                className={`form-control ${reservationFormErrors.reservationTime ? 'is-invalid' : ''}`}
+                value={reservationForm.reservationTime}
+                onChange={handleReservationFormChange}
+              />
+              {reservationFormErrors.reservationTime && (
+                <div className="invalid-feedback">{reservationFormErrors.reservationTime}</div>
+              )}
+            </div>
+
+            <div className="mb-3">
+              <label className="form-label" htmlFor="drawer-res-party">Comensales</label>
+              <input
+                id="drawer-res-party"
+                name="partySize"
+                type="number"
+                min="1"
+                className={`form-control ${reservationFormErrors.partySize ? 'is-invalid' : ''}`}
+                value={reservationForm.partySize}
+                onChange={handleReservationFormChange}
+              />
+              {reservationFormErrors.partySize && (
+                <div className="invalid-feedback">{reservationFormErrors.partySize}</div>
+              )}
+            </div>
+
+            <div className="mb-3">
+              <label className="form-label" htmlFor="drawer-res-notes">Notas</label>
+              <textarea
+                id="drawer-res-notes"
+                name="notes"
+                className="form-control"
+                rows={2}
+                value={reservationForm.notes}
+                onChange={handleReservationFormChange}
+              />
+            </div>
+
+            <div className="mb-3">
+              <label className="form-label" htmlFor="drawer-res-status">Estado</label>
+              <select
+                id="drawer-res-status"
+                name="status"
+                className="form-select"
+                value={reservationForm.status}
+                onChange={handleReservationFormChange}
+              >
+                {RESERVATION_STATUS_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {reservationFormErrors.submit && (
+              <div className="alert alert-danger py-2 px-3 small">{reservationFormErrors.submit}</div>
+            )}
+
+            <div className="table-drawer-action-buttons">
+              <button className="btn btn-primary btn-sm" type="submit" disabled={savingReservation}>
+                {savingReservation ? 'Guardando...' : 'Guardar'}
+              </button>
+              <button
+                className="btn btn-outline-secondary btn-sm"
+                type="button"
+                disabled={savingReservation}
+                onClick={() => setMode('detail')}
               >
                 Cancelar
               </button>

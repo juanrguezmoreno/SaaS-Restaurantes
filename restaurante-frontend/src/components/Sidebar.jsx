@@ -83,7 +83,6 @@ const navGroups = [
     title: 'ADMINISTRACIÓN',
     items: [
       { path: '/restaurants', label: 'Restaurantes', icon: 'restaurants' },
-      { path: '/tables', label: 'Gestión de mesas', icon: 'tables' },
       { path: '/employees', label: 'Empleados', icon: 'employees' },
     ],
   },

@@ -7,7 +7,6 @@ import { ROLE_LABELS, normalizeRole } from '../config/permissions';
 const breadcrumbMap = {
   '/inicio': { parent: null, label: 'Inicio' },
   '/restaurants': { parent: null, label: 'Restaurantes' },
-  '/tables': { parent: null, label: 'Gestión de mesas' },
   '/customers': { parent: null, label: 'Clientes' },
   '/employees': { parent: null, label: 'Empleados' },
   '/reservations': { parent: null, label: 'Reservas' },
