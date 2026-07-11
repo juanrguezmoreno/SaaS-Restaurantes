@@ -20,7 +20,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -93,13 +92,6 @@ public class ReservationController {
     public ResponseEntity<ApiResponse<ReservationResponse>> findById(@PathVariable Long id) {
         ReservationResponse response = reservationService.findById(id);
         return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    @GetMapping("/my")
-    @Operation(summary = "Mis reservas", description = "Obtiene las reservas del cliente autenticado")
-    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getMyReservations(Authentication authentication) {
-        // Simplificación: retorna todas por ahora. La lógica de filtrado por usuario se añadirá después.
-        return ResponseEntity.ok(ApiResponse.success(List.of()));
     }
 
     @PostMapping

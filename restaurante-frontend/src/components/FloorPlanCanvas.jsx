@@ -12,6 +12,7 @@ import { useState, useRef, useCallback, useMemo, useEffect, forwardRef, useImper
 //   elements        — Array de elementos decorativos del servidor
 //   editMode        — Si true, permite arrastrar y editar propiedades
 //   selectedTableId — ID de mesa seleccionada (opcional, modo vista)
+//   nextReservationByTableId — Mapa tableId → próxima reserva de hoy (modo vista)
 //   onTableClick    — Callback al hacer clic en una mesa (solo modo vista)
 //   onTableDragEnd  — Callback al terminar un arrastre de mesa (tableId, x, y)
 //   onLayoutChange  — Callback cuando cambia algo del layout (forma/elementos)
@@ -105,6 +106,11 @@ const getTableShape = (table, shapeOverride) => {
   return { w, h, borderRadius, shape };
 };
 
+/**
+ * "19:45:00" → "19:45"
+ */
+const formatReservationTime = (timeStr) => (timeStr ? String(timeStr).substring(0, 5) : '');
+
 // ═══ COMPONENTE PRINCIPAL ═══════════════════════════════════════════════════
 
 const FloorPlanCanvas = forwardRef(function FloorPlanCanvas(
@@ -113,6 +119,7 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas(
     elements = [],
     editMode = false,
     selectedTableId = null,
+    nextReservationByTableId = {},
     onTableClick,
     onTableDragEnd,
     onLayoutChange,
@@ -582,8 +589,22 @@ const FloorPlanCanvas = forwardRef(function FloorPlanCanvas(
                 {table.tableNumber || table.id}
               </span>
 
-              {/* Capacidad (en mesas con espacio suficiente) */}
-              {w >= 75 && h >= 75 && (
+              {/* Reserva de hoy (solo modo vista) */}
+              {!editMode && nextReservationByTableId[table.id] && (
+                <div className="fpc-table-reservation">
+                  <span className="fpc-table-reservation-name">
+                    {nextReservationByTableId[table.id].customerName || 'Reserva'}
+                  </span>
+                  <span className="fpc-table-reservation-meta">
+                    {formatReservationTime(nextReservationByTableId[table.id].reservationTime)}
+                    {' · '}
+                    {nextReservationByTableId[table.id].partySize || '—'}p
+                  </span>
+                </div>
+              )}
+
+              {/* Capacidad (en mesas con espacio suficiente y sin reserva mostrada) */}
+              {w >= 75 && h >= 75 && !(!editMode && nextReservationByTableId[table.id]) && (
                 <span className="fpc-table-capacity">
                   {table.capacity || '—'}
                 </span>

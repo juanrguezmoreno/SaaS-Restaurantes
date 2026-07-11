@@ -26,6 +26,9 @@ public final class Constants {
     // Floor plan (elementos decorativos del plano de sala)
     public static final String FLOOR_PLAN_ELEMENTS_SUBPATH = "/floor-plan/elements";
 
+    // Reservas de un restaurante (plano de sala)
+    public static final String RESTAURANT_RESERVATIONS_SUBPATH = "/reservations";
+
     // Customers
     public static final String CUSTOMERS_PATH = API_BASE_PATH + "/customers";
 
@@ -40,9 +43,6 @@ public final class Constants {
 
     // Availability
     public static final String AVAILABILITY_PATH = API_BASE_PATH + "/availability";
-
-    // Dashboard
-    public static final String DASHBOARD_PATH = API_BASE_PATH + "/dashboard";
 
     // Roles
     public static final String ROLE_SUPER_ADMIN = "ROLE_SUPER_ADMIN";

@@ -1,32 +1,9 @@
 import api from '../api/axios';
+import { extractData } from '../lib/apiHelpers';
 
 // ─── Endpoints ──────────────────────────────────────────────────────────────
 const getElementsEndpoint = (restaurantId) =>
   `/restaurants/${restaurantId}/floor-plan/elements`;
-
-// ─── Helpers de extracción (mismo patrón que tableService) ──────────────────
-
-/**
- * Extrae el array de datos de la respuesta del backend.
- * Soporta: array directo, { data: [...] }, { success, data: [...] }.
- */
-const extractData = (response) => {
-  if (!response || !response.data) {
-    return [];
-  }
-
-  const body = response.data;
-
-  if (Array.isArray(body)) {
-    return body;
-  }
-
-  if (body && Array.isArray(body.data)) {
-    return body.data;
-  }
-
-  return [];
-};
 
 /**
  * Normaliza el error para extraer un mensaje legible.

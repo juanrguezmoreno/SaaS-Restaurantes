@@ -192,4 +192,41 @@ class ReservationServiceTest {
         assertEquals(ReservationStatus.CONFIRMED, reserva.getStatus());
         assertEquals(table, reserva.getDiningTable());
     }
+
+    @Test
+    void findByRestaurantIdAndDate_validaAccesoYDelegaEnElRepositorio() {
+        LocalDate fecha = LocalDate.of(2026, 12, 31);
+        Reservation reserva = new Reservation();
+        reserva.setRestaurant(restaurant);
+        reserva.setDiningTable(table);
+        reserva.setCustomer(customer);
+        reserva.setReservationDate(fecha);
+        reserva.setReservationTime(TIME);
+        reserva.setPartySize(2);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+
+        when(reservationRepository.findByRestaurantIdAndReservationDateAndDeletedFalse(RESTAURANT_ID, fecha))
+                .thenReturn(List.of(reserva));
+        ReservationResponse response = new ReservationResponse();
+        when(reservationMapper.toResponse(reserva)).thenReturn(response);
+
+        List<ReservationResponse> resultado = service.findByRestaurantIdAndDate(RESTAURANT_ID, fecha);
+
+        assertEquals(1, resultado.size());
+        assertSame(response, resultado.get(0));
+        verify(currentUserService).validateRestaurantAccess(RESTAURANT_ID);
+    }
+
+    @Test
+    void findByRestaurantIdAndDate_propagaAccessDeniedSiNoTieneAcceso() {
+        LocalDate fecha = LocalDate.of(2026, 12, 31);
+        doThrow(new org.springframework.security.access.AccessDeniedException("sin acceso"))
+                .when(currentUserService).validateRestaurantAccess(RESTAURANT_ID);
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.findByRestaurantIdAndDate(RESTAURANT_ID, fecha));
+
+        verify(reservationRepository, never())
+                .findByRestaurantIdAndReservationDateAndDeletedFalse(any(), any());
+    }
 }

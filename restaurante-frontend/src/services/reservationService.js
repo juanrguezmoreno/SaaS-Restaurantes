@@ -1,42 +1,7 @@
 import api from '../api/axios';
+import { extractData } from '../lib/apiHelpers';
 
 const RESOURCE = '/reservations';
-
-// ─── Helpers de extracción (mismo patrón que tableService/restaurantService) ─
-
-const extractData = (response) => {
-  if (!response || !response.data) {
-    return [];
-  }
-
-  const body = response.data;
-
-  // Array directo
-  if (Array.isArray(body)) return body;
-
-  // Paginación Spring Boot: { content: [...] }
-  if (body && Array.isArray(body.content)) return body.content;
-
-  // Envoltorio { success: true, data: [...] }
-  if (body && body.success && Array.isArray(body.data)) return body.data;
-
-  // Envoltorio { data: [...] }
-  if (body && Array.isArray(body.data)) return body.data;
-
-  // Anidado { data: { content: [...] } }
-  if (body && body.data && Array.isArray(body.data.content)) {
-    return body.data.content;
-  }
-
-  // data.data o data.body
-  if (body && body.data) {
-    if (Array.isArray(body.data)) return body.data;
-    if (body.data.content && Array.isArray(body.data.content))
-      return body.data.content;
-  }
-
-  return [];
-};
 
 const extractItem = (response) => {
   if (!response || !response.data) return null;
@@ -81,18 +46,6 @@ export const getReservationById = async (id) => {
   try {
     const response = await api.get(`${RESOURCE}/${id}`);
     return extractItem(response);
-  } catch (error) {
-    throw handleError(error);
-  }
-};
-
-/**
- * Obtiene las reservas del usuario autenticado (cliente).
- */
-export const getMyReservations = async () => {
-  try {
-    const response = await api.get(`${RESOURCE}/my`);
-    return extractData(response);
   } catch (error) {
     throw handleError(error);
   }
@@ -147,6 +100,22 @@ export const updateReservationStatus = async (id, status) => {
   try {
     const response = await api.patch(`${RESOURCE}/${id}/status`, { status });
     return extractItem(response);
+  } catch (error) {
+    throw handleError(error);
+  }
+};
+
+/**
+ * Obtiene las reservas de un restaurante para una fecha concreta.
+ * @param {number} restaurantId
+ * @param {string} date - formato YYYY-MM-DD
+ */
+export const getReservationsByRestaurantAndDate = async (restaurantId, date) => {
+  try {
+    const response = await api.get(`/restaurants/${restaurantId}/reservations`, {
+      params: { date },
+    });
+    return extractData(response);
   } catch (error) {
     throw handleError(error);
   }

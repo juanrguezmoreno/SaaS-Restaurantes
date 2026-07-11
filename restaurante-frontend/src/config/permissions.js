@@ -42,7 +42,6 @@ export const PERMISSIONS = {
 
   // ── Negocio ──
   VIEW_ANALYTICS: 'VIEW_ANALYTICS',
-  VIEW_NOTIFICATIONS: 'VIEW_NOTIFICATIONS',
 
   // ── Administración ──
   VIEW_RESTAURANTS: 'VIEW_RESTAURANTS',
@@ -76,7 +75,6 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.MANAGE_CUSTOMERS,
     // Negocio
     PERMISSIONS.VIEW_ANALYTICS,
-    PERMISSIONS.VIEW_NOTIFICATIONS,
     // Admin — Gestión completa de mesas (solo restaurantes asignados)
     PERMISSIONS.VIEW_TABLES,
     PERMISSIONS.MANAGE_TABLES,
@@ -101,15 +99,11 @@ const ROLE_PERMISSIONS = {
  * Mapa de ruta → permiso requerido.
  */
 export const ROUTE_PERMISSIONS = {
-  '/dashboard': PERMISSIONS.VIEW_DASHBOARD,
   '/inicio': PERMISSIONS.VIEW_DASHBOARD,
   '/reservations': PERMISSIONS.VIEW_RESERVATIONS,
   '/floor-plan': PERMISSIONS.VIEW_FLOOR_PLAN,
   '/customers': PERMISSIONS.VIEW_CUSTOMERS,
-  '/analytics': PERMISSIONS.VIEW_ANALYTICS,
-  '/notifications': PERMISSIONS.VIEW_NOTIFICATIONS,
   '/restaurants': PERMISSIONS.VIEW_RESTAURANTS,
-  '/tables': PERMISSIONS.VIEW_TABLES,
   '/employees': PERMISSIONS.VIEW_EMPLOYEES,
 };
 
@@ -118,14 +112,11 @@ export const ROUTE_PERMISSIONS = {
  * sidebarKey coincide con item.path.
  */
 export const SIDEBAR_PERMISSIONS = {
-  '/dashboard': PERMISSIONS.VIEW_DASHBOARD,
+  '/inicio': PERMISSIONS.VIEW_DASHBOARD,
   '/reservations': PERMISSIONS.VIEW_RESERVATIONS,
   '/floor-plan': PERMISSIONS.VIEW_FLOOR_PLAN,
   '/customers': PERMISSIONS.VIEW_CUSTOMERS,
-  '/analytics': PERMISSIONS.VIEW_ANALYTICS,
-  '/notifications': PERMISSIONS.VIEW_NOTIFICATIONS,
   '/restaurants': PERMISSIONS.VIEW_RESTAURANTS,
-  '/tables': PERMISSIONS.VIEW_TABLES,
   '/employees': PERMISSIONS.VIEW_EMPLOYEES,
 };
 
@@ -201,8 +192,6 @@ const DENIED_MESSAGES = {
   [PERMISSIONS.MANAGE_TABLES]: 'No tienes permiso para gestionar mesas. Esta acción requiere permisos de administrador o encargado.',
   [PERMISSIONS.VIEW_EMPLOYEES]: 'No tienes permisos para acceder a la gestión de empleados.',
   [PERMISSIONS.MANAGE_EMPLOYEES]: 'No tienes permisos para gestionar empleados.',
-  [PERMISSIONS.VIEW_ANALYTICS]: 'Esta sección está disponible para perfiles con permisos de negocio.',
-  [PERMISSIONS.VIEW_NOTIFICATIONS]: 'Esta sección está disponible para perfiles con permisos de negocio.',
   [PERMISSIONS.VIEW_FLOOR_PLAN]: 'El plano de sala está disponible para perfiles operativos.',
 };
 

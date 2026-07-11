@@ -171,6 +171,13 @@ public class ReservationService {
                 .collect(Collectors.toList());
     }
 
+    public List<ReservationResponse> findByRestaurantIdAndDate(Long restaurantId, LocalDate date) {
+        currentUserService.validateRestaurantAccess(restaurantId);
+        return reservationRepository.findByRestaurantIdAndReservationDateAndDeletedFalse(restaurantId, date).stream()
+                .map(reservationMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
     // ════════════════════════════════════════════════════════════════
     //  CREACIÓN
     // ════════════════════════════════════════════════════════════════

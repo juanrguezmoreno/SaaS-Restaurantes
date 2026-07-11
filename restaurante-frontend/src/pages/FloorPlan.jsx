@@ -11,8 +11,10 @@ import {
   getFloorPlanElements,
   saveFloorPlanElements,
 } from '../services/floorPlanService';
+import { getReservationsByRestaurantAndDate } from '../services/reservationService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
 import FloorPlanCanvas from '../components/FloorPlanCanvas';
+import TableDrawer from '../components/TableDrawer';
 
 // ─── Mapa de estados de mesa ────────────────────────────────────────────────
 const TABLE_STATUS = {
@@ -30,8 +32,22 @@ const FILTER_OPTIONS = [
   { value: 'MAINTENANCE', label: 'Mantenimiento' },
 ];
 
-// ─── Orden canónico para ubicaciones ────────────────────────────────────────
-const ZONE_ORDER = ['Sala', 'Sala principal', 'Interior', 'Terraza', 'Exterior', 'VIP', 'Sin ubicación'];
+// ─── Fecha de hoy en formato YYYY-MM-DD (huso horario local) ──────────────
+const getTodayDateStr = () => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// ─── Hora actual en formato HH:mm:ss para comparar con reservationTime ────
+const getNowTimeStr = () => {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mi}:00`;
+};
 
 // ─── Componente principal ───────────────────────────────────────────────────
 const FloorPlan = () => {
@@ -44,17 +60,17 @@ const FloorPlan = () => {
   const [selectedRestaurantName, setSelectedRestaurantName] = useState('');
   const [tables, setTables] = useState([]);
   const [elements, setElements] = useState([]);
+  const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTable, setSelectedTable] = useState(null);
+  const [isCreatingTable, setIsCreatingTable] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(null);
 
   // ── Estados de UI ─────────────────────────────────────────────────────────
-  const [viewMode, setViewMode] = useState('visual');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [collapsedZones, setCollapsedZones] = useState(() => new Set());
 
   // ── Estados del plano interactivo ─────────────────────────────────────────
   const [isEditMode, setIsEditMode] = useState(false);
@@ -96,12 +112,17 @@ const FloorPlan = () => {
       setError(null);
       setTables([]);
       setElements([]);
+      setReservations([]);
 
       try {
-        const [tablesData, elementsData] = await Promise.all([
+        const [tablesData, elementsData, reservationsData] = await Promise.all([
           getTablesByRestaurant(Number(selectedRestaurantId)),
           getFloorPlanElements(Number(selectedRestaurantId)).catch((err) => {
             console.warn('[FloorPlan] No se pudieron cargar los elementos del plano:', err?.message);
+            return [];
+          }),
+          getReservationsByRestaurantAndDate(Number(selectedRestaurantId), getTodayDateStr()).catch((err) => {
+            console.warn('[FloorPlan] No se pudieron cargar las reservas de hoy:', err?.message);
             return [];
           }),
         ]);
@@ -109,8 +130,7 @@ const FloorPlan = () => {
           const tableList = Array.isArray(tablesData) ? tablesData : [];
           setTables(tableList);
           setElements(Array.isArray(elementsData) ? elementsData : []);
-          // Auto-detectar vista según cantidad de mesas
-          setViewMode(tableList.length > 8 ? 'compact' : 'visual');
+          setReservations(Array.isArray(reservationsData) ? reservationsData : []);
         }
       } catch {
         if (mounted) {
@@ -171,33 +191,6 @@ const FloorPlan = () => {
     return result;
   }, [tables, filterStatus, searchQuery, getStatusInfo]);
 
-  // ── Agrupar mesas filtradas por ubicación ───────────────────────────────
-  const groupedTables = useMemo(() => {
-    const groups = {};
-
-    filteredTables.forEach((table) => {
-      const location = table.location && table.location.trim() !== ''
-        ? table.location.trim()
-        : 'Sin ubicación';
-      if (!groups[location]) {
-        groups[location] = [];
-      }
-      groups[location].push(table);
-    });
-
-    // Ordenar grupos según ZONE_ORDER, el resto va al final
-    const sorted = Object.entries(groups).sort(([a], [b]) => {
-      const ai = ZONE_ORDER.indexOf(a);
-      const bi = ZONE_ORDER.indexOf(b);
-      if (ai !== -1 && bi !== -1) return ai - bi;
-      if (ai !== -1) return -1;
-      if (bi !== -1) return 1;
-      return a.localeCompare(b);
-    });
-
-    return sorted;
-  }, [filteredTables]);
-
   // ── Resumen de estados ──────────────────────────────────────────────────
   const summary = useMemo(() => {
     const total = tables.length;
@@ -208,15 +201,32 @@ const FloorPlan = () => {
     return { total, available, reserved, occupied, outOfService };
   }, [tables]);
 
-  // ── Resumen de estados por zona ─────────────────────────────────────────
-  const getZoneSummary = useCallback((zoneTables) => {
-    const total = zoneTables.length;
-    const available = zoneTables.filter((t) => t.status === 'AVAILABLE').length;
-    const reserved = zoneTables.filter((t) => t.status === 'RESERVED').length;
-    const occupied = zoneTables.filter((t) => t.status === 'OCCUPIED').length;
-    const maintenance = zoneTables.filter((t) => t.status === 'MAINTENANCE').length;
-    return { total, available, reserved, occupied, maintenance };
-  }, []);
+  // ── Reservas de hoy agrupadas por mesa (PENDING/CONFIRMED, orden por hora) ──
+  const reservationsByTableId = useMemo(() => {
+    const map = {};
+    reservations
+      .filter((r) => r.status === 'PENDING' || r.status === 'CONFIRMED')
+      .forEach((r) => {
+        if (!r.diningTableId) return;
+        if (!map[r.diningTableId]) map[r.diningTableId] = [];
+        map[r.diningTableId].push(r);
+      });
+    Object.values(map).forEach((list) =>
+      list.sort((a, b) => String(a.reservationTime).localeCompare(String(b.reservationTime)))
+    );
+    return map;
+  }, [reservations]);
+
+  // ── Próxima reserva de hoy por mesa (o la última en curso si todas pasaron) ──
+  const nextReservationByTableId = useMemo(() => {
+    const nowStr = getNowTimeStr();
+    const map = {};
+    Object.entries(reservationsByTableId).forEach(([tableId, list]) => {
+      const upcoming = list.find((r) => String(r.reservationTime) >= nowStr);
+      map[tableId] = upcoming || list[list.length - 1];
+    });
+    return map;
+  }, [reservationsByTableId]);
 
   // ── Cambiar estado de mesa ──────────────────────────────────────────────
   const handleStatusChange = async (table, newStatus) => {
@@ -237,19 +247,6 @@ const FloorPlan = () => {
       setStatusUpdating(null);
     }
   };
-
-  // ── Alternar colapso de zona ────────────────────────────────────────────
-  const toggleZoneCollapse = useCallback((zoneName) => {
-    setCollapsedZones((prev) => {
-      const next = new Set(prev);
-      if (next.has(zoneName)) {
-        next.delete(zoneName);
-      } else {
-        next.add(zoneName);
-      }
-      return next;
-    });
-  }, []);
 
   // ── Refs y estados para el plano interactivo ──────────────────────────────
   const canvasSaveRef = useRef(null);
@@ -298,16 +295,79 @@ const FloorPlan = () => {
    * Recarga mesas y elementos del servidor y remonta el canvas para
    * descartar cualquier estado local (posiciones, formas, elementos).
    */
+  // Devuelve el array de mesas recién obtenido para permitir a los callers
+  // re-seleccionar una mesa concreta sin depender del próximo render.
   const reloadPlanData = useCallback(async () => {
-    if (!selectedRestaurantId) return;
-    const [tablesData, elementsData] = await Promise.all([
+    if (!selectedRestaurantId) return [];
+    const [tablesData, elementsData, reservationsData] = await Promise.all([
       getTablesByRestaurant(Number(selectedRestaurantId)),
       getFloorPlanElements(Number(selectedRestaurantId)).catch(() => []),
+      getReservationsByRestaurantAndDate(Number(selectedRestaurantId), getTodayDateStr()).catch(() => []),
     ]);
-    setTables(Array.isArray(tablesData) ? tablesData : []);
+    const tableList = Array.isArray(tablesData) ? tablesData : [];
+    setTables(tableList);
     setElements(Array.isArray(elementsData) ? elementsData : []);
+    setReservations(Array.isArray(reservationsData) ? reservationsData : []);
     setCanvasReloadKey((prev) => prev + 1);
+    return tableList;
   }, [selectedRestaurantId]);
+
+  const handleCloseDrawer = useCallback(() => {
+    setSelectedTable(null);
+    setIsCreatingTable(false);
+  }, []);
+
+  const handleAddTableClick = useCallback(() => {
+    setSelectedTable(null);
+    setIsCreatingTable(true);
+  }, []);
+
+  const handleTableCreated = useCallback(
+    async (created) => {
+      setIsCreatingTable(false);
+      await reloadPlanData();
+      if (created?.id) {
+        setSelectedTable(created);
+      }
+      showToast('Mesa creada correctamente.', 'success');
+    },
+    [reloadPlanData, showToast]
+  );
+
+  // Usado solo al eliminar mesa: cierra el drawer, ya que la mesa
+  // seleccionada deja de existir.
+  const handleTableDeleted = useCallback(async () => {
+    setSelectedTable(null);
+    setIsCreatingTable(false);
+    await reloadPlanData();
+    showToast('Mesa eliminada correctamente.', 'success');
+  }, [reloadPlanData, showToast]);
+
+  // Usado al editar una mesa: recarga los datos y vuelve a seleccionar la
+  // misma mesa (con los datos frescos) para que el drawer permanezca
+  // abierto en modo Detalle, en vez de cerrarse.
+  const handleTableEdited = useCallback(
+    async (tableId) => {
+      const freshTables = await reloadPlanData();
+      const updated = freshTables.find((t) => t.id === tableId) || null;
+      setSelectedTable(updated);
+      showToast('Mesa actualizada correctamente.', 'success');
+    },
+    [reloadPlanData, showToast]
+  );
+
+  // Usado al editar una reserva: la mesa seleccionada no cambia, solo las
+  // reservas asociadas, así que basta con recargar datos sin tocar
+  // `selectedTable` para que el drawer permanezca abierto.
+  const handleReservationSaved = useCallback(async () => {
+    await reloadPlanData();
+    showToast('Reserva actualizada correctamente.', 'success');
+  }, [reloadPlanData, showToast]);
+
+  const handleReservationCancelled = useCallback(async () => {
+    await reloadPlanData();
+    showToast('Reserva cancelada correctamente.', 'success');
+  }, [reloadPlanData, showToast]);
 
   /**
    * Sale del modo edición sin guardar. Recarga el estado del servidor.
@@ -388,145 +448,6 @@ const FloorPlan = () => {
     }
   }, [selectedRestaurantId, layoutDirty, showToast, reloadPlanData]);
 
-  // ── Render: Card en vista visual (SVG) ──────────────────────────────────
-  const renderVisualCard = (table) => {
-    const statusInfo = getStatusInfo(table.status);
-    const location = table.location && table.location.trim() !== '' ? table.location.trim() : 'Sin ubicación';
-    return (
-      <div
-        key={table.id}
-        className={`fp-card fp-card-visual ${statusInfo.class}`}
-        onClick={() => setSelectedTable(table)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTable(table); } }}
-        title={`Mesa ${table.tableNumber || table.id} — ${statusInfo.label}`}
-      >
-        <div className="fp-card-top">
-          <span className="fp-card-dot" style={{ backgroundColor: statusInfo.color }} />
-          <span className="fp-card-status-label">{statusInfo.label}</span>
-        </div>
-
-        <div className="fp-card-icon-wrap" style={{ color: statusInfo.color }}>
-          <svg viewBox="0 0 48 48" fill="none" stroke={statusInfo.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="fp-card-svg">
-            <rect x="10" y="18" width="28" height="20" rx="3" strokeWidth="1.3" />
-            <line x1="14" y1="38" x2="12" y2="44" strokeWidth="1.3" />
-            <line x1="34" y1="38" x2="36" y2="44" strokeWidth="1.3" />
-            <rect x="4" y="8" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <rect x="36" y="8" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <rect x="20" y="4" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <rect x="20" y="28" width="8" height="6" rx="1.5" strokeWidth="1" opacity="0.6" />
-            <text x="24" y="38" textAnchor="middle" fontSize="9" fontWeight="700" fill={statusInfo.color}>
-              {table.capacity || '—'}
-            </text>
-          </svg>
-        </div>
-
-        <div className="fp-card-info">
-          <div className="fp-card-title">Mesa {table.tableNumber || table.id}</div>
-          <div className="fp-card-meta">
-            <span>{table.capacity || '—'} pers.</span>
-            <span className="fp-card-sep">·</span>
-            <span>{location}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Render: Card en vista compacta ──────────────────────────────────────
-  const renderCompactCard = (table) => {
-    const statusInfo = getStatusInfo(table.status);
-    const location = table.location && table.location.trim() !== '' ? table.location.trim() : '';
-    return (
-      <div
-        key={table.id}
-        className={`fp-card-compact ${statusInfo.class}`}
-        onClick={() => setSelectedTable(table)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTable(table); } }}
-        title={`Mesa ${table.tableNumber || table.id} — ${statusInfo.label}`}
-      >
-        <div className="fp-compact-indicator" style={{ backgroundColor: statusInfo.color }} />
-        <div className="fp-compact-body">
-          <div className="fp-compact-top">
-            <span className="fp-compact-name">Mesa {table.tableNumber || table.id}</span>
-            <span className="fp-compact-capacity">{table.capacity || '—'}</span>
-          </div>
-          <div className="fp-compact-bottom">
-            <span className="fp-compact-status" style={{ color: statusInfo.color }}>
-              {statusInfo.label}
-            </span>
-            {location && (
-              <>
-                <span className="fp-compact-sep">·</span>
-                <span className="fp-compact-location">{location}</span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Render de zona (con colapso) ────────────────────────────────────────
-  const renderZone = ([zoneName, zoneTables]) => {
-    const zoneKey = zoneName.toLowerCase().replace(/\s+/g, '-');
-    const isCollapsed = collapsedZones.has(zoneName);
-    const zs = getZoneSummary(zoneTables);
-
-    return (
-      <div key={zoneKey} className={`fp-zone ${isCollapsed ? 'fp-zone-collapsed' : ''}`}>
-        <button
-          className="fp-zone-header"
-          onClick={() => toggleZoneCollapse(zoneName)}
-          type="button"
-          aria-expanded={!isCollapsed}
-          aria-controls={`zone-content-${zoneKey}`}
-        >
-          <svg
-            className="fp-zone-chevron"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="fp-zone-icon">
-            <rect x="3" y="3" width="7" height="7" />
-            <rect x="14" y="3" width="7" height="7" />
-            <rect x="3" y="14" width="7" height="7" />
-            <rect x="14" y="14" width="7" height="7" />
-          </svg>
-          <span className="fp-zone-name">{zoneName}</span>
-          <span className="fp-zone-summary">
-            {zs.total} mesa{zs.total !== 1 ? 's' : ''}
-            {zs.available > 0 && <span className="fp-zone-stat fp-zone-stat-available" title="Libres">{zs.available}</span>}
-            {zs.reserved > 0 && <span className="fp-zone-stat fp-zone-stat-reserved" title="Reservadas">{zs.reserved}</span>}
-            {zs.occupied > 0 && <span className="fp-zone-stat fp-zone-stat-occupied" title="Ocupadas">{zs.occupied}</span>}
-            {zs.maintenance > 0 && <span className="fp-zone-stat fp-zone-stat-maintenance" title="Mantenimiento">{zs.maintenance}</span>}
-          </span>
-        </button>
-
-        <div
-          id={`zone-content-${zoneKey}`}
-          className={`fp-zone-content ${isCollapsed ? 'fp-zone-content-hidden' : ''}`}
-        >
-          <div className={viewMode === 'compact' ? 'fp-grid-compact' : 'fp-grid-visual'}>
-            {zoneTables.map(viewMode === 'compact' ? renderCompactCard : renderVisualCard)}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // ── Render principal ────────────────────────────────────────────────────
   return (
     <div className="fp-container">
@@ -535,9 +456,7 @@ const FloorPlan = () => {
         <div>
           <h1>Plano del Restaurante</h1>
           <p className="fp-header-subtitle">
-            {viewMode === 'interactive'
-              ? 'Plano interactivo con mesas posicionadas en el espacio del restaurante'
-              : `Vista ${viewMode === 'compact' ? 'compacta' : 'visual'} de las mesas agrupadas por ubicación`}
+            Plano interactivo con mesas posicionadas en el espacio del restaurante
           </p>
         </div>
       </div>
@@ -566,55 +485,18 @@ const FloorPlan = () => {
             </select>
           </div>
 
-          {/* ─── View Mode Toggle ──────────────────────────────────── */}
-          {tables.length > 0 && (
-            <div className="fp-view-toggle" role="group" aria-label="Cambiar vista">
-              <button
-                className={`fp-view-toggle-btn ${viewMode === 'visual' ? 'active' : ''}`}
-                onClick={() => { setViewMode('visual'); setIsEditMode(false); }}
-                type="button"
-                title="Vista visual con SVG de mesas"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="3" y="14" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                </svg>
-                Visual
-              </button>
-              <button
-                className={`fp-view-toggle-btn ${viewMode === 'compact' ? 'active' : ''}`}
-                onClick={() => { setViewMode('compact'); setIsEditMode(false); }}
-                type="button"
-                title="Vista compacta para muchas mesas"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="8" y1="6" x2="21" y2="6" />
-                  <line x1="8" y1="12" x2="21" y2="12" />
-                  <line x1="8" y1="18" x2="21" y2="18" />
-                  <line x1="3" y1="6" x2="3.01" y2="6" />
-                  <line x1="3" y1="12" x2="3.01" y2="12" />
-                  <line x1="3" y1="18" x2="3.01" y2="18" />
-                </svg>
-                Compacta
-              </button>
-              <button
-                className={`fp-view-toggle-btn ${viewMode === 'interactive' ? 'active' : ''}`}
-                onClick={() => setViewMode('interactive')}
-                type="button"
-                title="Plano interactivo con mesas posicionadas"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="8" cy="8" r="2" />
-                  <circle cx="16" cy="8" r="2" />
-                  <circle cx="8" cy="16" r="2" />
-                  <circle cx="16" cy="16" r="2" />
-                </svg>
-                Plano
-              </button>
-            </div>
+          {selectedRestaurantId && canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
+            <button
+              className="btn btn-primary btn-sm d-flex align-items-center gap-2"
+              onClick={handleAddTableClick}
+              type="button"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Añadir mesa
+            </button>
           )}
         </div>
 
@@ -746,7 +628,7 @@ const FloorPlan = () => {
       )}
 
       {/* ═══ Edit mode toolbar (solo en modo interactivo) ════════════════ */}
-      {viewMode === 'interactive' && tables.length > 0 && (
+      {tables.length > 0 && (
         <div className="fp-edit-toolbar">
           <div className="fp-edit-toolbar-left">
             {canAccess(user, PERMISSIONS.MANAGE_FLOOR_PLAN) && (
@@ -906,13 +788,15 @@ const FloorPlan = () => {
           </div>
           <h5>Este restaurante no tiene mesas</h5>
           <p>{selectedRestaurantName} todavía no tiene mesas registradas. Crea la primera mesa para empezar a visualizar el plano.</p>
-          <button
-            className="btn btn-primary"
-            onClick={() => navigate('/tables')}
-            type="button"
-          >
-            Crear primera mesa
-          </button>
+          {canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
+            <button
+              className="btn btn-primary"
+              onClick={handleAddTableClick}
+              type="button"
+            >
+              Crear primera mesa
+            </button>
+          )}
         </div>
       )}
 
@@ -942,7 +826,7 @@ const FloorPlan = () => {
       )}
 
       {/* ═══ Plano interactivo (modo canvas) ════════════════════════════ */}
-      {!loadingRestaurants && !loading && filteredTables.length > 0 && viewMode === 'interactive' && (
+      {!loadingRestaurants && !loading && filteredTables.length > 0 && (
         <div className="fp-canvas-container">
           <FloorPlanCanvas
             key={`canvas-${selectedRestaurantId}-${canvasReloadKey}`}
@@ -951,6 +835,7 @@ const FloorPlan = () => {
             elements={elements}
             editMode={isEditMode}
             selectedTableId={selectedTable?.id}
+            nextReservationByTableId={nextReservationByTableId}
             onTableClick={handleCanvasTableClick}
             onTableDragEnd={handleTableDragEnd}
             onLayoutChange={handleLayoutChange}
@@ -959,148 +844,33 @@ const FloorPlan = () => {
         </div>
       )}
 
-      {/* ═══ Plano por zonas (vista visual/compacta) ════════════════════ */}
-      {!loadingRestaurants && !loading && filteredTables.length > 0 && viewMode !== 'interactive' && (
-        <div className="fp-plan">
-          {groupedTables.map(renderZone)}
-        </div>
-      )}
-
-      {/* ═══ Modal de detalle de mesa ═══════════════════════════════════ */}
-      {selectedTable && (
-        <div
-          className="modal-backdrop show"
-          style={{ zIndex: 1050 }}
-          onClick={() => setSelectedTable(null)}
-        >
-          <div
-            className="modal d-block"
-            tabIndex="-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-dialog modal-dialog-centered">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title d-flex align-items-center gap-2">
-                    <span
-                      className="fp-modal-badge-dot"
-                      style={{ backgroundColor: getStatusInfo(selectedTable.status).color }}
-                    />
-                    Mesa {selectedTable.tableNumber || selectedTable.id}
-                  </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setSelectedTable(null)}
-                    aria-label="Cerrar"
-                  />
-                </div>
-                <div className="modal-body">
-                  <div className="fp-modal-details">
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Restaurante</span>
-                      <span className="fp-modal-value">{selectedRestaurantName || '—'}</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Mesa</span>
-                      <span className="fp-modal-value">Mesa {selectedTable.tableNumber || selectedTable.id}</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Capacidad</span>
-                      <span className="fp-modal-value">{selectedTable.capacity || '—'} personas</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Ubicación</span>
-                      <span className="fp-modal-value">{selectedTable.location || 'Sin ubicación'}</span>
-                    </div>
-                    <div className="fp-modal-row">
-                      <span className="fp-modal-label">Estado</span>
-                      <span className="fp-modal-value">
-                        <span
-                          className="fp-modal-badge"
-                          style={{ backgroundColor: getStatusInfo(selectedTable.status).color }}
-                        >
-                          {getStatusInfo(selectedTable.status).label}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Acciones rápidas */}
-                  <div className="fp-modal-actions">
-                    <p className="fp-modal-actions-title">Acciones</p>
-                    <div className="fp-modal-actions-grid">
-                      {canAccess(user, PERMISSIONS.MANAGE_TABLES) && (
-                        <button
-                          className="fp-modal-action-btn"
-                          onClick={() => { setSelectedTable(null); navigate('/tables'); }}
-                          type="button"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                          Editar mesa
-                        </button>
-                      )}
-
-                      {/* Cambiar estado */}
-                      <div className="fp-modal-status-group">
-                        <span className="fp-modal-status-label">Cambiar estado</span>
-                        <div className="fp-modal-status-options">
-                          {Object.entries(TABLE_STATUS).map(([key, st]) => {
-                            if (key === selectedTable.status) return null;
-                            return (
-                              <button
-                                key={key}
-                                className="fp-modal-status-btn"
-                                style={{ '--status-color': st.color }}
-                                onClick={() => handleStatusChange(selectedTable, key)}
-                                disabled={statusUpdating === selectedTable.id}
-                                type="button"
-                              >
-                                {statusUpdating === selectedTable.id ? (
-                                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                                ) : (
-                                  <span className="fp-modal-status-dot" style={{ backgroundColor: st.color }} />
-                                )}
-                                {st.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <button
-                        className="fp-modal-action-btn"
-                        onClick={() => { setSelectedTable(null); navigate('/reservations'); }}
-                        type="button"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                          <line x1="16" y1="2" x2="16" y2="6" />
-                          <line x1="8" y1="2" x2="8" y2="6" />
-                          <line x1="3" y1="10" x2="21" y2="10" />
-                        </svg>
-                        Ver reservas
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setSelectedTable(null)}
-                  >
-                    Cerrar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ═══ Drawer lateral de detalle de mesa ═══════════════════════════ */}
+      <TableDrawer
+        open={!!selectedTable || isCreatingTable}
+        table={selectedTable}
+        isCreating={isCreatingTable}
+        restaurantId={selectedRestaurantId ? Number(selectedRestaurantId) : null}
+        restaurantName={selectedRestaurantName}
+        reservation={selectedTable ? nextReservationByTableId[selectedTable.id] : null}
+        otherReservations={
+          selectedTable
+            ? (reservationsByTableId[selectedTable.id] || []).filter(
+                (r) => r.id !== nextReservationByTableId[selectedTable.id]?.id
+              )
+            : []
+        }
+        getStatusInfo={getStatusInfo}
+        statusUpdating={statusUpdating}
+        canManageTables={canAccess(user, PERMISSIONS.MANAGE_TABLES)}
+        canManageReservations={canAccess(user, PERMISSIONS.MANAGE_RESERVATIONS)}
+        onClose={handleCloseDrawer}
+        onStatusChange={handleStatusChange}
+        onTableCreated={handleTableCreated}
+        onTableSaved={() => handleTableEdited(selectedTable?.id)}
+        onTableDeleted={handleTableDeleted}
+        onReservationSaved={handleReservationSaved}
+        onReservationCancelled={handleReservationCancelled}
+      />
     </div>
   );
 };

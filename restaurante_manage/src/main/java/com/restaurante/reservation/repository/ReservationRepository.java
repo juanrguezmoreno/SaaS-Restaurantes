@@ -2,7 +2,6 @@ package com.restaurante.reservation.repository;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -26,15 +25,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     List<Reservation> findByCustomerIdAndDeletedFalse(Long customerId);
 
-    /**
-     * Encuentra reservas de un cliente filtradas por restaurantes visibles.
-     * La consulta se realiza a nivel de base de datos, NO se cargan todas las
-     * reservas del cliente en memoria para filtrar después.
-     * Ordenadas por fecha descendente, hora descendente.
-     */
-    List<Reservation> findByCustomerIdAndRestaurantIdInAndDeletedFalseOrderByReservationDateDescReservationTimeDesc(
-            Long customerId, Collection<Long> restaurantIds);
-
     List<Reservation> findByRestaurantIdAndDeletedFalse(Long restaurantId);
 
     Page<Reservation> findByRestaurantIdAndDeletedFalse(Long restaurantId, Pageable pageable);
@@ -45,19 +35,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     List<Reservation> findByRestaurantIdAndReservationDateAndDeletedFalse(Long restaurantId, LocalDate date);
 
-    List<Reservation> findByDiningTableIdAndReservationDateAndDeletedFalse(Long diningTableId, LocalDate date);
-
-    long countByRestaurantIdAndReservationDateAndDeletedFalse(Long restaurantId, LocalDate date);
-
     long countByStatusAndDeletedFalse(ReservationStatus status);
-
-    long countByRestaurantIdAndStatusAndDeletedFalse(Long restaurantId, ReservationStatus status);
-
-    @Query("SELECT r.restaurant.id, COUNT(r) FROM Reservation r WHERE r.reservationDate = :date AND r.deleted = false GROUP BY r.restaurant.id")
-    List<Object[]> countByRestaurantAndDate(@Param("date") LocalDate date);
-
-    @Query("SELECT r.diningTable.id, COUNT(r) FROM Reservation r WHERE r.restaurant.id = :restaurantId AND r.deleted = false GROUP BY r.diningTable.id ORDER BY COUNT(r) DESC")
-    List<Object[]> findPopularTables(@Param("restaurantId") Long restaurantId);
 
     // ─── Queries para gestión de disponibilidad y liberación de mesas ───
 
@@ -71,17 +49,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findActiveConfirmedByTableId(@Param("tableId") Long tableId,
                                                    @Param("today") LocalDate today,
                                                    @Param("now") LocalTime now);
-
-    /**
-     * Encuentra reservas CONFIRMED para una mesa en una fecha y hora específicas.
-     * Usado para verificar conflictos de disponibilidad.
-     */
-    @Query("SELECT r FROM Reservation r WHERE r.diningTable.id = :tableId " +
-           "AND r.deleted = false AND r.status = 'CONFIRMED' " +
-           "AND r.reservationDate = :date AND r.reservationTime = :time")
-    List<Reservation> findConfirmedByTableIdAndDateAndTime(@Param("tableId") Long tableId,
-                                                           @Param("date") LocalDate date,
-                                                           @Param("time") LocalTime time);
 
     /**
      * RES-03: reservas ACTIVAS (PENDING o CONFIRMED) que ocupan una mesa en una

@@ -1,21 +1,16 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import NotificationBell from './NotificationBell';
 import { ROLE_LABELS, normalizeRole } from '../config/permissions';
 
 // ─── Mapa de breadcrumbs ──────────────────────────────────────────────────
 const breadcrumbMap = {
-  '/dashboard': { parent: null, label: 'Inicio' },
   '/inicio': { parent: null, label: 'Inicio' },
   '/restaurants': { parent: null, label: 'Restaurantes' },
-  '/tables': { parent: null, label: 'Gestión de mesas' },
   '/customers': { parent: null, label: 'Clientes' },
   '/employees': { parent: null, label: 'Empleados' },
   '/reservations': { parent: null, label: 'Reservas' },
   '/floor-plan': { parent: null, label: 'Plano de sala' },
-  '/notifications': { parent: null, label: 'Notificaciones' },
-  '/analytics': { parent: null, label: 'Analítica' },
 };
 
 const parentLabels = {
@@ -84,9 +79,6 @@ const Navbar = ({ onToggleSidebar }) => {
             </div>
           </div>
         )}
-
-        {/* Notification Bell */}
-        <NotificationBell />
 
         {/* Theme Toggle Button */}
         <button

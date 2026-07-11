@@ -58,6 +58,10 @@ app:
     # Orígenes permitidos, separados por comas. En producción define
     # CORS_ALLOWED_ORIGINS con el dominio real del frontend.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  maintenance:
+    # Frecuencia (ms) del job que corrige mesas RESERVED sin reserva activa.
+    # 900000 ms = 15 minutos.
+    table-status-fix-delay-ms: ${TABLE_STATUS_FIX_DELAY_MS:900000}
 
 springdoc:
   api-docs:
