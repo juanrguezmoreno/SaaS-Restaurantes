@@ -45,6 +45,18 @@ spring:
     # (LocalDate/LocalDateTime) se serializan en ISO-8601 tal cual.
     time-zone: Europe/Madrid
 
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
 server:
   port: ${PORT:8080}
 
@@ -62,6 +74,11 @@ app:
     # Frecuencia (ms) del job que corrige mesas RESERVED sin reserva activa.
     # 900000 ms = 15 minutos.
     table-status-fix-delay-ms: ${TABLE_STATUS_FIX_DELAY_MS:900000}
+  mail:
+    # false (por defecto): el envío se loguea en vez de realizarse de verdad.
+    # Útil en desarrollo/tests sin credenciales SMTP reales.
+    enabled: ${MAIL_ENABLED:false}
+    from: ${MAIL_FROM:no-reply@example.com}
 
 springdoc:
   api-docs:
