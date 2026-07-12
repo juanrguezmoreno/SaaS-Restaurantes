@@ -2453,6 +2453,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  min-height: calc(100vh - 4rem);
 }
 
 /* ??? Header ??? */
@@ -2719,11 +2720,28 @@ a {
   gap: 1.5rem;
 }
 
-/* 60/40 layout para Dashboard */
+/* Layout 50/50 para Dashboard */
 .exec-two-col-wide {
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: 1fr 1fr;
   gap: 1.25rem;
+}
+
+.exec-main-zone {
+  flex: 1;
+  min-height: 0;
+}
+
+.exec-main-zone .exec-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.exec-main-zone .exec-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 @media (max-width: 991.98px) {
@@ -6121,367 +6139,6 @@ a {
     font-size: 1rem;
   }
 }
-
-/* ---------------------------------------------------------------------------
-   ANALYTICS PAGE ? Estad?sticas semanales y anal?tica ?til
-   --------------------------------------------------------------------------- */
-
-.analytics-page {
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-/* --- Selector group --- */
-.analytics-selector-group {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.analytics-selector-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-/* --- KPI Grid --- */
-.analytics-kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.25rem;
-  margin-bottom: 1.75rem;
-}
-
-.analytics-kpi-card {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.125rem 1.25rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  transition: all 0.2s ease;
-}
-
-.analytics-kpi-card:hover {
-  border-color: var(--primary-ring);
-  box-shadow: var(--shadow-sm);
-}
-
-.analytics-kpi-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  flex-shrink: 0;
-}
-
-.analytics-kpi-icon svg {
-  width: 22px;
-  height: 22px;
-}
-
-.analytics-kpi-icon.primary { background: var(--primary-light); color: var(--primary); }
-.analytics-kpi-icon.success { background: var(--success-light); color: var(--success); }
-.analytics-kpi-icon.danger { background: var(--danger-light); color: var(--danger); }
-.analytics-kpi-icon.warning { background: var(--warning-light); color: var(--warning); }
-.analytics-kpi-icon.cyan { background: rgba(6, 182, 212, 0.1); color: #06b6d4; }
-.analytics-kpi-icon.purple { background: rgba(139, 92, 246, 0.12); color: #8b5cf6; }
-
-.analytics-kpi-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.analytics-kpi-value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
-}
-
-.analytics-kpi-label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-/* --- 2-Column Layout --- */
-.analytics-two-col {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  margin-bottom: 1.75rem;
-}
-
-/* --- Analytics Card --- */
-.analytics-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  transition: border-color 0.2s ease;
-}
-
-.analytics-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.analytics-card-header h3 {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.analytics-card-header h3 svg {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  width: 16px;
-  height: 16px;
-}
-
-.analytics-card-body {
-  padding: 1.25rem;
-}
-
-/* --- Bar Chart --- */
-.analytics-chart-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-}
-
-.analytics-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.analytics-bar-label {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  min-width: 40px;
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.analytics-bar-track {
-  flex: 1;
-  height: 24px;
-  background: var(--hover-color);
-  border-radius: 6px;
-  overflow: hidden;
-  min-width: 0;
-}
-
-.analytics-bar-fill {
-  height: 100%;
-  border-radius: 6px;
-  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-  min-width: 0;
-}
-
-.analytics-bar-fill.primary {
-  background: linear-gradient(90deg, var(--primary), #818cf8);
-}
-
-.analytics-bar-fill.warning {
-  background: linear-gradient(90deg, var(--warning), #fbbf24);
-}
-
-.analytics-bar-value {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  min-width: 24px;
-  text-align: left;
-  flex-shrink: 0;
-}
-
-.analytics-empty-chart {
-  text-align: center;
-  padding: 1.5rem;
-  color: var(--text-muted);
-  font-size: 0.8125rem;
-}
-
-/* --- Ranking lists --- */
-.analytics-empty-state {
-  text-align: center;
-  padding: 1.5rem;
-  color: var(--text-muted);
-  font-size: 0.8125rem;
-}
-
-.analytics-ranking {
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-}
-
-.analytics-ranking-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-}
-
-.analytics-ranking-item + .analytics-ranking-item {
-  border-top: 1px solid var(--border-light);
-}
-
-.analytics-ranking-pos {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  background: var(--hover-color);
-  color: var(--text-secondary);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.analytics-ranking-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.0625rem;
-}
-
-.analytics-ranking-name {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.analytics-ranking-count {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.analytics-ranking-bar {
-  width: 60px;
-  height: 6px;
-  background: var(--hover-color);
-  border-radius: 6px;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.analytics-ranking-fill {
-  height: 100%;
-  border-radius: 6px;
-  background: linear-gradient(90deg, var(--primary), #818cf8);
-  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.analytics-ranking-fill.customer {
-  background: linear-gradient(90deg, #06b6d4, #22d3ee);
-}
-
-/* --- Insights --- */
-.analytics-insights {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.analytics-insight-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: var(--hover-color);
-  border-radius: var(--radius-md);
-  transition: transform 0.2s ease;
-}
-
-.analytics-insight-item:hover {
-  transform: translateX(3px);
-}
-
-.analytics-insight-icon {
-  font-size: 1.125rem;
-  line-height: 1.4;
-  flex-shrink: 0;
-}
-
-.analytics-insight-text {
-  font-size: 0.8125rem;
-  color: var(--text-primary);
-  line-height: 1.5;
-}
-
-/* --- Responsive --- */
-@media (max-width: 992px) {
-  .analytics-kpi-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .analytics-two-col {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .analytics-kpi-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-  }
-  .analytics-kpi-card {
-    padding: 0.875rem 1rem;
-  }
-  .analytics-kpi-value {
-    font-size: 1.25rem;
-  }
-  .analytics-selector-group {
-    width: 100%;
-  }
-  .analytics-selector-group select {
-    flex: 1;
-  }
-}
-
-@media (max-width: 480px) {
-  .analytics-kpi-grid {
-    grid-template-columns: 1fr;
-    gap: 0.75rem;
-  }
-  .analytics-card-body {
-    padding: 1rem;
-  }
-  .analytics-bar-label {
-    min-width: 30px;
-    font-size: 0.75rem;
-  }
-}
-
 /* ???????????????????????????????????????????????????????????????????????????
    PUBLIC RESERVATION PAGE ? Landing de reserva online para clientes
    Diseño limpio, centrado, mobile-first, modo oscuro compatible.
