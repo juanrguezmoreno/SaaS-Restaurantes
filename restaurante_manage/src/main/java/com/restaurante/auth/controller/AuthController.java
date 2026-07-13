@@ -1,9 +1,12 @@
 package com.restaurante.auth.controller;
 
+import com.restaurante.auth.dto.ForgotPasswordRequest;
 import com.restaurante.auth.dto.JwtResponse;
 import com.restaurante.auth.dto.LoginRequest;
 import com.restaurante.auth.dto.RegisterRequest;
+import com.restaurante.auth.dto.ResetPasswordRequest;
 import com.restaurante.auth.service.AuthService;
+import com.restaurante.auth.service.PasswordResetService;
 import com.restaurante.common.dto.ApiResponse;
 import com.restaurante.common.util.Constants;
 import io.swagger.v3.oas.annotations.Operation;
@@ -25,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final PasswordResetService passwordResetService;
 
     @PostMapping("/login")
     @Operation(summary = "Iniciar sesión", description = "Autentica un usuario y devuelve un token JWT")
@@ -40,5 +44,23 @@ public class AuthController {
         JwtResponse response = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Registro exitoso", response));
+    }
+
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Solicitar recuperación de contraseña",
+            description = "Envía un email con un enlace de recuperación si existe una cuenta asociada al email. "
+                    + "Responde siempre igual, exista o no la cuenta, para no revelar qué emails están registrados.")
+    public ResponseEntity<ApiResponse<Void>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        passwordResetService.requestReset(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success(
+                "Si existe una cuenta asociada a este correo, recibirás instrucciones.", null));
+    }
+
+    @PostMapping("/reset-password")
+    @Operation(summary = "Restablecer contraseña",
+            description = "Valida el token de recuperación (de un solo uso) y actualiza la contraseña del usuario.")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
+        return ResponseEntity.ok(ApiResponse.success("Contraseña actualizada correctamente", null));
     }
 }

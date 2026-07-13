@@ -189,18 +189,27 @@ const PublicReservation = () => {
         await createPublicReservation(payload);
         setSuccess(true);
       } catch (err) {
+        const status = err?.status;
         const msg = getSafeErrorMessage(err);
 
-        if (
-          msg.toLowerCase().includes('unauthorized') ||
-          msg.toLowerCase().includes('autenticaci') ||
-          msg.toLowerCase().includes('token') ||
-          msg.toLowerCase().includes('403')
-        ) {
+        if (import.meta.env.DEV) {
+          console.error('[PublicReservation] Error al enviar la solicitud:', {
+            status,
+            message: msg,
+            error: err,
+          });
+        }
+
+        if (status === 401 || status === 403) {
           setSubmitError(
             'El sistema de reservas online no está disponible en este momento. ' +
             'Por favor, contacta directamente con el restaurante.'
           );
+        } else if (status && status < 500 && msg) {
+          // Errores 4xx: el backend ya devuelve un mensaje seguro y en español
+          // (validación, restaurante no encontrado, reservas públicas
+          // deshabilitadas, etc.) — se lo mostramos tal cual al usuario.
+          setSubmitError(msg);
         } else {
           setSubmitError(
             'No hemos podido enviar tu solicitud. Revisa los datos e inténtalo de nuevo.'

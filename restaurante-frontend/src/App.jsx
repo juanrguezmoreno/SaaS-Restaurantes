@@ -4,6 +4,8 @@ import PermissionRoute from './components/PermissionRoute';
 import MainLayout from './layouts/MainLayout';
 import PublicLayout from './layouts/PublicLayout';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Inicio from './pages/Inicio';
 import Customers from './pages/Customers';
 import Employees from './pages/Employees';
@@ -18,6 +20,8 @@ function App() {
     <Routes>
       {/* Rutas públicas (sin autenticación) */}
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<PublicLayout />}>
         <Route path="/public/reservar/:restaurantId" element={<PublicReservation />} />
         <Route path="/r/:restaurantId" element={<PublicReservation />} />

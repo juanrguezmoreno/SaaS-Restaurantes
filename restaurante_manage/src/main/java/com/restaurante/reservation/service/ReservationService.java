@@ -9,6 +9,9 @@ import com.restaurante.customer.repository.CustomerRepository;
 import com.restaurante.diningtable.entity.DiningTable;
 import com.restaurante.diningtable.enums.TableStatus;
 import com.restaurante.diningtable.repository.DiningTableRepository;
+import com.restaurante.notification.event.ReservationCancelledEvent;
+import com.restaurante.notification.event.ReservationConfirmedEvent;
+import com.restaurante.notification.event.ReservationEmailData;
 import com.restaurante.reservation.dto.ReservationMapper;
 import com.restaurante.reservation.dto.ReservationRequest;
 import com.restaurante.reservation.dto.ReservationResponse;
@@ -19,6 +22,7 @@ import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -42,6 +46,7 @@ public class ReservationService {
     private final DiningTableRepository diningTableRepository;
     private final ReservationMapper reservationMapper;
     private final CurrentUserService currentUserService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public Page<ReservationResponse> findAll(Pageable pageable) {
         log.debug("findAll() llamado con pageable: page={}, size={}, sort={}",
@@ -252,6 +257,10 @@ public class ReservationService {
         log.info("Reserva creada: id={}, estado={}, mesa={}", saved.getId(), saved.getStatus(),
                 saved.getDiningTable() != null ? saved.getDiningTable().getId() : "sin-mesa");
 
+        if (saved.getStatus() == ReservationStatus.CONFIRMED) {
+            eventPublisher.publishEvent(new ReservationConfirmedEvent(ReservationEmailData.from(saved)));
+        }
+
         return reservationMapper.toResponse(saved);
     }
 
@@ -396,10 +405,20 @@ public class ReservationService {
             table.setStatus(TableStatus.RESERVED);
             diningTableRepository.save(table);
             log.info("Mesa {} marcada como RESERVED al confirmar reserva #{}", table.getId(), id);
+
+            eventPublisher.publishEvent(new ReservationConfirmedEvent(ReservationEmailData.from(reservation)));
         }
 
         // ─── Transición a CANCELLED ────────────────────────────────
         if (newStatus == ReservationStatus.CANCELLED) {
+            // Snapshot ANTES de desasignar la mesa: el listener corre
+            // post-commit con la sesión de Hibernate cerrada.
+            // Solo publicar si no estaba ya CANCELLED, para evitar un
+            // segundo email de cancelación (idempotencia de la notificación).
+            if (oldStatus != ReservationStatus.CANCELLED) {
+                eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
+            }
+
             // Cambiar estado ANTES de liberar para que la consulta
             // findActiveConfirmedByTableId NO encuentre esta reserva
             if (reservation.getDiningTable() != null) {
@@ -440,6 +459,14 @@ public class ReservationService {
         Reservation reservation = reservationRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reserva", "id", id));
         currentUserService.validateRestaurantAccess(reservation.getRestaurant().getId());
+
+        // Snapshot ANTES de desasignar la mesa: el listener corre
+        // post-commit con la sesión de Hibernate cerrada.
+        // Solo publicar si no estaba ya CANCELLED, para evitar un
+        // segundo email de cancelación (idempotencia de la notificación).
+        if (reservation.getStatus() != ReservationStatus.CANCELLED) {
+            eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
+        }
 
         // Liberar mesa si estaba asignada
         if (reservation.getDiningTable() != null) {

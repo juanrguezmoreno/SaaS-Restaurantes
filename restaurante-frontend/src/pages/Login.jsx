@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
@@ -127,6 +127,11 @@ const Login = () => {
                 disabled={isLoading}
                 required
               />
+              <div className="text-end mt-1">
+                <Link to="/forgot-password" className="text-decoration-none small">
+                  ¿Has olvidado tu contraseña?
+                </Link>
+              </div>
             </div>
 
             <button

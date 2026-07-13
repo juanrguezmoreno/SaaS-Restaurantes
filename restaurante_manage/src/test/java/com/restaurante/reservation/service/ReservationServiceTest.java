@@ -22,6 +22,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import com.restaurante.notification.event.ReservationCancelledEvent;
+import com.restaurante.notification.event.ReservationConfirmedEvent;
+import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -49,6 +53,7 @@ class ReservationServiceTest {
     @Mock private DiningTableRepository diningTableRepository;
     @Mock private ReservationMapper reservationMapper;
     @Mock private CurrentUserService currentUserService;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks private ReservationService service;
 
@@ -60,6 +65,7 @@ class ReservationServiceTest {
     void setUp() {
         restaurant = new Restaurant();
         restaurant.setId(RESTAURANT_ID);
+        restaurant.setName("La Buena Mesa");
 
         table = new DiningTable();
         table.setId(TABLE_ID);
@@ -68,6 +74,9 @@ class ReservationServiceTest {
 
         customer = new Customer();
         customer.setId(CUSTOMER_ID);
+        customer.setFirstName("Ana");
+        customer.setLastName("García");
+        customer.setEmail("ana@example.com");
 
         when(customerRepository.findByIdAndDeletedFalse(CUSTOMER_ID)).thenReturn(Optional.of(customer));
         when(restaurantRepository.findByIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(Optional.of(restaurant));
@@ -228,5 +237,106 @@ class ReservationServiceTest {
 
         verify(reservationRepository, never())
                 .findByRestaurantIdAndReservationDateAndDeletedFalse(any(), any());
+    }
+
+    // ─── Notificaciones por email: publicación de eventos ─────────────────
+
+    @Test
+    void create_publicaReservationConfirmedEventSiSeCreaConfirmada() {
+        when(reservationMapper.toEntity(any(ReservationRequest.class))).thenAnswer(inv -> {
+            Reservation r = new Reservation();
+            r.setReservationDate(DATE);
+            r.setReservationTime(TIME);
+            r.setPartySize(2);
+            r.setStatus(ReservationStatus.CONFIRMED);
+            return r;
+        });
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, null)).thenReturn(List.of());
+
+        service.create(request());
+
+        ArgumentCaptor<ReservationConfirmedEvent> captor = ArgumentCaptor.forClass(ReservationConfirmedEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals("Mesa 1", captor.getValue().data().tableInfo());
+        assertEquals("ana@example.com", captor.getValue().data().customerEmail());
+    }
+
+    @Test
+    void updateStatus_publicaReservationConfirmedEventAlConfirmar() {
+        Reservation reserva = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reserva));
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(table));
+        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, 5L)).thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(5L, "CONFIRMED");
+
+        ArgumentCaptor<ReservationConfirmedEvent> captor = ArgumentCaptor.forClass(ReservationConfirmedEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals("Mesa 1", captor.getValue().data().tableInfo());
+    }
+
+    @Test
+    void updateStatus_publicaReservationCancelledEventAlCancelar() {
+        Reservation reserva = reservaPendienteSinMesa(6L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        when(reservationRepository.findByIdAndDeletedFalse(6L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(6L, "CANCELLED");
+
+        ArgumentCaptor<ReservationCancelledEvent> captor = ArgumentCaptor.forClass(ReservationCancelledEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals("Mesa 1", captor.getValue().data().tableInfo());
+    }
+
+    @Test
+    void cancel_publicaReservationCancelledEvent() {
+        Reservation reserva = reservaPendienteSinMesa(7L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        when(reservationRepository.findByIdAndDeletedFalse(7L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+
+        service.cancel(7L);
+
+        ArgumentCaptor<ReservationCancelledEvent> captor = ArgumentCaptor.forClass(ReservationCancelledEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals("Mesa 1", captor.getValue().data().tableInfo());
+    }
+
+    @Test
+    void updateStatus_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(8L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        reserva.setDiningTable(null);
+        when(reservationRepository.findByIdAndDeletedFalse(8L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(8L, "CANCELLED");
+
+        verify(eventPublisher, never()).publishEvent(any(ReservationCancelledEvent.class));
+    }
+
+    @Test
+    void cancel_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(9L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        reserva.setDiningTable(null);
+        when(reservationRepository.findByIdAndDeletedFalse(9L)).thenReturn(Optional.of(reserva));
+
+        service.cancel(9L);
+
+        verify(eventPublisher, never()).publishEvent(any(ReservationCancelledEvent.class));
     }
 }
