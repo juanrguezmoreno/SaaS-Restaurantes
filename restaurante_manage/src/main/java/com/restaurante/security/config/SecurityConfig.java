@@ -55,6 +55,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Solo el login es público; el registro requiere ADMIN/SUPER_ADMIN autenticado
                         .requestMatchers(HttpMethod.POST, Constants.AUTH_PATH + Constants.LOGIN_PATH).permitAll()
+                        // Recuperación de contraseña: público por definición (el usuario no tiene sesión)
+                        .requestMatchers(HttpMethod.POST, Constants.AUTH_PATH + Constants.FORGOT_PASSWORD_PATH).permitAll()
+                        .requestMatchers(HttpMethod.POST, Constants.AUTH_PATH + Constants.RESET_PASSWORD_PATH).permitAll()
                         .requestMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
                         // Público: listar restaurantes y ver detalle (con tenant filtering)

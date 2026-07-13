@@ -1,5 +1,6 @@
 package com.restaurante.notification.service;
 
+import com.restaurante.notification.event.PasswordResetEmailData;
 import com.restaurante.notification.event.ReservationEmailData;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
@@ -80,5 +81,37 @@ class EmailServiceTest {
         EmailService service = new EmailService(mailSender, true, "no-reply@test.com");
 
         assertDoesNotThrow(() -> service.sendReservationConfirmed(data("ana@example.com")));
+    }
+
+    // ─── sendPasswordReset ──────────────────────────────────────────────────
+
+    private PasswordResetEmailData passwordResetData(String email) {
+        return new PasswordResetEmailData(email, "Ana García",
+                "http://localhost:5173/reset-password?token=abc123", 30);
+    }
+
+    @Test
+    void sendPasswordReset_renderizaLaPlantillaYEnviaElEmail() throws Exception {
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        EmailService service = new EmailService(mailSender, true, "no-reply@test.com");
+
+        service.sendPasswordReset(passwordResetData("ana@example.com"));
+
+        verify(mailSender).send(mimeMessage);
+        String content = (String) mimeMessage.getContent();
+        assertTrue(content.contains("Ana García"));
+        assertTrue(content.contains("http://localhost:5173/reset-password?token=abc123"));
+        assertTrue(content.contains("30"));
+        assertFalse(content.contains("{{"));
+    }
+
+    @Test
+    void sendPasswordReset_noEnviaSiMailEnabledEsFalse() {
+        EmailService service = new EmailService(mailSender, false, "no-reply@test.com");
+
+        service.sendPasswordReset(passwordResetData("ana@example.com"));
+
+        verify(mailSender, never()).createMimeMessage();
+        verify(mailSender, never()).send(any(MimeMessage.class));
     }
 }

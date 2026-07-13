@@ -13,6 +13,8 @@ public final class Constants {
     public static final String AUTH_PATH = API_BASE_PATH + "/auth";
     public static final String LOGIN_PATH = "/login";
     public static final String REGISTER_PATH = "/register";
+    public static final String FORGOT_PASSWORD_PATH = "/forgot-password";
+    public static final String RESET_PASSWORD_PATH = "/reset-password";
 
     // Users
     public static final String USERS_PATH = API_BASE_PATH + "/users";

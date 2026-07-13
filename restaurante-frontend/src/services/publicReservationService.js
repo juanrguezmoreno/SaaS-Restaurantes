@@ -12,13 +12,33 @@ const extractItem = (response) => {
 };
 
 const handleError = (error) => {
+  const status = error.response?.status;
+
   if (error.response && error.response.data) {
     const body = error.response.data;
-    const message = body.message || body.error || 'Error del servidor';
-    return new Error(message);
+    let message = body.message || body.error || 'Error del servidor';
+
+    // Errores de validación (400): el detalle va en `data` como mapa
+    // campo -> mensaje (ver GlobalExceptionHandler#handleMethodArgumentNotValid),
+    // no en `message` (que solo dice "Error de validación").
+    if (body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
+      const fieldMessages = Object.values(body.data).filter((v) => typeof v === 'string');
+      if (fieldMessages.length > 0) {
+        message = fieldMessages.join(' ');
+      }
+    }
+
+    const err = new Error(message);
+    err.status = status;
+    return err;
   }
-  if (error.message) return error;
-  return new Error('Error de conexión. Verifica que el servidor esté funcionando.');
+  if (error.message) {
+    error.status = status;
+    return error;
+  }
+  const err = new Error('Error de conexión. Verifica que el servidor esté funcionando.');
+  err.status = status;
+  return err;
 };
 
 // ─── Helpers de normalización ───────────────────────────────────────────────
