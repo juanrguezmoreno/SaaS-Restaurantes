@@ -313,4 +313,30 @@ class ReservationServiceTest {
         verify(eventPublisher).publishEvent(captor.capture());
         assertEquals("Mesa 1", captor.getValue().data().tableInfo());
     }
+
+    @Test
+    void updateStatus_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(8L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        reserva.setDiningTable(null);
+        when(reservationRepository.findByIdAndDeletedFalse(8L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(8L, "CANCELLED");
+
+        verify(eventPublisher, never()).publishEvent(any(ReservationCancelledEvent.class));
+    }
+
+    @Test
+    void cancel_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(9L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        reserva.setDiningTable(null);
+        when(reservationRepository.findByIdAndDeletedFalse(9L)).thenReturn(Optional.of(reserva));
+
+        service.cancel(9L);
+
+        verify(eventPublisher, never()).publishEvent(any(ReservationCancelledEvent.class));
+    }
 }

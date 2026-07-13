@@ -413,7 +413,11 @@ public class ReservationService {
         if (newStatus == ReservationStatus.CANCELLED) {
             // Snapshot ANTES de desasignar la mesa: el listener corre
             // post-commit con la sesión de Hibernate cerrada.
-            eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
+            // Solo publicar si no estaba ya CANCELLED, para evitar un
+            // segundo email de cancelación (idempotencia de la notificación).
+            if (oldStatus != ReservationStatus.CANCELLED) {
+                eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
+            }
 
             // Cambiar estado ANTES de liberar para que la consulta
             // findActiveConfirmedByTableId NO encuentre esta reserva
@@ -458,7 +462,11 @@ public class ReservationService {
 
         // Snapshot ANTES de desasignar la mesa: el listener corre
         // post-commit con la sesión de Hibernate cerrada.
-        eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
+        // Solo publicar si no estaba ya CANCELLED, para evitar un
+        // segundo email de cancelación (idempotencia de la notificación).
+        if (reservation.getStatus() != ReservationStatus.CANCELLED) {
+            eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
+        }
 
         // Liberar mesa si estaba asignada
         if (reservation.getDiningTable() != null) {
