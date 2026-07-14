@@ -23,6 +23,7 @@ public class UserResponse {
     private boolean enabled;
     private Long restaurantId;
     private String restaurantName;
+    private Set<Long> assignedRestaurantIds;
     private Long tenantId;
     private String tenantName;
     private Set<String> roles;

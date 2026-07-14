@@ -276,6 +276,12 @@ public class EmployeeService {
         validateEmployeeAccess(employee);
         employee.setDeleted(true);
         employee.setDeletedAt(LocalDateTime.now());
+
+        if (employee.getUser() != null) {
+            employee.getUser().setEnabled(false);
+            userRepository.save(employee.getUser());
+        }
+
         employeeRepository.save(employee);
     }
 

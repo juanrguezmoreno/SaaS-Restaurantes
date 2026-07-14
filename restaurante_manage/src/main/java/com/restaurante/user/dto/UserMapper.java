@@ -23,6 +23,12 @@ public class UserMapper {
                     .collect(Collectors.toSet());
         }
 
+        Set<Long> assignedRestaurantIds = user.getAssignedRestaurants() != null
+                ? user.getAssignedRestaurants().stream()
+                        .map(r -> r.getId())
+                        .collect(Collectors.toSet())
+                : Collections.emptySet();
+
         return UserResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
@@ -33,6 +39,7 @@ public class UserMapper {
                 .enabled(user.isEnabled())
                 .restaurantId(user.getRestaurant() != null ? user.getRestaurant().getId() : null)
                 .restaurantName(user.getRestaurant() != null ? user.getRestaurant().getName() : null)
+                .assignedRestaurantIds(assignedRestaurantIds)
                 .tenantId(user.getTenant() != null ? user.getTenant().getId() : null)
                 .tenantName(user.getTenant() != null ? user.getTenant().getName() : null)
                 .roles(roleNames)

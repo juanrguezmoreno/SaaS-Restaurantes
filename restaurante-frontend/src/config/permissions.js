@@ -78,9 +78,8 @@ const ROLE_PERMISSIONS = {
     // Admin — Gestión completa de mesas (solo restaurantes asignados)
     PERMISSIONS.VIEW_TABLES,
     PERMISSIONS.MANAGE_TABLES,
-    // Empleados — visión y gestión básica
+    // Empleados — solo visión, la gestión (crear/editar/eliminar) es de ADMIN/SUPER_ADMIN
     PERMISSIONS.VIEW_EMPLOYEES,
-    PERMISSIONS.MANAGE_EMPLOYEES,
   ],
 
   [ROLES.EMPLOYEE]: [

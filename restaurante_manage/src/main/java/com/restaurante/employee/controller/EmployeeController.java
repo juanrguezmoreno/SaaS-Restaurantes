@@ -56,8 +56,8 @@ public class EmployeeController {
 
     // ─── CREAR ─────────────────────────────────────────────────────────────
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
-    @Operation(summary = "Create employee", description = "Creates a new employee with restaurant assignments (optionally creates system access)")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Create employee", description = "Creates a new employee with restaurant assignments (optionally creates system access). Admin only.")
     public ResponseEntity<ApiResponse<EmployeeResponse>> create(
             @Valid @RequestBody EmployeeRequest request) {
         EmployeeResponse response = employeeService.create(request);
@@ -67,8 +67,8 @@ public class EmployeeController {
 
     // ─── ACTUALIZAR ────────────────────────────────────────────────────────
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
-    @Operation(summary = "Update employee", description = "Updates an existing employee's information and assignments")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Update employee", description = "Updates an existing employee's information and assignments. Admin only.")
     public ResponseEntity<ApiResponse<EmployeeResponse>> update(@PathVariable Long id,
                                                                 @Valid @RequestBody EmployeeRequest request) {
         EmployeeResponse response = employeeService.update(id, request);

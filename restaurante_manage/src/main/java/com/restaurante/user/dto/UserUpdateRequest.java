@@ -54,4 +54,6 @@ public class UserUpdateRequest {
     private Long tenantId;
 
     private Long restaurantId;
+
+    private Set<Long> restaurantIds;
 }
