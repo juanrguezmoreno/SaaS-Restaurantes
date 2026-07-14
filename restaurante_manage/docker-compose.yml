@@ -7,12 +7,16 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # El contenedor debe usar el MySQL del compose (servicio "db"), no H2.
+      # Antes se forzaba SPRING_PROFILES_ACTIVE=dev, lo que arrancaba la API
+      # contra H2 en memoria: las posiciones del plano se perdían en cada
+      # reinicio y data.sql sembraba datos de demo en cada arranque.
+      - DB_URL=jdbc:mysql://db:3306/restaurant_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       - DB_USERNAME=root
       - DB_PASSWORD=root
       # Define JWT_SECRET en tu entorno o en un archivo .env (no committeado)
       - JWT_SECRET=${JWT_SECRET:?Define JWT_SECRET en el entorno o en un archivo .env}
       - JWT_EXPIRATION_MS=86400000
-      - SPRING_PROFILES_ACTIVE=dev
     depends_on:
       - db
     networks:

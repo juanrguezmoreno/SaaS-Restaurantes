@@ -95,7 +95,8 @@ public class ReservationController {
     }
 
     @PostMapping
-    @Operation(summary = "Crear reserva", description = "Crea una nueva reserva (cualquier usuario autenticado)")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
+    @Operation(summary = "Crear reserva", description = "Crea una nueva reserva (solo personal del restaurante)")
     public ResponseEntity<ApiResponse<ReservationResponse>> create(@Valid @RequestBody ReservationRequest request) {
         ReservationResponse response = reservationService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -122,7 +123,8 @@ public class ReservationController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Cancelar reserva", description = "Cancela una reserva")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
+    @Operation(summary = "Cancelar reserva", description = "Cancela una reserva (solo personal del restaurante)")
     public ResponseEntity<ApiResponse<Void>> cancel(@PathVariable Long id) {
         reservationService.cancel(id);
         return ResponseEntity.ok(ApiResponse.success("Reserva cancelada exitosamente", null));
