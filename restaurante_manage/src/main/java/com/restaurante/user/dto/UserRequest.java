@@ -45,4 +45,6 @@ public class UserRequest {
     private Long tenantId;
 
     private Long restaurantId;
+
+    private Set<Long> restaurantIds;
 }

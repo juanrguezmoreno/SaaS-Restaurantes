@@ -1,59 +1,41 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
-  getEmployees,
-  createEmployee,
-  updateEmployee,
-  toggleEmployeeActive,
-} from '../services/employeeService';
+  getUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+} from '../services/userService';
 import { getRestaurants } from '../services/restaurantService';
-import { ROLES, ROLE_LABELS, canAccess, PERMISSIONS } from '../config/permissions';
+import { ROLES, ROLE_LABELS, canAccess, PERMISSIONS, normalizeRole } from '../config/permissions';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Puestos internos del restaurante */
-const POSITIONS = [
-  { value: 'WAITER', label: 'Camarero' },
-  { value: 'CHEF', label: 'Cocinero' },
-  { value: 'MANAGER', label: 'Encargado' },
-  { value: 'RECEPTION', label: 'Recepción' },
-  { value: 'HOST', label: 'Host' },
-  { value: 'CLEANING', label: 'Limpieza' },
-  { value: 'OTHER', label: 'Otro' },
-];
-
-const POSITION_LABEL_MAP = Object.fromEntries(POSITIONS.map((p) => [p.value, p.label]));
-
-/** Roles que se pueden asignar al crear un usuario, según el rol del usuario actual */
+/** Roles que se pueden asignar al crear/editar un empleado, según el rol del usuario actual */
 const getAssignableRoles = (currentRole) => {
   switch (currentRole) {
     case ROLES.SUPER_ADMIN:
       return [ROLES.ADMIN, ROLES.MANAGER, ROLES.EMPLOYEE];
     case ROLES.ADMIN:
       return [ROLES.MANAGER, ROLES.EMPLOYEE];
-    case ROLES.MANAGER:
-      return [ROLES.EMPLOYEE];
     default:
       return [];
   }
 };
 
-/** Etiquetas de estado */
 const STATUS_LABELS = {
   true: { label: 'Activo', className: 'available' },
   false: { label: 'Inactivo', className: 'maintenance' },
 };
 
-/** Roles de sistema que puede editar según el rol del usuario actual */
-const canEditRole = (currentRole) => {
-  return currentRole === ROLES.SUPER_ADMIN || currentRole === ROLES.ADMIN;
-};
-
-/** ¿Puede gestionar empleados fuera de su restaurant? */
-const isFullAccess = (currentRole) => {
-  return currentRole === ROLES.SUPER_ADMIN || currentRole === ROLES.ADMIN;
+const SORT_FIELDS = {
+  name: (u) => getFullName(u).toLowerCase(),
+  username: (u) => (u.username || '').toLowerCase(),
+  email: (u) => (u.email || '').toLowerCase(),
+  role: (u) => getRoleLabel(getPrimaryRole(u)).toLowerCase(),
+  createdAt: (u) => u.createdAt || '',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -75,12 +57,23 @@ const getFullName = (employee) => {
   return `${first} ${last}`.trim();
 };
 
-const formatPosition = (position) => {
-  return POSITION_LABEL_MAP[position] || position || '—';
+const getPrimaryRole = (employee) => {
+  if (!employee || !employee.roles) return null;
+  const rolesArray = Array.isArray(employee.roles) ? employee.roles : Array.from(employee.roles);
+  if (rolesArray.length === 0) return null;
+  return normalizeRole(rolesArray[0]);
 };
 
 const getRoleLabel = (role) => {
-  return ROLE_LABELS[role] || role || '—';
+  if (!role) return '—';
+  return ROLE_LABELS[role] || role;
+};
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -90,13 +83,11 @@ const getRoleLabel = (role) => {
 const INITIAL_FORM = {
   firstName: '',
   lastName: '',
+  username: '',
   email: '',
-  phone: '',
-  position: '',
-  systemRole: ROLES.EMPLOYEE,
+  password: '',
+  role: ROLES.EMPLOYEE,
   restaurantIds: [],
-  active: true,
-  createUser: false,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -113,11 +104,10 @@ const Employees = () => {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // ─── Filtros ───────────────────────────────────────────────────────────
+  // ─── Filtros y orden ───────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRestaurant, setFilterRestaurant] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterPosition, setFilterPosition] = useState('');
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
 
   // ─── Modal de formulario (crear/editar) ────────────────────────────────
   const [showModal, setShowModal] = useState(false);
@@ -127,21 +117,19 @@ const Employees = () => {
   const [formErrors, setFormErrors] = useState({});
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
 
-  // ─── Modal de cambio de estado (desactivar/reactivar) ──────────────────
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [togglingEmployee, setTogglingEmployee] = useState(null);
-  const [toggling, setToggling] = useState(false);
-  const [togglingError, setTogglingError] = useState(null);
+  // ─── Modal de eliminación ───────────────────────────────────────────────
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingEmployee, setDeletingEmployee] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deletingError, setDeletingError] = useState(null);
 
-  // Safe access (wrapped in useMemo to avoid changing reference on every render)
+  // Safe access
   const safeEmployees = useMemo(() => Array.isArray(employees) ? employees : [], [employees]);
   const safeRestaurants = useMemo(() => Array.isArray(restaurants) ? restaurants : [], [restaurants]);
 
   // ─── Rol del usuario actual ────────────────────────────────────────────
   const currentRole = user?.role || ROLES.EMPLOYEE;
   const assignableRoles = getAssignableRoles(currentRole);
-  const canManageAll = isFullAccess(currentRole);
-  const canManageRole = canEditRole(currentRole);
   const canManageEmployees = canAccess(user, PERMISSIONS.MANAGE_EMPLOYEES);
 
   // ─── Cargar restaurantes (una vez al montar) ───────────────────────────
@@ -165,14 +153,10 @@ const Employees = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getEmployees();
+      const data = await getUsers();
       setEmployees(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(getErrorMessage(err));
-      // Si el error es 403, mostrar mensaje específico
-      if (err.message && err.message.includes('No tienes permisos')) {
-        setError(err.message);
-      }
     } finally {
       setLoading(false);
     }
@@ -192,48 +176,30 @@ const Employees = () => {
   }, [successMessage]);
 
   // ══════════════════════════════════════════════════════════════════════════
-  // FILTRADO
+  // FILTRADO Y ORDEN
   // ══════════════════════════════════════════════════════════════════════════
 
   const filteredEmployees = useMemo(() => {
-    return safeEmployees.filter((emp) => {
-      // Búsqueda por nombre/email/teléfono
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const fullName = getFullName(emp).toLowerCase();
-        const email = (emp.email || '').toLowerCase();
-        const phone = (emp.phone || '').toLowerCase();
-        if (
-          !fullName.includes(q) &&
-          !email.includes(q) &&
-          !phone.includes(q)
-        ) {
-          return false;
-        }
-      }
-
-      // Filtro por restaurante
-      if (filterRestaurant) {
-        const restId = Number(filterRestaurant);
-        const empRestIds = emp.restaurantIds || [];
-        if (!empRestIds.includes(restId) && emp.restaurantId !== restId) {
-          // También verificar si tiene un único restaurantId
-          if (!emp.restaurantIds && emp.restaurantId !== restId) {
-            return false;
-          }
-        }
-      }
-
-      // Filtro por estado
-      if (filterStatus === 'active' && !emp.active) return false;
-      if (filterStatus === 'inactive' && emp.active) return false;
-
-      // Filtro por puesto
-      if (filterPosition && emp.position !== filterPosition) return false;
-
-      return true;
+    let result = safeEmployees.filter((emp) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase().trim();
+      const fullName = getFullName(emp).toLowerCase();
+      const username = (emp.username || '').toLowerCase();
+      const email = (emp.email || '').toLowerCase();
+      return fullName.includes(q) || username.includes(q) || email.includes(q);
     });
-  }, [safeEmployees, searchQuery, filterRestaurant, filterStatus, filterPosition]);
+
+    const keyFn = SORT_FIELDS[sortField] || SORT_FIELDS.name;
+    result = [...result].sort((a, b) => {
+      const ka = keyFn(a);
+      const kb = keyFn(b);
+      if (ka < kb) return sortDirection === 'asc' ? -1 : 1;
+      if (ka > kb) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [safeEmployees, searchQuery, sortField, sortDirection]);
 
   // ══════════════════════════════════════════════════════════════════════════
   // STATS
@@ -241,20 +207,16 @@ const Employees = () => {
 
   const stats = useMemo(() => {
     const total = safeEmployees.length;
-    const active = safeEmployees.filter((e) => e.active).length;
+    const active = safeEmployees.filter((e) => e.enabled).length;
     const inactive = total - active;
     return { total, active, inactive };
   }, [safeEmployees]);
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // NOMBRES DE RESTAURANTES
-  // ══════════════════════════════════════════════════════════════════════════
-
   const getRestaurantNames = (emp) => {
-    // Intentar con restaurantIds primero
-    const ids = emp.restaurantIds || (emp.restaurantId ? [emp.restaurantId] : []);
+    const ids = emp.assignedRestaurantIds
+      ? Array.from(emp.assignedRestaurantIds)
+      : (emp.restaurantId ? [emp.restaurantId] : []);
     if (ids.length === 0) return '—';
-
     return ids
       .map((id) => {
         const rest = safeRestaurants.find((r) => Number(r.id) === Number(id));
@@ -265,30 +227,45 @@ const Employees = () => {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
+  // ORDEN: CAMBIO DE COLUMNA
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortIndicator = (field) => {
+    if (sortField !== field) return '';
+    return sortDirection === 'asc' ? ' ▲' : ' ▼';
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
   // MODAL: ABRIR / CERRAR
   // ══════════════════════════════════════════════════════════════════════════
 
   const handleOpenCreate = () => {
     setEditingEmployee(null);
-    setFormData({ ...INITIAL_FORM });
+    setFormData({ ...INITIAL_FORM, role: assignableRoles[assignableRoles.length - 1] || ROLES.EMPLOYEE });
     setFormErrors({});
     setShowModal(true);
   };
 
   const handleOpenEdit = (emp) => {
     if (!emp) return;
-
     setEditingEmployee(emp);
     setFormData({
       firstName: emp.firstName || '',
       lastName: emp.lastName || '',
+      username: emp.username || '',
       email: emp.email || '',
-      phone: emp.phone || '',
-      position: emp.position || '',
-      systemRole: emp.systemRole || ROLES.EMPLOYEE,
-      restaurantIds: emp.restaurantIds || (emp.restaurantId ? [emp.restaurantId] : []),
-      active: emp.active !== false,
-      createUser: emp.hasSystemAccess || false,
+      password: '',
+      role: getPrimaryRole(emp) || ROLES.EMPLOYEE,
+      restaurantIds: emp.assignedRestaurantIds ? Array.from(emp.assignedRestaurantIds) : (emp.restaurantId ? [emp.restaurantId] : []),
     });
     setFormErrors({});
     setShowModal(true);
@@ -309,7 +286,6 @@ const Employees = () => {
     const { name, value, type, checked } = e.target;
 
     if (type === 'checkbox' && name === 'restaurantIds') {
-      // Toggle de restaurante en la lista multi-select
       const restId = Number(value);
       setFormData((prev) => {
         const current = [...prev.restaurantIds];
@@ -321,13 +297,10 @@ const Employees = () => {
         }
         return { ...prev, restaurantIds: current };
       });
-    } else if (type === 'checkbox') {
-      setFormData((prev) => ({ ...prev, [name]: checked }));
     } else {
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
 
-    // Limpiar error del campo al escribir
     if (formErrors[name]) {
       setFormErrors((prev) => {
         const updated = { ...prev };
@@ -344,28 +317,34 @@ const Employees = () => {
   const validateForm = () => {
     const errors = {};
     const firstName = (formData.firstName || '').trim();
+    const username = (formData.username || '').trim();
     const email = (formData.email || '').trim();
+    const password = formData.password || '';
 
     if (!firstName) {
       errors.firstName = 'El nombre es obligatorio.';
     }
 
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!username) {
+      errors.username = 'El usuario es obligatorio.';
+    } else if (username.length < 3) {
+      errors.username = 'El usuario debe tener al menos 3 caracteres.';
+    }
+
+    if (!email) {
+      errors.email = 'El email es obligatorio.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       errors.email = 'Correo electrónico no válido.';
     }
 
-    if (!formData.position) {
-      errors.position = 'El puesto es obligatorio.';
+    if (!editingEmployee && !password) {
+      errors.password = 'La contraseña es obligatoria.';
+    } else if (password && password.length < 6) {
+      errors.password = 'La contraseña debe tener al menos 6 caracteres.';
     }
 
-    // Si se va a crear acceso al sistema, validar campos adicionales
-    if (formData.createUser) {
-      if (!formData.systemRole) {
-        errors.systemRole = 'El rol de acceso es obligatorio.';
-      }
-      if (!email) {
-        errors.email = 'El email es obligatorio para crear acceso al sistema.';
-      }
+    if (!formData.role) {
+      errors.role = 'El rol es obligatorio.';
     }
 
     setFormErrors(errors);
@@ -387,23 +366,25 @@ const Employees = () => {
       const payload = {
         firstName: (formData.firstName || '').trim(),
         lastName: (formData.lastName || '').trim(),
+        username: (formData.username || '').trim(),
         email: (formData.email || '').trim(),
-        phone: (formData.phone || '').trim(),
-        position: formData.position,
-        active: formData.active,
+        roles: [formData.role],
         restaurantIds: formData.restaurantIds,
-        createUser: formData.createUser,
       };
 
-      if (formData.createUser) {
-        payload.systemRole = formData.systemRole;
+      // Contraseña: obligatoria al crear, opcional al editar.
+      // Nunca se envía vacía en edición para no sobrescribir la existente.
+      if (!editingEmployee) {
+        payload.password = formData.password;
+      } else if (formData.password) {
+        payload.password = formData.password;
       }
 
       if (editingEmployee) {
-        await updateEmployee(editingEmployee.id, payload);
+        await updateUser(editingEmployee.id, payload);
         setSuccessMessage('Empleado actualizado correctamente.');
       } else {
-        await createEmployee(payload);
+        await createUser(payload);
         setSuccessMessage('Empleado creado correctamente.');
       }
 
@@ -422,66 +403,38 @@ const Employees = () => {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CAMBIAR ESTADO (DESACTIVAR / REACTIVAR)
+  // ELIMINAR
   // ══════════════════════════════════════════════════════════════════════════
 
-  const handleOpenStatusToggle = (emp) => {
+  const handleOpenDelete = (emp) => {
     if (!emp) return;
-    setTogglingEmployee(emp);
-    setTogglingError(null);
-    setShowStatusModal(true);
+    setDeletingEmployee(emp);
+    setDeletingError(null);
+    setShowDeleteModal(true);
   };
 
-  const handleCloseStatusToggle = () => {
-    setShowStatusModal(false);
-    setTogglingEmployee(null);
-    setTogglingError(null);
+  const handleCloseDelete = () => {
+    setShowDeleteModal(false);
+    setDeletingEmployee(null);
+    setDeletingError(null);
   };
 
-  const handleConfirmStatusToggle = async () => {
-    if (!togglingEmployee) return;
+  const handleConfirmDelete = async () => {
+    if (!deletingEmployee) return;
 
-    setToggling(true);
-    setTogglingError(null);
+    setDeleting(true);
+    setDeletingError(null);
     try {
-      const newActive = !togglingEmployee.active;
-      await toggleEmployeeActive(togglingEmployee.id, newActive);
-      setSuccessMessage(
-        newActive
-          ? 'Empleado reactivado correctamente.'
-          : 'Empleado desactivado correctamente.'
-      );
-      setShowStatusModal(false);
-      setTogglingEmployee(null);
+      await deleteUser(deletingEmployee.id);
+      setSuccessMessage('Empleado eliminado correctamente.');
+      setShowDeleteModal(false);
+      setDeletingEmployee(null);
       await fetchEmployees();
     } catch (err) {
-      setTogglingError(getErrorMessage(err));
+      setDeletingError(getErrorMessage(err));
     } finally {
-      setToggling(false);
+      setDeleting(false);
     }
-  };
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // PERMISOS POR FILA: ¿PUEDE EDITAR?
-  // ══════════════════════════════════════════════════════════════════════════
-
-  const canEditEmployee = (emp) => {
-    if (!canManageEmployees) return false;
-    // SUPER_ADMIN y ADMIN pueden editar todo
-    if (canManageAll) return true;
-    // MANAGER solo puede editar EMPLOYEE de sus restaurantes
-    if (currentRole === ROLES.MANAGER) {
-      const empRole = emp.systemRole || ROLES.EMPLOYEE;
-      return empRole === ROLES.EMPLOYEE;
-    }
-    return false;
-  };
-
-  const canToggleActiveEmployee = () => {
-    if (!canManageEmployees) return false;
-    if (canManageAll) return true;
-    // MANAGER no debería desactivar empleados
-    return false;
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -510,7 +463,7 @@ const Employees = () => {
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              Añadir Empleado
+              Nuevo empleado
             </button>
           )}
         </div>
@@ -563,10 +516,10 @@ const Employees = () => {
               </svg>
             </div>
             <h5>No hay empleados registrados</h5>
-            <p>Añade tu primer empleado y asígnale un puesto y permisos de acceso.</p>
+            <p>Añade tu primer empleado y asígnale un rol y restaurantes.</p>
             {canManageEmployees && (
               <button className="btn btn-primary" onClick={handleOpenCreate} type="button">
-                Añadir Empleado
+                Nuevo empleado
               </button>
             )}
           </div>
@@ -617,7 +570,7 @@ const Employees = () => {
             </div>
           </div>
 
-          {/* ─── Search & Filters ───────────────────────────────────────── */}
+          {/* ─── Search ─────────────────────────────────────────────────── */}
           <div className="d-flex flex-wrap align-items-center gap-3 mb-3">
             <div className="d-flex align-items-center gap-2 flex-grow-1" style={{ maxWidth: '320px' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
@@ -627,7 +580,7 @@ const Employees = () => {
               <input
                 type="text"
                 className="form-control form-control-sm"
-                placeholder="Buscar por nombre, email o teléfono..."
+                placeholder="Buscar por nombre, usuario o email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 aria-label="Buscar empleados"
@@ -643,48 +596,6 @@ const Employees = () => {
                 </button>
               )}
             </div>
-
-            <select
-              className="form-select form-select-sm"
-              style={{ maxWidth: '180px' }}
-              value={filterRestaurant}
-              onChange={(e) => setFilterRestaurant(e.target.value)}
-              aria-label="Filtrar por restaurante"
-            >
-              <option value="">Todos los restaurantes</option>
-              {safeRestaurants.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name || 'No disponible'}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="form-select form-select-sm"
-              style={{ maxWidth: '140px' }}
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              aria-label="Filtrar por estado"
-            >
-              <option value="all">Todos los estados</option>
-              <option value="active">Activos</option>
-              <option value="inactive">Inactivos</option>
-            </select>
-
-            <select
-              className="form-select form-select-sm"
-              style={{ maxWidth: '160px' }}
-              value={filterPosition}
-              onChange={(e) => setFilterPosition(e.target.value)}
-              aria-label="Filtrar por puesto"
-            >
-              <option value="">Todos los puestos</option>
-              {POSITIONS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
           </div>
 
           {/* ─── Table ──────────────────────────────────────────────────── */}
@@ -694,13 +605,13 @@ const Employees = () => {
                 <thead>
                   <tr>
                     <th className="col-id">#</th>
-                    <th>Nombre</th>
-                    <th>Email</th>
-                    <th>Teléfono</th>
-                    <th>Puesto</th>
-                    <th>Rol de acceso</th>
+                    <th role="button" onClick={() => handleSort('name')}>Nombre{sortIndicator('name')}</th>
+                    <th role="button" onClick={() => handleSort('username')}>Usuario{sortIndicator('username')}</th>
+                    <th role="button" onClick={() => handleSort('email')}>Email{sortIndicator('email')}</th>
+                    <th role="button" onClick={() => handleSort('role')}>Rol{sortIndicator('role')}</th>
                     <th>Restaurantes</th>
                     <th>Estado</th>
+                    <th role="button" onClick={() => handleSort('createdAt')}>Fecha de creación{sortIndicator('createdAt')}</th>
                     <th className="col-actions">Acciones</th>
                   </tr>
                 </thead>
@@ -708,9 +619,7 @@ const Employees = () => {
                   {filteredEmployees.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="text-center text-muted py-4">
-                        {searchQuery || filterRestaurant || filterStatus !== 'all' || filterPosition
-                          ? 'No se encontraron empleados que coincidan con los filtros.'
-                          : 'No hay empleados registrados.'}
+                        No se encontraron empleados que coincidan con la búsqueda.
                       </td>
                     </tr>
                   ) : (
@@ -718,46 +627,18 @@ const Employees = () => {
                       <tr key={emp?.id ?? index}>
                         <td className="col-id">{emp?.id ?? index + 1}</td>
                         <td className="fw-semibold">{getFullName(emp)}</td>
+                        <td>{emp?.username || '—'}</td>
                         <td>
                           {emp?.email ? (
-                            <span className="d-inline-flex align-items-center gap-1">
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-muted)' }}>
-                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                <polyline points="22,6 12,13 2,6" />
-                              </svg>
-                              <span className="text-truncate d-inline-block" style={{ maxWidth: '180px' }}>
-                                {emp.email}
-                              </span>
+                            <span className="text-truncate d-inline-block" style={{ maxWidth: '180px' }}>
+                              {emp.email}
                             </span>
                           ) : (
                             <span className="text-muted">—</span>
                           )}
                         </td>
                         <td>
-                          {emp?.phone ? (
-                            <span className="d-inline-flex align-items-center gap-1">
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-muted)' }}>
-                                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                              </svg>
-                              {emp.phone}
-                            </span>
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className="badge-status" style={{ backgroundColor: 'var(--primary-light)', color: 'var(--primary)', textTransform: 'none', letterSpacing: 'normal' }}>
-                            {formatPosition(emp.position)}
-                          </span>
-                        </td>
-                        <td>
-                          {emp.hasSystemAccess && emp.systemRole ? (
-                            <span className="fw-medium">
-                              {getRoleLabel(emp.systemRole)}
-                            </span>
-                          ) : (
-                            <span className="text-muted">Sin acceso</span>
-                          )}
+                          <span className="fw-medium">{getRoleLabel(getPrimaryRole(emp))}</span>
                         </td>
                         <td style={{ maxWidth: '200px' }}>
                           <span className="text-truncate d-inline-block" style={{ maxWidth: '200px' }}>
@@ -765,13 +646,14 @@ const Employees = () => {
                           </span>
                         </td>
                         <td>
-                          <span className={`badge-status ${STATUS_LABELS[emp.active !== false ? 'true' : 'false'].className}`}>
-                            {STATUS_LABELS[emp.active !== false ? 'true' : 'false'].label}
+                          <span className={`badge-status ${STATUS_LABELS[emp.enabled !== false ? 'true' : 'false'].className}`}>
+                            {STATUS_LABELS[emp.enabled !== false ? 'true' : 'false'].label}
                           </span>
                         </td>
+                        <td>{formatDate(emp.createdAt)}</td>
                         <td className="col-actions">
                           <div className="d-flex justify-content-end gap-1">
-                            {canEditEmployee(emp) && (
+                            {canManageEmployees && (
                               <button
                                 className="btn-icon btn-edit"
                                 onClick={() => handleOpenEdit(emp)}
@@ -784,25 +666,17 @@ const Employees = () => {
                                 </svg>
                               </button>
                             )}
-                            {canToggleActiveEmployee() && (
+                            {canManageEmployees && (
                               <button
-                                className={`btn-icon ${emp.active !== false ? 'btn-delete' : 'btn-edit'}`}
-                                onClick={() => handleOpenStatusToggle(emp)}
-                                title={emp.active !== false ? 'Desactivar empleado' : 'Reactivar empleado'}
+                                className="btn-icon btn-delete"
+                                onClick={() => handleOpenDelete(emp)}
+                                title="Eliminar empleado"
                                 type="button"
                               >
-                                {emp.active !== false ? (
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <line x1="8" y1="12" x2="16" y2="12" />
-                                  </svg>
-                                ) : (
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <line x1="12" y1="8" x2="12" y2="16" />
-                                    <line x1="8" y1="12" x2="16" y2="12" />
-                                  </svg>
-                                )}
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
                               </button>
                             )}
                           </div>
@@ -833,7 +707,6 @@ const Employees = () => {
 
               <form onSubmit={handleSubmit} noValidate>
                 <div className="modal-body">
-                  {/* Error del submit */}
                   {formErrors.submit && (
                     <div className="alert alert-danger py-2" role="alert">
                       {formErrors.submit}
@@ -845,7 +718,6 @@ const Employees = () => {
                     DATOS PERSONALES
                   </h6>
                   <div className="row g-3 mb-3">
-                    {/* Nombre */}
                     <div className="col-12 col-md-6">
                       <label htmlFor="emp-firstName" className="form-label">
                         Nombre <span className="text-danger">*</span>
@@ -863,7 +735,6 @@ const Employees = () => {
                       {formErrors.firstName && <div className="invalid-feedback">{formErrors.firstName}</div>}
                     </div>
 
-                    {/* Apellidos */}
                     <div className="col-12 col-md-6">
                       <label htmlFor="emp-lastName" className="form-label">Apellidos</label>
                       <input
@@ -877,11 +748,26 @@ const Employees = () => {
                       />
                     </div>
 
-                    {/* Email */}
-                    <div className={`col-12 ${formData.createUser || editingEmployee ? 'col-md-6' : 'col-md-6'}`}>
+                    <div className="col-12 col-md-6">
+                      <label htmlFor="emp-username" className="form-label">
+                        Usuario <span className="text-danger">*</span>
+                      </label>
+                      <input
+                        id="emp-username"
+                        type="text"
+                        className={`form-control ${formErrors.username ? 'is-invalid' : ''}`}
+                        name="username"
+                        value={formData.username || ''}
+                        onChange={handleFormChange}
+                        placeholder="Ej: ana.garcia"
+                        required
+                      />
+                      {formErrors.username && <div className="invalid-feedback">{formErrors.username}</div>}
+                    </div>
+
+                    <div className="col-12 col-md-6">
                       <label htmlFor="emp-email" className="form-label">
-                        Email
-                        {formData.createUser && <span className="text-danger"> *</span>}
+                        Email <span className="text-danger">*</span>
                       </label>
                       <input
                         id="emp-email"
@@ -891,126 +777,55 @@ const Employees = () => {
                         value={formData.email || ''}
                         onChange={handleFormChange}
                         placeholder="Ej: ana.garcia@restaurante.com"
-                        disabled={!!editingEmployee}
+                        required
                       />
                       {formErrors.email && <div className="invalid-feedback">{formErrors.email}</div>}
-                      {editingEmployee && (
-                        <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
-                          El email no se puede modificar.
-                        </div>
-                      )}
                     </div>
 
-                    {/* Teléfono */}
                     <div className="col-12 col-md-6">
-                      <label htmlFor="emp-phone" className="form-label">Teléfono</label>
+                      <label htmlFor="emp-password" className="form-label">
+                        Contraseña {!editingEmployee && <span className="text-danger">*</span>}
+                      </label>
                       <input
-                        id="emp-phone"
-                        type="tel"
-                        className="form-control"
-                        name="phone"
-                        value={formData.phone || ''}
+                        id="emp-password"
+                        type="password"
+                        className={`form-control ${formErrors.password ? 'is-invalid' : ''}`}
+                        name="password"
+                        value={formData.password || ''}
                         onChange={handleFormChange}
-                        placeholder="Ej: 600111222"
+                        placeholder={editingEmployee ? 'Dejar en blanco para no cambiarla' : 'Mínimo 6 caracteres'}
+                        required={!editingEmployee}
                       />
+                      {formErrors.password && <div className="invalid-feedback">{formErrors.password}</div>}
                     </div>
                   </div>
 
-                  {/* ─── Puesto y rol ───────────────────────────────────── */}
+                  {/* ─── Rol y restaurantes ─────────────────────────────── */}
                   <h6 className="fw-semibold mb-3" style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                    PUESTO Y ACCESO
+                    ROL Y ACCESO
                   </h6>
                   <div className="row g-3 mb-3">
-                    {/* Puesto */}
                     <div className="col-12 col-md-6">
-                      <label htmlFor="emp-position" className="form-label">
-                        Puesto <span className="text-danger">*</span>
+                      <label htmlFor="emp-role" className="form-label">
+                        Rol <span className="text-danger">*</span>
                       </label>
                       <select
-                        id="emp-position"
-                        className={`form-select ${formErrors.position ? 'is-invalid' : ''}`}
-                        name="position"
-                        value={formData.position || ''}
+                        id="emp-role"
+                        className={`form-select ${formErrors.role ? 'is-invalid' : ''}`}
+                        name="role"
+                        value={formData.role || ''}
                         onChange={handleFormChange}
-                        required
                       >
-                        <option value="">Seleccionar puesto...</option>
-                        {POSITIONS.map((p) => (
-                          <option key={p.value} value={p.value}>
-                            {p.label}
+                        {assignableRoles.map((role) => (
+                          <option key={role} value={role}>
+                            {ROLE_LABELS[role] || role}
                           </option>
                         ))}
                       </select>
-                      {formErrors.position && <div className="invalid-feedback">{formErrors.position}</div>}
+                      {formErrors.role && <div className="invalid-feedback">{formErrors.role}</div>}
                     </div>
-
-                    {/* Crear acceso al sistema (solo en creación) */}
-                    <div className="col-12 col-md-6 d-flex align-items-end pb-2">
-                      {!editingEmployee && (
-                        <div className="form-check">
-                          <input
-                            id="emp-createUser"
-                            type="checkbox"
-                            className="form-check-input"
-                            name="createUser"
-                            checked={formData.createUser}
-                            onChange={handleFormChange}
-                          />
-                          <label htmlFor="emp-createUser" className="form-check-label" style={{ cursor: 'pointer' }}>
-                            Crear acceso al sistema
-                          </label>
-                        </div>
-                      )}
-                      {editingEmployee && formData.createUser && (
-                        <div className="text-muted" style={{ fontSize: '0.8125rem' }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="me-1">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="16" x2="12" y2="12" />
-                            <line x1="12" y1="8" x2="12.01" y2="8" />
-                          </svg>
-                          Tiene acceso al sistema.
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Rol de sistema (visible solo si createUser está marcado o si editing) */}
-                    {(formData.createUser || editingEmployee) && (
-                      <div className="col-12 col-md-6">
-                        <label htmlFor="emp-systemRole" className="form-label">
-                          Rol de acceso
-                          {formData.createUser && <span className="text-danger"> *</span>}
-                        </label>
-                        <select
-                          id="emp-systemRole"
-                          className={`form-select ${formErrors.systemRole ? 'is-invalid' : ''}`}
-                          name="systemRole"
-                          value={formData.systemRole || ''}
-                          onChange={handleFormChange}
-                          disabled={editingEmployee && !canManageRole}
-                        >
-                          {!formData.systemRole && (
-                            <option value="">Seleccionar rol...</option>
-                          )}
-                          {assignableRoles.map((role) => (
-                            <option key={role} value={role}>
-                              {ROLE_LABELS[role] || role}
-                            </option>
-                          ))}
-                        </select>
-                        {formErrors.systemRole && <div className="invalid-feedback">{formErrors.systemRole}</div>}
-                        {editingEmployee && !canManageRole && (
-                          <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
-                            No tienes permisos para cambiar el rol de acceso.
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
 
-                  {/* ─── Restaurantes asignados ─────────────────────────── */}
-                  <h6 className="fw-semibold mb-3" style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                    RESTAURANTES ASIGNADOS
-                  </h6>
                   <div className="row g-2 mb-3">
                     {loadingRestaurants ? (
                       <div className="col-12">
@@ -1046,33 +861,6 @@ const Employees = () => {
                       ))
                     )}
                   </div>
-
-                  {/* ─── Estado activo ──────────────────────────────────── */}
-                  <h6 className="fw-semibold mb-3" style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                    ESTADO
-                  </h6>
-                  <div className="row g-3">
-                    <div className="col-12">
-                      <div className="form-check">
-                        <input
-                          id="emp-active"
-                          type="checkbox"
-                          className="form-check-input"
-                          name="active"
-                          checked={formData.active}
-                          onChange={handleFormChange}
-                        />
-                        <label htmlFor="emp-active" className="form-check-label" style={{ cursor: 'pointer' }}>
-                          {formData.active ? 'Empleado activo' : 'Empleado inactivo'}
-                        </label>
-                      </div>
-                      <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
-                        {formData.active
-                          ? 'El empleado podrá acceder al sistema y aparecerá en los listados activos.'
-                          : 'El empleado no podrá acceder al sistema y quedará oculto de los listados activos.'}
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
                 <div className="modal-footer">
@@ -1102,65 +890,41 @@ const Employees = () => {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════
-          MODAL: DESACTIVAR / REACTIVAR EMPLEADO
+          MODAL: ELIMINAR EMPLEADO
           ══════════════════════════════════════════════════════════════════════ */}
-      {showStatusModal && togglingEmployee && (
+      {showDeleteModal && deletingEmployee && (
         <div className="modal d-block" tabIndex="-1" role="dialog" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content">
               <div className="modal-header border-0">
-                <h5 className="modal-title">
-                  {togglingEmployee.active !== false ? 'Desactivar Empleado' : 'Reactivar Empleado'}
-                </h5>
-                <button type="button" className="btn-close" onClick={handleCloseStatusToggle} aria-label="Cerrar" />
+                <h5 className="modal-title">Eliminar Empleado</h5>
+                <button type="button" className="btn-close" onClick={handleCloseDelete} aria-label="Cerrar" />
               </div>
 
               <div className="modal-body text-center py-4">
                 <div className="mb-3">
-                  {togglingEmployee.active !== false ? (
-                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="8" y1="12" x2="16" y2="12" />
-                    </svg>
-                  ) : (
-                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="12" y1="8" x2="12" y2="16" />
-                      <line x1="8" y1="12" x2="16" y2="12" />
-                    </svg>
-                  )}
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="8" y1="12" x2="16" y2="12" />
+                  </svg>
                 </div>
 
-                <h6 className="mb-2">
-                  {togglingEmployee.active !== false
-                    ? '¿Estás seguro de desactivar este empleado?'
-                    : '¿Estás seguro de reactivar este empleado?'}
-                </h6>
+                <h6 className="mb-2">¿Estás seguro de eliminar este empleado?</h6>
 
                 <p className="text-muted mb-1">
-                  <strong>{getFullName(togglingEmployee)}</strong>
+                  <strong>{getFullName(deletingEmployee)}</strong>
                 </p>
-                {togglingEmployee.position && (
-                  <p className="text-muted small mb-0">
-                    {formatPosition(togglingEmployee.position)}
-                    {togglingEmployee.systemRole && ` · ${getRoleLabel(togglingEmployee.systemRole)}`}
-                  </p>
-                )}
+                <p className="text-muted small mb-0">
+                  {deletingEmployee.username} · {getRoleLabel(getPrimaryRole(deletingEmployee))}
+                </p>
 
-                {togglingEmployee.active !== false && (
-                  <p className="text-muted small mt-3 mb-0">
-                    El empleado perderá el acceso al sistema hasta que sea reactivado.
-                  </p>
-                )}
-                {togglingEmployee.active === false && (
-                  <p className="text-muted small mt-3 mb-0">
-                    El empleado recuperará el acceso al sistema.
-                  </p>
-                )}
+                <p className="text-muted small mt-3 mb-0">
+                  Esta acción no se puede deshacer. El empleado perderá el acceso al sistema.
+                </p>
 
-                {togglingError && (
+                {deletingError && (
                   <div className="alert alert-danger py-2 mt-3 mb-0" role="alert">
-                    {togglingError}
+                    {deletingError}
                   </div>
                 )}
               </div>
@@ -1169,21 +933,21 @@ const Employees = () => {
                 <button
                   type="button"
                   className="btn btn-secondary px-4"
-                  onClick={handleCloseStatusToggle}
-                  disabled={toggling}
+                  onClick={handleCloseDelete}
+                  disabled={deleting}
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
-                  className={`btn px-4 d-flex align-items-center gap-2 ${togglingEmployee.active !== false ? 'btn-danger' : 'btn-primary'}`}
-                  onClick={handleConfirmStatusToggle}
-                  disabled={toggling}
+                  className="btn btn-danger px-4 d-flex align-items-center gap-2"
+                  onClick={handleConfirmDelete}
+                  disabled={deleting}
                 >
-                  {toggling && (
+                  {deleting && (
                     <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                   )}
-                  {togglingEmployee.active !== false ? 'Desactivar' : 'Reactivar'}
+                  Eliminar
                 </button>
               </div>
             </div>

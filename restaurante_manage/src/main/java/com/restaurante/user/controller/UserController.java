@@ -32,8 +32,8 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    @Operation(summary = "Listar usuarios", description = "Obtiene lista paginada de usuarios (solo admin)")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
+    @Operation(summary = "Listar usuarios", description = "Obtiene lista paginada de usuarios (admin y encargado)")
     public ResponseEntity<PagedResponse<UserResponse>> findAll(
             @RequestParam(defaultValue = Constants.DEFAULT_PAGE) int page,
             @RequestParam(defaultValue = Constants.DEFAULT_SIZE) int size,
@@ -59,8 +59,8 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    @Operation(summary = "Obtener usuario por ID", description = "Obtiene los detalles de un usuario por su ID (solo admin)")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
+    @Operation(summary = "Obtener usuario por ID", description = "Obtiene los detalles de un usuario por su ID (admin y encargado)")
     public ResponseEntity<ApiResponse<UserResponse>> findById(@PathVariable Long id) {
         UserResponse response = userService.findById(id);
         return ResponseEntity.ok(ApiResponse.success(response));

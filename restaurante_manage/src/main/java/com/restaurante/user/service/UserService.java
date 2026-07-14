@@ -46,37 +46,73 @@ public class UserService {
     public Page<UserResponse> findAll(Pageable pageable) {
         // SUPER_ADMIN: ve todos los usuarios
         if (currentUserService.isSuperAdmin()) {
-            return userRepository.findAll(pageable)
+            return userRepository.findAllByDeletedFalse(pageable)
                     .map(userMapper::toResponse);
         }
 
-        // ADMIN: ve solo usuarios de su tenant
         Long tenantId = currentUserService.getCurrentTenantId();
-        if (tenantId != null) {
-            // En una implementación real, se filtraría por tenant en la BD
-            // Para este demo, filtramos en memoria
-            List<User> allUsers = userRepository.findAll();
-            List<UserResponse> filtered = allUsers.stream()
-                    .filter(u -> u.getTenant() != null && u.getTenant().getId().equals(tenantId))
-                    .map(userMapper::toResponse)
-                    .collect(Collectors.toList());
-
-            int start = (int) pageable.getOffset();
-            int end = Math.min(start + pageable.getPageSize(), filtered.size());
-            return new PageImpl<>(
-                    filtered.subList(Math.min(start, filtered.size()), end),
-                    pageable,
-                    filtered.size()
-            );
+        if (tenantId == null) {
+            return Page.empty();
         }
 
-        return Page.empty();
+        List<User> allUsers = userRepository.findAllByDeletedFalse();
+        List<User> tenantUsers = allUsers.stream()
+                .filter(u -> u.getTenant() != null && u.getTenant().getId().equals(tenantId))
+                .collect(Collectors.toList());
+
+        List<User> visibleUsers;
+        if (currentUserService.isAdmin()) {
+            // ADMIN: todos los usuarios del tenant
+            visibleUsers = tenantUsers;
+        } else {
+            // MANAGER (u otro rol no-admin con acceso de lectura): solo usuarios
+            // cuyo restaurante principal o asignado esté dentro de sus restaurantes visibles.
+            List<Long> visibleRestaurantIds = currentUserService.getVisibleRestaurantIds();
+            visibleUsers = tenantUsers.stream()
+                    .filter(u -> userMatchesVisibleRestaurants(u, visibleRestaurantIds))
+                    .collect(Collectors.toList());
+        }
+
+        List<UserResponse> filtered = visibleUsers.stream()
+                .map(userMapper::toResponse)
+                .collect(Collectors.toList());
+
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), filtered.size());
+        return new PageImpl<>(
+                filtered.subList(Math.min(start, filtered.size()), end),
+                pageable,
+                filtered.size()
+        );
+    }
+
+    private boolean userMatchesVisibleRestaurants(User user, List<Long> visibleRestaurantIds) {
+        // Lista vacía = "sin filtro de ID" (ADMIN/MANAGER sin asignaciones ven todo el tenant)
+        if (visibleRestaurantIds.isEmpty()) {
+            return true;
+        }
+        if (user.getRestaurant() != null && visibleRestaurantIds.contains(user.getRestaurant().getId())) {
+            return true;
+        }
+        return user.getAssignedRestaurants() != null && user.getAssignedRestaurants().stream()
+                .anyMatch(r -> visibleRestaurantIds.contains(r.getId()));
     }
 
     public UserResponse findById(Long id) {
         User user = userRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", id));
         assertCanManageUser(user);
+
+        // SEC-02: MANAGER solo puede ver el detalle de usuarios visibles según sus
+        // restaurantes asignados, igual que en findAll (misma frontera de autorización
+        // para el listado y el detalle).
+        if (!currentUserService.isSuperAdmin() && !currentUserService.isAdmin()) {
+            List<Long> visibleRestaurantIds = currentUserService.getVisibleRestaurantIds();
+            if (!userMatchesVisibleRestaurants(user, visibleRestaurantIds)) {
+                throw new AccessDeniedException("No tiene permiso para gestionar este usuario");
+            }
+        }
+
         return userMapper.toResponse(user);
     }
 
@@ -162,6 +198,21 @@ public class UserService {
             user.setRestaurant(restaurant);
         }
 
+        // Restaurantes asignados (multi-tenant): cada ID se valida contra el
+        // acceso del usuario actual, nunca se confía en el valor del cliente.
+        if (request.getRestaurantIds() != null && !request.getRestaurantIds().isEmpty()) {
+            Set<Restaurant> assigned = new HashSet<>();
+            for (Long restId : request.getRestaurantIds()) {
+                if (!isSuperAdmin) {
+                    currentUserService.validateRestaurantAccess(restId);
+                }
+                Restaurant r = restaurantRepository.findByIdAndDeletedFalse(restId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restId));
+                assigned.add(r);
+            }
+            user.setAssignedRestaurants(assigned);
+        }
+
         User saved = userRepository.save(user);
         return userMapper.toResponse(saved);
     }
@@ -197,7 +248,11 @@ public class UserService {
         user.setEmail(request.getEmail());
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());
-        user.setPhone(request.getPhone());
+        // El teléfono no forma parte del formulario de Empleados; solo se actualiza
+        // si el caller lo informa explícitamente, para no perderlo en ediciones parciales.
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
+        }
 
         // USR-04: contraseña opcional — solo se re-cifra si viene informada.
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
@@ -230,6 +285,19 @@ public class UserService {
             Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(request.getRestaurantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", request.getRestaurantId()));
             user.setRestaurant(restaurant);
+        }
+
+        if (request.getRestaurantIds() != null && !request.getRestaurantIds().isEmpty()) {
+            Set<Restaurant> assigned = new HashSet<>();
+            for (Long restId : request.getRestaurantIds()) {
+                if (!isSuperAdmin) {
+                    currentUserService.validateRestaurantAccess(restId);
+                }
+                Restaurant r = restaurantRepository.findByIdAndDeletedFalse(restId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restId));
+                assigned.add(r);
+            }
+            user.setAssignedRestaurants(assigned);
         }
 
         User saved = userRepository.save(user);

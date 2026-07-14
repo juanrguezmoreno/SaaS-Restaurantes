@@ -1,16 +1,12 @@
 import api from '../api/axios';
 import { extractData } from '../lib/apiHelpers';
 
-const RESOURCE = '/employees';
+const RESOURCE = '/users';
 
-/**
- * Normaliza el error para extraer un mensaje legible.
- */
 const handleError = (error) => {
   if (error.response && error.response.data) {
     const body = error.response.data;
 
-    // Manejar 403 Forbidden específicamente
     if (error.response.status === 403) {
       return new Error(body.message || 'No tienes permisos para gestionar empleados.');
     }
@@ -23,50 +19,33 @@ const handleError = (error) => {
 };
 
 /**
- * Obtiene todos los empleados visibles para el usuario actual.
+ * Obtiene todos los empleados (usuarios del sistema) visibles para el usuario actual.
+ * Pide una página grande porque la tabla filtra/ordena en cliente.
  */
-export const getEmployees = async () => {
+export const getUsers = async () => {
   try {
-    const response = await api.get(RESOURCE);
+    const response = await api.get(RESOURCE, { params: { size: 1000, sort: 'createdAt', direction: 'desc' } });
     return extractData(response);
   } catch (error) {
     throw handleError(error);
   }
 };
 
-/**
- * Obtiene un empleado por su ID.
- * @param {number} id
- */
-export const getEmployeeById = async (id) => {
+export const getUserById = async (id) => {
   const url = `${RESOURCE}/${id}`;
   try {
     const response = await api.get(url);
     const body = response.data;
-
     if (!body) return null;
-
-    // Si la respuesta es directamente el objeto empleado
-    if (body.id || body.firstName) return body;
-
-    // Si viene envuelto en { success, data }
     if (body.success && body.data) return body.data;
-
-    // Si viene envuelto solo en { data }
     if (body.data) return body.data;
-
     return body;
   } catch (error) {
     throw handleError(error);
   }
 };
 
-/**
- * Crea un nuevo empleado.
- * @param {object} data - Datos del empleado
- * @returns {Promise<object>} - Objeto del empleado creado o null
- */
-export const createEmployee = async (data) => {
+export const createUser = async (data) => {
   try {
     const response = await api.post(RESOURCE, data);
     const body = response.data;
@@ -79,13 +58,7 @@ export const createEmployee = async (data) => {
   }
 };
 
-/**
- * Actualiza un empleado existente.
- * @param {number} id
- * @param {object} data - Datos actualizados
- * @returns {Promise<object>} - Objeto del empleado actualizado o null
- */
-export const updateEmployee = async (id, data) => {
+export const updateUser = async (id, data) => {
   const url = `${RESOURCE}/${id}`;
   try {
     const response = await api.put(url, data);
@@ -99,31 +72,7 @@ export const updateEmployee = async (id, data) => {
   }
 };
 
-/**
- * Activa o desactiva un empleado (cambia su estado active).
- * @param {number} id
- * @param {boolean} active - Nuevo estado
- * @returns {Promise<object>} - Empleado actualizado
- */
-export const toggleEmployeeActive = async (id, active) => {
-  const url = `${RESOURCE}/${id}/active`;
-  try {
-    const response = await api.patch(url, { active });
-    const body = response.data;
-    if (!body) return null;
-    if (body.success && body.data) return body.data;
-    if (body.data) return body.data;
-    return body;
-  } catch (error) {
-    throw handleError(error);
-  }
-};
-
-/**
- * Elimina un empleado (físicamente, usar con precaución).
- * @param {number} id
- */
-export const deleteEmployee = async (id) => {
+export const deleteUser = async (id) => {
   const url = `${RESOURCE}/${id}`;
   try {
     const response = await api.delete(url);
