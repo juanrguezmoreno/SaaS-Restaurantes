@@ -78,6 +78,7 @@ class ReservationServiceTest {
         customer.setFirstName("Ana");
         customer.setLastName("García");
         customer.setEmail("ana@example.com");
+        customer.setRestaurant(restaurant);
 
         when(customerRepository.findByIdAndDeletedFalse(CUSTOMER_ID)).thenReturn(Optional.of(customer));
         when(restaurantRepository.findByIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(Optional.of(restaurant));
@@ -387,5 +388,57 @@ class ReservationServiceTest {
         service.cancel(9L);
 
         verify(eventPublisher, never()).publishEvent(any(ReservationCancelledEvent.class));
+    }
+
+    @Test
+    void create_rechazaClienteDeOtroRestaurante() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        Customer clienteAjeno = new Customer();
+        clienteAjeno.setId(CUSTOMER_ID);
+        clienteAjeno.setFirstName("Ana");
+        clienteAjeno.setLastName("García");
+        clienteAjeno.setEmail("ana@example.com");
+        clienteAjeno.setRestaurant(otroRestaurante);
+        when(customerRepository.findByIdAndDeletedFalse(CUSTOMER_ID)).thenReturn(Optional.of(clienteAjeno));
+
+        stubMapperPending();
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(request()));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void update_rechazaClienteDeOtroRestauranteAlCambiarDeCliente() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        Long otroClienteId = 21L;
+        Customer clienteAjeno = new Customer();
+        clienteAjeno.setId(otroClienteId);
+        clienteAjeno.setFirstName("Luis");
+        clienteAjeno.setLastName("Ruiz");
+        clienteAjeno.setEmail("luis@example.com");
+        clienteAjeno.setRestaurant(otroRestaurante);
+        when(customerRepository.findByIdAndDeletedFalse(otroClienteId)).thenReturn(Optional.of(clienteAjeno));
+
+        Reservation reservaExistente = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reservaExistente));
+
+        ReservationRequest req = request();
+        req.setCustomerId(otroClienteId);
+        req.setDiningTableId(null);
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.update(5L, req));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
     }
 }

@@ -205,6 +205,10 @@ public class ReservationService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(resolvedRestaurantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", resolvedRestaurantId));
 
+        if (!customer.getRestaurant().getId().equals(resolvedRestaurantId)) {
+            throw new BadRequestException("El cliente indicado no pertenece al restaurante de la reserva");
+        }
+
         Reservation reservation = reservationMapper.toEntity(request);
         reservation.setCustomer(customer);
         reservation.setRestaurant(restaurant);
@@ -282,6 +286,9 @@ public class ReservationService {
         if (request.getCustomerId() != null && !request.getCustomerId().equals(reservation.getCustomer().getId())) {
             Customer customer = customerRepository.findByIdAndDeletedFalse(request.getCustomerId())
                     .orElseThrow(() -> new ResourceNotFoundException("Cliente", "id", request.getCustomerId()));
+            if (!customer.getRestaurant().getId().equals(reservation.getRestaurant().getId())) {
+                throw new BadRequestException("El cliente indicado no pertenece al restaurante de la reserva");
+            }
             reservation.setCustomer(customer);
         }
 
