@@ -60,10 +60,15 @@ const Reservations = () => {
   // ─── Estados de referencias (selectores) ───────────────────────────────
   const [restaurants, setRestaurants] = useState([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [restaurantsLoadError, setRestaurantsLoadError] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [customersLoadError, setCustomersLoadError] = useState(null);
   const [tables, setTables] = useState([]);
   const [loadingTables, setLoadingTables] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [tablesLoadError, setTablesLoadError] = useState(null);
 
   // ─── Estados de filtros ────────────────────────────────────────────────
   const [filterRestaurantId, setFilterRestaurantId] = useState('');
@@ -147,11 +152,13 @@ const Reservations = () => {
 
   const fetchRestaurantsList = useCallback(async () => {
     setLoadingRestaurants(true);
+    setRestaurantsLoadError(null);
     try {
       const data = await getRestaurants();
       setRestaurants(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
       setRestaurants([]);
+      setRestaurantsLoadError(getErrorMessage(err));
     } finally {
       setLoadingRestaurants(false);
     }
@@ -159,11 +166,13 @@ const Reservations = () => {
 
   const fetchCustomers = useCallback(async () => {
     setLoadingCustomers(true);
+    setCustomersLoadError(null);
     try {
       const data = await getCustomers();
       setCustomers(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
       setCustomers([]);
+      setCustomersLoadError(getErrorMessage(err));
     } finally {
       setLoadingCustomers(false);
     }
@@ -187,11 +196,13 @@ const Reservations = () => {
     }
     const fetchTables = async () => {
       setLoadingTables(true);
+      setTablesLoadError(null);
       try {
         const data = await getTablesByRestaurant(restaurantIdNum);
         setTables(Array.isArray(data) ? data : []);
-      } catch {
+      } catch (err) {
         setTables([]);
+        setTablesLoadError(getErrorMessage(err));
       } finally {
         setLoadingTables(false);
       }
@@ -853,7 +864,7 @@ const Reservations = () => {
   };
 
   // ─── Verificar si hay clientes ─────────────────────────────────────────
-  const noCustomers = !loadingCustomers && customers.length === 0;
+  const noCustomers = !loadingCustomers && !customersLoadError && customers.length === 0;
 
   // ─── Render ────────────────────────────────────────────────────────────
   return (
@@ -920,6 +931,15 @@ const Reservations = () => {
           </button>
         </div>
       </div>
+
+      {customersLoadError && (
+        <div className="alert alert-warning d-flex justify-content-between align-items-center">
+          <span>No se pudieron cargar los clientes: {customersLoadError}</span>
+          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={fetchCustomers}>
+            Reintentar
+          </button>
+        </div>
+      )}
 
       {noCustomers && (
         <div className="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
