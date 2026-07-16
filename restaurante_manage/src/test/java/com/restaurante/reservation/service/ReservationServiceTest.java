@@ -499,4 +499,55 @@ class ReservationServiceTest {
 
         assertDoesNotThrow(() -> service.updateStatus(34L, "CANCELLED"));
     }
+
+    @Test
+    void create_rechazaCapacidadInsuficienteAunqueLaReservaSeaPending() {
+        DiningTable mesaPequena = new DiningTable();
+        mesaPequena.setId(TABLE_ID);
+        mesaPequena.setTableNumber("1");
+        mesaPequena.setCapacity(2);
+        mesaPequena.setRestaurant(restaurant);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaPequena));
+
+        // El mapper debe respetar el partySize del request
+        when(reservationMapper.toEntity(any(ReservationRequest.class))).thenAnswer(inv -> {
+            ReservationRequest req = inv.getArgument(0);
+            Reservation r = new Reservation();
+            r.setReservationDate(req.getReservationDate());
+            r.setReservationTime(req.getReservationTime());
+            r.setPartySize(req.getPartySize());
+            r.setStatus(ReservationStatus.PENDING);
+            return r;
+        });
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, null)).thenReturn(List.of());
+
+        ReservationRequest req = request();
+        req.setPartySize(6);
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(req));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void create_rechazaHoraYaPasadaHoy() {
+        when(reservationMapper.toEntity(any(ReservationRequest.class))).thenAnswer(inv -> {
+            Reservation r = new Reservation();
+            r.setReservationDate(LocalDate.now());
+            r.setReservationTime(LocalTime.now().minusHours(1));
+            r.setPartySize(2);
+            r.setStatus(ReservationStatus.PENDING);
+            return r;
+        });
+
+        ReservationRequest req = request();
+        req.setReservationDate(LocalDate.now());
+        req.setReservationTime(LocalTime.now().minusHours(1));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(req));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
 }

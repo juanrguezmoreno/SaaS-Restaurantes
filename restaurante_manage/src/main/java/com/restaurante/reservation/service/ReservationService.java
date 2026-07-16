@@ -228,6 +228,11 @@ public class ReservationService {
         reservation.setCustomer(customer);
         reservation.setRestaurant(restaurant);
 
+        if (reservation.getReservationDate().isEqual(LocalDate.now())
+                && reservation.getReservationTime().isBefore(LocalTime.now())) {
+            throw new BadRequestException("La hora de la reserva ya ha pasado para el día de hoy.");
+        }
+
         // Determinar el estado final de la reserva
         ReservationStatus finalStatus = reservation.getStatus(); // ya se mapeó desde el request o PENDING por defecto
 
@@ -240,6 +245,12 @@ public class ReservationService {
             if (!table.getRestaurant().getId().equals(resolvedRestaurantId)) {
                 throw new BadRequestException(
                         "La mesa " + table.getTableNumber() + " no pertenece al restaurante indicado");
+            }
+
+            if (table.getCapacity() < reservation.getPartySize()) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " tiene capacidad para " + table.getCapacity()
+                                + " personas, pero la reserva es para " + reservation.getPartySize() + ".");
             }
 
             // RES-03: el conflicto de hueco (409) tiene prioridad sobre el chequeo
