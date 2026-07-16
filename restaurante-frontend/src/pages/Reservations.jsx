@@ -769,7 +769,7 @@ const Reservations = () => {
     setSubmitting(true);
 
     try {
-      const payload = {
+      const basePayload = {
         customerId: Number(formData.customerId),
         restaurantId: Number(formData.restaurantId),
         diningTableId: Number(formData.diningTableId),
@@ -777,14 +777,15 @@ const Reservations = () => {
         reservationTime: `${String(formData.reservationTime).substring(0, 5)}:00`,
         partySize: Number(formData.partySize),
         notes: (formData.notes || '').trim(),
-        status: formData.status || 'PENDING',
       };
 
       if (editingReservation) {
-        await updateReservation(editingReservation.id, payload);
+        // El backend ignora "status" en el PUT: el estado solo cambia vía
+        // el menú "Cambiar estado" (PATCH /reservations/{id}/status).
+        await updateReservation(editingReservation.id, basePayload);
         setSuccessMessage('Reserva actualizada correctamente.');
       } else {
-        await createReservation(payload);
+        await createReservation({ ...basePayload, status: formData.status || 'PENDING' });
         setSuccessMessage('Reserva creada correctamente.');
       }
 
@@ -2085,13 +2086,19 @@ const Reservations = () => {
                         value={formData.status}
                         onChange={handleFormChange}
                         aria-label="Estado de la reserva"
+                        disabled={!!editingReservation}
                       >
-                        {RESERVATION_STATUSES.map((s) => (
+                        {(editingReservation ? RESERVATION_STATUSES : RESERVATION_STATUSES.filter((s) => s.value === 'PENDING' || s.value === 'CONFIRMED')).map((s) => (
                           <option key={s.value} value={s.value}>
                             {s.label}
                           </option>
                         ))}
                       </select>
+                      <div className="form-text">
+                        {editingReservation
+                          ? 'El estado se cambia desde el menú "Cambiar estado" de la tabla.'
+                          : 'Una reserva solo puede crearse como Pendiente o Confirmada.'}
+                      </div>
                     </div>
 
                     {/* Fecha */}
