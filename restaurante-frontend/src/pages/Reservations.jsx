@@ -13,7 +13,7 @@ import { getRestaurants } from '../services/restaurantService';
 import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
-import { filterPendingReservations } from '../lib/reservationHelpers';
+import { filterPendingReservations, getLocalTodayString } from '../lib/reservationHelpers';
 
 // ─── Estados posibles ─────────────────────────────────────────────────────
 const RESERVATION_STATUSES = [
@@ -303,8 +303,9 @@ const Reservations = () => {
   // ─── Helpers de formato ────────────────────────────────────────────────
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return String(dateStr).substring(0, 10);
+    const isoDate = String(dateStr).substring(0, 10);
+    const d = new Date(`${isoDate}T12:00:00`);
+    if (isNaN(d.getTime())) return isoDate;
     return d.toLocaleDateString('es-ES', {
       day: '2-digit',
       month: '2-digit',
@@ -1701,7 +1702,7 @@ const Reservations = () => {
                   <button
                     className="res-calendar-nav-btn"
                     onClick={() => {
-                      const d = new Date(calendarDate);
+                      const d = new Date(`${calendarDate}T12:00:00`);
                       d.setDate(d.getDate() - 1);
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -1725,7 +1726,7 @@ const Reservations = () => {
                   <button
                     className="res-calendar-nav-btn"
                     onClick={() => {
-                      const d = new Date(calendarDate);
+                      const d = new Date(`${calendarDate}T12:00:00`);
                       d.setDate(d.getDate() + 1);
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -2350,7 +2351,7 @@ const Reservations = () => {
                                 type="date"
                                 className="form-control form-control-lg"
                                 value={wizardData.reservationDate}
-                                min={new Date().toISOString().split('T')[0]}
+                                min={getLocalTodayString()}
                                 onChange={(e) => handleWizardChange('reservationDate', e.target.value)}
                               />
                             </div>
