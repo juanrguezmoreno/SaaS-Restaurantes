@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createTable, updateTable, deleteTable } from '../services/tableService';
-import { updateReservation, deleteReservation } from '../services/reservationService';
+import { updateReservation, updateReservationStatus } from '../services/reservationService';
 
 // ─── Formateo ────────────────────────────────────────────────────────────
 const formatTime = (timeStr) => (timeStr ? String(timeStr).substring(0, 5) : '—');
@@ -29,14 +29,6 @@ const getErrorMessage = (err) => {
   if (err instanceof Error) return err.message;
   return 'Error al procesar la solicitud.';
 };
-
-const RESERVATION_STATUS_OPTIONS = [
-  { value: 'PENDING', label: 'Pendiente' },
-  { value: 'CONFIRMED', label: 'Confirmada' },
-  { value: 'CANCELLED', label: 'Cancelada' },
-  { value: 'COMPLETED', label: 'Completada' },
-  { value: 'NO_SHOW', label: 'No presentado' },
-];
 
 const validateReservationForm = (form) => {
   const errors = {};
@@ -198,7 +190,6 @@ const TableDrawer = ({
         : '',
       partySize: reservation.partySize ?? '2',
       notes: reservation.notes || '',
-      status: reservation.status || 'PENDING',
     });
     setReservationFormErrors({});
     setMode('edit-reservation');
@@ -234,7 +225,6 @@ const TableDrawer = ({
         reservationTime: `${String(reservationForm.reservationTime).substring(0, 5)}:00`,
         partySize: Number(reservationForm.partySize),
         notes: (reservationForm.notes || '').trim(),
-        status: reservationForm.status || 'PENDING',
       };
       await updateReservation(reservation.id, payload);
       setMode('detail');
@@ -250,7 +240,7 @@ const TableDrawer = ({
     if (!reservation) return;
     setCancelingReservation(true);
     try {
-      await deleteReservation(reservation.id);
+      await updateReservationStatus(reservation.id, 'CANCELLED');
       setConfirmingCancelReservation(false);
       if (onReservationCancelled) onReservationCancelled();
     } catch (err) {
@@ -625,21 +615,6 @@ const TableDrawer = ({
                 value={reservationForm.notes}
                 onChange={handleReservationFormChange}
               />
-            </div>
-
-            <div className="mb-3">
-              <label className="form-label" htmlFor="drawer-res-status">Estado</label>
-              <select
-                id="drawer-res-status"
-                name="status"
-                className="form-select"
-                value={reservationForm.status}
-                onChange={handleReservationFormChange}
-              >
-                {RESERVATION_STATUS_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
             </div>
 
             {reservationFormErrors.submit && (
