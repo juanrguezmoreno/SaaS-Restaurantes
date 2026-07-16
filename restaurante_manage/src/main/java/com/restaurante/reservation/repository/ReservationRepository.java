@@ -37,6 +37,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     long countByStatusAndDeletedFalse(ReservationStatus status);
 
+    boolean existsByCustomerIdAndReservationDateAndReservationTimeAndStatusInAndDeletedFalse(
+            Long customerId, LocalDate date, LocalTime time, List<ReservationStatus> statuses);
+
     // ─── Queries para gestión de disponibilidad y liberación de mesas ───
 
     /**
