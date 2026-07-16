@@ -13,6 +13,7 @@ import { getRestaurants } from '../services/restaurantService';
 import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
+import { filterPendingReservations } from '../lib/reservationHelpers';
 
 // ─── Estados posibles ─────────────────────────────────────────────────────
 const RESERVATION_STATUSES = [
@@ -237,8 +238,9 @@ const Reservations = () => {
   });
 
   // ─── Pending reservations (for solicitudes section) ──────────────────────
+  // Mismo criterio que el KPI de Inicio: PENDING con fecha hoy o futura.
   const pendingReservations = useMemo(
-    () => safeReservations.filter((r) => r.status === 'PENDING'),
+    () => filterPendingReservations(safeReservations),
     [safeReservations]
   );
 
@@ -281,17 +283,6 @@ const Reservations = () => {
           r.reservationDate &&
           String(r.reservationDate).substring(0, 10) > todayStr
       ),
-    [safeReservations, todayStr]
-  );
-
-  // Activas: PENDING + CONFIRMED con fecha hoy o futura
-  const activePendingReservations = useMemo(
-    () => safeReservations.filter(
-      (r) =>
-        r.status === 'PENDING' &&
-        r.reservationDate &&
-        String(r.reservationDate).substring(0, 10) >= todayStr
-    ),
     [safeReservations, todayStr]
   );
 
@@ -1347,7 +1338,7 @@ const Reservations = () => {
               {activeTab === 'active' && (
                 <div id="reservations-panel" role="tabpanel">
                   {/* Pendientes por confirmar */}
-                  {activePendingReservations.length > 0 && (
+                  {pendingReservations.length > 0 && (
                     <div className="mb-4">
                       <div className="d-flex align-items-center gap-2 mb-3">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1356,7 +1347,7 @@ const Reservations = () => {
                           <line x1="12" y1="16" x2="12.01" y2="16" />
                         </svg>
                         <h6 className="mb-0 fw-semibold" style={{ fontSize: '0.9rem' }}>Pendientes de Confirmar</h6>
-                        <span className="pending-badge">{activePendingReservations.length}</span>
+                        <span className="pending-badge">{pendingReservations.length}</span>
                       </div>
                       <div className="app-card">
                         <div className="app-table-wrapper">
@@ -1375,7 +1366,7 @@ const Reservations = () => {
                               </tr>
                             </thead>
                             <tbody>
-                              {[...activePendingReservations]
+                              {[...pendingReservations]
                                 .sort((a, b) => {
                                   const dateA = a.reservationDate || '';
                                   const dateB = b.reservationDate || '';
@@ -1540,7 +1531,7 @@ const Reservations = () => {
                   )}
 
                   {/* Empty state for active tab */}
-                  {activePendingReservations.length === 0 && todayReservations.length === 0 && upcomingReservations.length === 0 && (
+                  {pendingReservations.length === 0 && todayReservations.length === 0 && upcomingReservations.length === 0 && (
                     <div className="app-card">
                       <div className="empty-state" style={{ padding: '2.5rem 1rem' }}>
                         <div className="empty-state-icon" style={{ width: 56, height: 56 }}>
