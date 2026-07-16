@@ -108,10 +108,11 @@ const Inicio = () => {
         fetchData();
       }
     };
-    window.addEventListener('focus', handleRefresh);
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') handleRefresh();
-    });
+    };
+    window.addEventListener('focus', handleRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         setIsRefreshing(true);
@@ -121,7 +122,7 @@ const Inicio = () => {
     return () => {
       mounted = false;
       window.removeEventListener('focus', handleRefresh);
-      document.removeEventListener('visibilitychange', handleRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(interval);
     };
   }, [fetchData]);
