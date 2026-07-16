@@ -64,6 +64,7 @@ const FloorPlan = () => {
   const [loading, setLoading] = useState(false);
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [error, setError] = useState(null);
+  const [partialLoadWarning, setPartialLoadWarning] = useState(null);
   const [selectedTable, setSelectedTable] = useState(null);
   const [isCreatingTable, setIsCreatingTable] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(null);
@@ -110,19 +111,24 @@ const FloorPlan = () => {
     const loadTables = async () => {
       setLoading(true);
       setError(null);
+      setPartialLoadWarning(null);
       setTables([]);
       setElements([]);
       setReservations([]);
 
+      let elementsFailed = false;
+      let reservationsFailed = false;
       try {
         const [tablesData, elementsData, reservationsData] = await Promise.all([
           getTablesByRestaurant(Number(selectedRestaurantId)),
           getFloorPlanElements(Number(selectedRestaurantId)).catch((err) => {
             console.warn('[FloorPlan] No se pudieron cargar los elementos del plano:', err?.message);
+            elementsFailed = true;
             return [];
           }),
           getReservationsByRestaurantAndDate(Number(selectedRestaurantId), getTodayDateStr()).catch((err) => {
             console.warn('[FloorPlan] No se pudieron cargar las reservas de hoy:', err?.message);
+            reservationsFailed = true;
             return [];
           }),
         ]);
@@ -131,6 +137,11 @@ const FloorPlan = () => {
           setTables(tableList);
           setElements(Array.isArray(elementsData) ? elementsData : []);
           setReservations(Array.isArray(reservationsData) ? reservationsData : []);
+          if (elementsFailed || reservationsFailed) {
+            setPartialLoadWarning(
+              'No se pudieron cargar algunos datos del plano (elementos o reservas de hoy). Prueba a recargar.'
+            );
+          }
         }
       } catch {
         if (mounted) {
@@ -733,6 +744,14 @@ const FloorPlan = () => {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
           <span>{error}</span>
           <button className="fp-alert-btn" onClick={() => setError(null)} type="button">Cerrar</button>
+        </div>
+      )}
+
+      {partialLoadWarning && (
+        <div className="alert alert-warning" role="alert">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3.05h16.94a2 2 0 0 0 1.71-3.05L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+          <span>{partialLoadWarning}</span>
+          <button className="btn-close" onClick={() => setPartialLoadWarning(null)} type="button" aria-label="Cerrar aviso" />
         </div>
       )}
 
