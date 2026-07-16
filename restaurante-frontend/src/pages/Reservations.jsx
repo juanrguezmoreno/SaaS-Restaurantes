@@ -602,29 +602,19 @@ const Reservations = () => {
     };
 
     try {
-      // Intentar endpoint de disponibilidad
-      let tables = [];
-      try {
-        const res = await api.post('/availability/tables', payload);
-        const body = res.data;
-        if (Array.isArray(body)) {
-          tables = body;
-        } else if (body?.data && Array.isArray(body.data)) {
-          tables = body.data;
-        } else if (body?.content && Array.isArray(body.content)) {
-          tables = body.content;
-        } else if (body?.tables && Array.isArray(body.tables)) {
-          tables = body.tables;
-        } else {
-          // Fallback: no se reconoció el formato
-          throw new Error('Formato no esperado');
-        }
-      } catch {
-        // Fallback: obtener todas las mesas y filtrar por capacidad
-        const allTables = await getTablesByRestaurant(Number(wizardData.restaurantId));
-        tables = Array.isArray(allTables)
-          ? allTables.filter((t) => t.capacity >= Number(wizardData.partySize) && t.status === 'AVAILABLE')
-          : [];
+      const res = await api.post('/availability/tables', payload);
+      const body = res.data;
+      let tables;
+      if (Array.isArray(body)) {
+        tables = body;
+      } else if (body?.data && Array.isArray(body.data)) {
+        tables = body.data;
+      } else if (body?.content && Array.isArray(body.content)) {
+        tables = body.content;
+      } else if (body?.tables && Array.isArray(body.tables)) {
+        tables = body.tables;
+      } else {
+        throw new Error('El servidor devolvió un formato de disponibilidad inesperado.');
       }
 
       setAvailableTables(tables);
@@ -674,7 +664,7 @@ const Reservations = () => {
         reservationDate: wizardData.reservationDate,
         reservationTime: `${String(wizardData.reservationTime).substring(0, 5)}:00`,
         partySize: Number(wizardData.partySize),
-        notes: (wizardData.notes || '').trim() || 'Reserva creada desde flujo inteligente',
+        notes: (wizardData.notes || '').trim(),
         status: 'CONFIRMED',
       };
 
