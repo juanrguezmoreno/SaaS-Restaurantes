@@ -384,7 +384,9 @@ const Reservations = () => {
               data-bs-toggle="dropdown"
               aria-expanded="false"
               title="Cambiar estado"
+              disabled={changingStatus === r.id}
               onClick={(e) => {
+                if (changingStatus === r.id) return;
                 const next = e.currentTarget.nextElementSibling;
                 if (next) next.classList.toggle('show');
               }}
@@ -815,7 +817,9 @@ const Reservations = () => {
   const handleStatusChange = async (reservation, newStatus) => {
     if (!reservation || !newStatus) return;
     if (reservation.status === newStatus) return;
+    if (changingStatus === reservation.id) return;
 
+    setChangingStatus(reservation.id);
     try {
       const updated = await updateReservationStatus(reservation.id, newStatus);
 
@@ -834,7 +838,16 @@ const Reservations = () => {
             : 'Reserva confirmada, pero el cliente no tiene email registrado.'
         );
       } else if (newStatus === 'CANCELLED') {
-        setSuccessMessage('Reserva rechazada. El cliente será notificado.');
+        const hasEmail = !(
+          updated?.customerEmail === null ||
+          updated?.customerEmail === undefined ||
+          updated?.customerEmail === ''
+        );
+        setSuccessMessage(
+          hasEmail
+            ? 'Reserva rechazada. El cliente será notificado.'
+            : 'Reserva rechazada. El cliente no tiene email registrado, no se le notificará.'
+        );
       } else {
         setSuccessMessage(`Estado actualizado a "${STATUS_MAP[newStatus]?.label || newStatus}".`);
       }
@@ -842,6 +855,8 @@ const Reservations = () => {
       await fetchReservations();
     } catch (err) {
       setError(getErrorMessage(err));
+    } finally {
+      setChangingStatus(null);
     }
   };
 
