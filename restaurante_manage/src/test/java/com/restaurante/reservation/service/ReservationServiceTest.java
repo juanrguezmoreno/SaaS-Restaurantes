@@ -441,4 +441,62 @@ class ReservationServiceTest {
         assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
         verify(reservationRepository, never()).save(any(Reservation.class));
     }
+
+    // ─── Matriz de transiciones de estado ─────────────────────────────────
+
+    @Test
+    void updateStatus_rechazaConfirmarUnaReservaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(30L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        when(reservationRepository.findByIdAndDeletedFalse(30L)).thenReturn(Optional.of(reserva));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(30L, "CONFIRMED"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_rechazaCompletarUnaReservaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(31L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        when(reservationRepository.findByIdAndDeletedFalse(31L)).thenReturn(Optional.of(reserva));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(31L, "COMPLETED"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_rechazaNoShowDesdeCompleted() {
+        Reservation reserva = reservaPendienteSinMesa(32L);
+        reserva.setStatus(ReservationStatus.COMPLETED);
+        when(reservationRepository.findByIdAndDeletedFalse(32L)).thenReturn(Optional.of(reserva));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(32L, "NO_SHOW"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_rechazaVolverAPendingDesdeConfirmed() {
+        Reservation reserva = reservaPendienteSinMesa(33L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        when(reservationRepository.findByIdAndDeletedFalse(33L)).thenReturn(Optional.of(reserva));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(33L, "PENDING"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_permiteCancelarDosVeces() {
+        Reservation reserva = reservaPendienteSinMesa(34L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        when(reservationRepository.findByIdAndDeletedFalse(34L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        assertDoesNotThrow(() -> service.updateStatus(34L, "CANCELLED"));
+    }
 }

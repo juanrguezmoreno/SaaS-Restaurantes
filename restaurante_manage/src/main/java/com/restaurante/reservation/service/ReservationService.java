@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -47,6 +48,20 @@ public class ReservationService {
     private final ReservationMapper reservationMapper;
     private final CurrentUserService currentUserService;
     private final ApplicationEventPublisher eventPublisher;
+
+    /**
+     * Matriz explícita de transiciones de estado permitidas. CANCELLED,
+     * COMPLETED y NO_SHOW son estados finales: no admiten transiciones salientes.
+     * Una transición al mismo estado (idempotente) se permite siempre y no
+     * pasa por esta matriz (ver {@code updateStatus}).
+     */
+    private static final Map<ReservationStatus, Set<ReservationStatus>> ALLOWED_TRANSITIONS = Map.of(
+            ReservationStatus.PENDING, Set.of(ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED),
+            ReservationStatus.CONFIRMED, Set.of(ReservationStatus.CANCELLED, ReservationStatus.COMPLETED, ReservationStatus.NO_SHOW),
+            ReservationStatus.CANCELLED, Set.of(),
+            ReservationStatus.COMPLETED, Set.of(),
+            ReservationStatus.NO_SHOW, Set.of()
+    );
 
     public Page<ReservationResponse> findAll(Pageable pageable) {
         log.debug("findAll() llamado con pageable: page={}, size={}, sort={}",
@@ -374,16 +389,18 @@ public class ReservationService {
         ReservationStatus oldStatus = reservation.getStatus();
         log.debug("Cambiando estado de reserva #{}: {} → {}", id, oldStatus, newStatus);
 
+        // Matriz de transiciones: CANCELLED/COMPLETED/NO_SHOW son estados
+        // finales; una transición al mismo estado (idempotente) siempre se permite.
+        if (oldStatus != newStatus
+                && !ALLOWED_TRANSITIONS.getOrDefault(oldStatus, Set.of()).contains(newStatus)) {
+            throw new BadRequestException(
+                    "Transición de estado no permitida: " + oldStatus + " → " + newStatus);
+        }
+
         // ─── Transición a CONFIRMED ─────────────────────────────────
         // NOTA: la verificación de disponibilidad excluye esta misma reserva
         // (excludeReservationId) para no detectarla como auto-conflicto.
         if (newStatus == ReservationStatus.CONFIRMED) {
-            // Solo permitir confirmar desde PENDING
-            if (oldStatus != ReservationStatus.PENDING) {
-                throw new BadRequestException(
-                        "Solo se puede confirmar una reserva que esté en estado PENDING. Estado actual: " + oldStatus);
-            }
-
             DiningTable table = reservation.getDiningTable();
 
             // Si no tiene mesa asignada, intentar auto-asignar una disponible

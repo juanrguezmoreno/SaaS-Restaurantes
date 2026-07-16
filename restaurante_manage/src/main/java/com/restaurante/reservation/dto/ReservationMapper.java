@@ -1,5 +1,6 @@
 package com.restaurante.reservation.dto;
 
+import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.enums.ReservationStatus;
 import org.springframework.stereotype.Component;
@@ -31,6 +32,11 @@ public class ReservationMapper {
                 .build();
     }
 
+    /**
+     * Una reserva solo puede CREARSE en PENDING o CONFIRMED. Cualquier otro
+     * cambio de estado (CANCELLED, COMPLETED, NO_SHOW) pasa exclusivamente por
+     * PATCH /reservations/{id}/status, que valida la transición.
+     */
     public Reservation toEntity(ReservationRequest request) {
         if (request == null) {
             return null;
@@ -42,19 +48,31 @@ public class ReservationMapper {
         reservation.setPartySize(request.getPartySize());
         reservation.setNotes(request.getNotes());
 
-        if (request.getStatus() != null) {
-            try {
-                reservation.setStatus(ReservationStatus.valueOf(request.getStatus().toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                reservation.setStatus(ReservationStatus.PENDING);
-            }
-        } else {
+        if (request.getStatus() == null) {
             reservation.setStatus(ReservationStatus.PENDING);
+            return reservation;
         }
 
+        ReservationStatus status;
+        try {
+            status = ReservationStatus.valueOf(request.getStatus().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Estado inválido: " + request.getStatus());
+        }
+        if (status != ReservationStatus.PENDING && status != ReservationStatus.CONFIRMED) {
+            throw new BadRequestException(
+                    "Una reserva solo puede crearse en estado PENDING o CONFIRMED. "
+                            + "Para otros cambios de estado usa PATCH /reservations/{id}/status.");
+        }
+        reservation.setStatus(status);
         return reservation;
     }
 
+    /**
+     * El estado NO se modifica aquí: los cambios de estado tienen su propio
+     * endpoint (PATCH /reservations/{id}/status) con las validaciones de
+     * transición correspondientes. Editar una reserva (PUT) nunca cambia su estado.
+     */
     public void updateEntity(Reservation reservation, ReservationRequest request) {
         if (request == null) {
             return;
@@ -63,13 +81,5 @@ public class ReservationMapper {
         reservation.setReservationTime(request.getReservationTime());
         reservation.setPartySize(request.getPartySize());
         reservation.setNotes(request.getNotes());
-
-        if (request.getStatus() != null) {
-            try {
-                reservation.setStatus(ReservationStatus.valueOf(request.getStatus().toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                // Mantener el status actual
-            }
-        }
     }
 }
