@@ -218,6 +218,11 @@ public class ReservationService {
             table = diningTableRepository.findByIdAndDeletedFalse(request.getDiningTableId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa", "id", request.getDiningTableId()));
 
+            if (!table.getRestaurant().getId().equals(resolvedRestaurantId)) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " no pertenece al restaurante indicado");
+            }
+
             // RES-03: el conflicto de hueco (409) tiene prioridad sobre el chequeo
             // de disponibilidad (400) para que un solape devuelva siempre Conflict.
             assertNoOverlap(table, reservation.getReservationDate(), reservation.getReservationTime(), null);
@@ -284,6 +289,11 @@ public class ReservationService {
         if (request.getDiningTableId() != null) {
             DiningTable table = diningTableRepository.findByIdAndDeletedFalse(request.getDiningTableId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa", "id", request.getDiningTableId()));
+
+            if (!table.getRestaurant().getId().equals(reservation.getRestaurant().getId())) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " no pertenece al restaurante de la reserva");
+            }
 
             // Si la reserva está CONFIRMED, actualizar estado de mesas
             if (reservation.getStatus() == ReservationStatus.CONFIRMED) {

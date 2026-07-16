@@ -71,6 +71,7 @@ class ReservationServiceTest {
         table.setId(TABLE_ID);
         table.setTableNumber("1");
         table.setCapacity(4);
+        table.setRestaurant(restaurant);
 
         customer = new Customer();
         customer.setId(CUSTOMER_ID);
@@ -140,6 +141,7 @@ class ReservationServiceTest {
         otraMesa.setId(otraMesaId);
         otraMesa.setTableNumber("2");
         otraMesa.setCapacity(4);
+        otraMesa.setRestaurant(restaurant);
         when(diningTableRepository.findByIdAndDeletedFalse(otraMesaId)).thenReturn(Optional.of(otraMesa));
 
         stubMapperPending();
@@ -154,6 +156,53 @@ class ReservationServiceTest {
 
         assertDoesNotThrow(() -> service.create(req));
         verify(reservationRepository).save(any(Reservation.class));
+    }
+
+    @Test
+    void create_rechazaMesaDeOtroRestaurante() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        DiningTable mesaAjena = new DiningTable();
+        mesaAjena.setId(TABLE_ID);
+        mesaAjena.setTableNumber("1");
+        mesaAjena.setCapacity(4);
+        mesaAjena.setRestaurant(otroRestaurante);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaAjena));
+
+        stubMapperPending();
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(request()));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void update_rechazaMesaDeOtroRestaurante() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        DiningTable mesaAjena = new DiningTable();
+        mesaAjena.setId(TABLE_ID);
+        mesaAjena.setTableNumber("1");
+        mesaAjena.setCapacity(4);
+        mesaAjena.setRestaurant(otroRestaurante);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaAjena));
+
+        Reservation reservaExistente = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reservaExistente));
+
+        ReservationRequest req = request();
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.update(5L, req));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
     }
 
     // ─── RES-03: confirmar una reserva tampoco puede pisar un hueco ocupado ───
