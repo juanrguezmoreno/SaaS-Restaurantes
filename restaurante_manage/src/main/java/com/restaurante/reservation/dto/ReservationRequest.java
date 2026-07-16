@@ -2,6 +2,7 @@ package com.restaurante.reservation.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
@@ -36,6 +37,7 @@ public class ReservationRequest {
 
     @NotNull(message = "El número de comensales es obligatorio")
     @Positive(message = "El número de comensales debe ser positivo")
+    @Max(value = 50, message = "Máximo 50 personas por reserva")
     private Integer partySize;
 
     private String notes;
