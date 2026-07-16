@@ -328,6 +328,15 @@ public class ReservationService {
                         "La mesa " + table.getTableNumber() + " no pertenece al restaurante de la reserva");
             }
 
+            // El partySize del request es el que prevalecerá tras reservationMapper.updateEntity(),
+            // así que la capacidad se valida contra ese valor y no contra el de la entidad aún sin actualizar.
+            Integer nuevoPartySize = request.getPartySize() != null ? request.getPartySize() : reservation.getPartySize();
+            if (table.getCapacity() < nuevoPartySize) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " tiene capacidad para " + table.getCapacity()
+                                + " personas, pero la reserva es para " + nuevoPartySize + ".");
+            }
+
             // Si la reserva está CONFIRMED, actualizar estado de mesas
             if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
                 // Verificar disponibilidad de la nueva mesa

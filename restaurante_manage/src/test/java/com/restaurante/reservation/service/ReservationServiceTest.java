@@ -206,6 +206,28 @@ class ReservationServiceTest {
         verify(reservationRepository, never()).save(any(Reservation.class));
     }
 
+    @Test
+    void update_rechazaCapacidadInsuficienteAunqueLaReservaSeaPending() {
+        DiningTable mesaPequena = new DiningTable();
+        mesaPequena.setId(TABLE_ID);
+        mesaPequena.setTableNumber("1");
+        mesaPequena.setCapacity(2);
+        mesaPequena.setRestaurant(restaurant);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaPequena));
+
+        Reservation reservaExistente = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reservaExistente));
+
+        ReservationRequest req = request();
+        req.setPartySize(6);
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.update(5L, req));
+        assertTrue(ex.getMessage().toLowerCase().contains("capacidad"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
     // ─── RES-03: confirmar una reserva tampoco puede pisar un hueco ocupado ───
 
     /** Reserva PENDING sin mesa asignada, lista para confirmar. */
