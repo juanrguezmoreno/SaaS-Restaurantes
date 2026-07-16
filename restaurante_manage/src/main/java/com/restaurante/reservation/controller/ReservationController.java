@@ -113,7 +113,7 @@ public class ReservationController {
 
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
-    @Operation(summary = "Cambiar estado de reserva", description = "Actualiza el estado de una reserva. Enviar JSON: {\"status\": \"CONFIRMED\"}")
+    @Operation(summary = "Cambiar estado de reserva", description = "Actualiza el estado de una reserva según la matriz de transiciones permitida. Enviar JSON: {\"status\": \"CONFIRMED\"}. CANCELLED, COMPLETED y NO_SHOW son estados finales y no admiten más cambios.")
     public ResponseEntity<ApiResponse<ReservationResponse>> updateStatus(
             @PathVariable Long id,
             @Valid @RequestBody ReservationStatusUpdateRequest request) {
