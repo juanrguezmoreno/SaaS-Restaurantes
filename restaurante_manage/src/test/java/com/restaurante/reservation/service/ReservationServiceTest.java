@@ -349,22 +349,6 @@ class ReservationServiceTest {
     }
 
     @Test
-    void cancel_publicaReservationCancelledEvent() {
-        Reservation reserva = reservaPendienteSinMesa(7L);
-        reserva.setStatus(ReservationStatus.CONFIRMED);
-        reserva.setDiningTable(table);
-        when(reservationRepository.findByIdAndDeletedFalse(7L)).thenReturn(Optional.of(reserva));
-        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
-                .thenReturn(List.of());
-
-        service.cancel(7L);
-
-        ArgumentCaptor<ReservationCancelledEvent> captor = ArgumentCaptor.forClass(ReservationCancelledEvent.class);
-        verify(eventPublisher).publishEvent(captor.capture());
-        assertEquals("Mesa 1", captor.getValue().data().tableInfo());
-    }
-
-    @Test
     void updateStatus_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
         Reservation reserva = reservaPendienteSinMesa(8L);
         reserva.setStatus(ReservationStatus.CANCELLED);
@@ -379,15 +363,19 @@ class ReservationServiceTest {
     }
 
     @Test
-    void cancel_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
-        Reservation reserva = reservaPendienteSinMesa(9L);
-        reserva.setStatus(ReservationStatus.CANCELLED);
-        reserva.setDiningTable(null);
-        when(reservationRepository.findByIdAndDeletedFalse(9L)).thenReturn(Optional.of(reserva));
+    void delete_marcaLaReservaComoBorradaYLiberaLaMesaSiNoEstaCanceladaNiCompletada() {
+        Reservation reserva = reservaPendienteSinMesa(40L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        when(reservationRepository.findByIdAndDeletedFalse(40L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.cancel(9L);
+        service.delete(40L);
 
-        verify(eventPublisher, never()).publishEvent(any(ReservationCancelledEvent.class));
+        assertTrue(reserva.getDeleted());
+        assertNotNull(reserva.getDeletedAt());
     }
 
     @Test

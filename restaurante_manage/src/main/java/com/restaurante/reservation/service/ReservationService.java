@@ -496,36 +496,6 @@ public class ReservationService {
     }
 
     // ════════════════════════════════════════════════════════════════
-    //  CANCELACIÓN (endpoint DELETE)
-    // ════════════════════════════════════════════════════════════════
-
-    @Transactional
-    public void cancel(Long id) {
-        Reservation reservation = reservationRepository.findByIdAndDeletedFalse(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reserva", "id", id));
-        currentUserService.validateRestaurantAccess(reservation.getRestaurant().getId());
-
-        // Snapshot ANTES de desasignar la mesa: el listener corre
-        // post-commit con la sesión de Hibernate cerrada.
-        // Solo publicar si no estaba ya CANCELLED, para evitar un
-        // segundo email de cancelación (idempotencia de la notificación).
-        if (reservation.getStatus() != ReservationStatus.CANCELLED) {
-            eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
-        }
-
-        // Liberar mesa si estaba asignada
-        if (reservation.getDiningTable() != null) {
-            releaseTableIfNoActiveConfirmedReservations(reservation.getDiningTable().getId());
-            reservation.setDiningTable(null);
-            log.info("Mesa liberada al cancelar reserva #{}", id);
-        }
-
-        reservation.setStatus(ReservationStatus.CANCELLED);
-        reservationRepository.save(reservation);
-        log.info("Reserva #{} cancelada", id);
-    }
-
-    // ════════════════════════════════════════════════════════════════
     //  ELIMINACIÓN (soft delete)
     // ════════════════════════════════════════════════════════════════
 

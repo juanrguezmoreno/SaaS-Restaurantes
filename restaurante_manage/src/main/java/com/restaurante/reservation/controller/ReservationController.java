@@ -122,10 +122,12 @@ public class ReservationController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Cancelar reserva", description = "Cancela una reserva")
-    public ResponseEntity<ApiResponse<Void>> cancel(@PathVariable Long id) {
-        reservationService.cancel(id);
-        return ResponseEntity.ok(ApiResponse.success("Reserva cancelada exitosamente", null));
+    @Operation(summary = "Eliminar reserva",
+               description = "Elimina una reserva de forma permanente (borrado lógico). "
+                            + "Para cancelar sin eliminar usa PATCH /reservations/{id}/status con CANCELLED.")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
+        reservationService.delete(id);
+        return ResponseEntity.ok(ApiResponse.success("Reserva eliminada exitosamente", null));
     }
 
     // ════════════════════════════════════════════════════════════════
