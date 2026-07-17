@@ -32,7 +32,7 @@ const FILTER_OPTIONS = [
   { value: 'MAINTENANCE', label: 'Mantenimiento' },
 ];
 
-// ─── Fecha de hoy en formato YYYY-MM-DD (huso horario local) ──────────────
+// ─── Fecha de hoy en formato YYYY-MM-DD (uso horario local) ──────────────
 const getTodayDateStr = () => {
   const d = new Date();
   const yyyy = d.getFullYear();
