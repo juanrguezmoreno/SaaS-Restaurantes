@@ -27,6 +27,8 @@ API base path is `/api/v1` on port 8080. Swagger UI at `/swagger-ui.html`, H2 co
 
 The `dev` profile seeds demo data via `DemoDataInitializer` (password `admin123` for all): `super.admin` (SUPER_ADMIN), `juan.admin` (ADMIN), plus manager/employee users.
 
+**⚠️ `dev` profile is volatile and NOT the user's real data.** It uses an in-memory H2 database (`ddl-auto: create-drop`) reseeded from scratch on every start, including demo reservations dated `CURRENT_DATE`/`CURRENT_DATE+N` from `data.sql` — these show up looking like reservations nobody made. Never start the backend with `-Dspring-boot.run.profiles=dev` to "just check something" against what the user believes is their real data — that wipes/hides it for the session. The user's real data lives in MySQL (`docker-compose up`, or `mvn spring-boot:run` with no profile, both against `localhost:3307`). Default to the no-profile command unless demo/throwaway data is explicitly what's needed.
+
 ### Frontend (`restaurante-frontend/`)
 
 ```
