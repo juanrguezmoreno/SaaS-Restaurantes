@@ -12,6 +12,7 @@ import {
 import { getRestaurants } from '../services/restaurantService';
 import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
+import QuickCustomerForm from '../components/QuickCustomerForm';
 import { canAccess, PERMISSIONS } from '../config/permissions';
 import { filterPendingReservations, getLocalTodayString } from '../lib/reservationHelpers';
 
@@ -120,6 +121,8 @@ const Reservations = () => {
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [availabilityChecked, setAvailabilityChecked] = useState(false);
   const [wizardSuccess, setWizardSuccess] = useState(false);
+  const [showQuickCustomer, setShowQuickCustomer] = useState(false);
+  const [quickCustomerSuccess, setQuickCustomerSuccess] = useState(false);
 
   // ─── Estados del calendario diario ──────────────────────────────────────
   const [viewMode, setViewMode] = useState('table');
@@ -488,6 +491,8 @@ const Reservations = () => {
     setAvailableTables([]);
     setAvailabilityChecked(false);
     setWizardSuccess(false);
+    setShowQuickCustomer(false);
+    setQuickCustomerSuccess(false);
     setShowWizard(true);
   };
 
@@ -638,6 +643,14 @@ const Reservations = () => {
     setWizardError('');
   };
 
+  // ─── Alta rápida de cliente desde el wizard ───────────────────────────
+  const handleQuickCustomerCreated = async (customer) => {
+    await fetchCustomers();
+    handleWizardChange('customerId', String(customer.id));
+    setShowQuickCustomer(false);
+    setQuickCustomerSuccess(true);
+  };
+
   // ─── Cerrar wizard ───────────────────────────────────────────────────
   const handleCloseWizard = () => {
     setShowWizard(false);
@@ -647,6 +660,8 @@ const Reservations = () => {
     setAvailableTables([]);
     setAvailabilityChecked(false);
     setWizardSuccess(false);
+    setShowQuickCustomer(false);
+    setQuickCustomerSuccess(false);
   };
 
   // ─── Confirmar y crear reserva ───────────────────────────────────────
@@ -2506,7 +2521,18 @@ const Reservations = () => {
 
                           {/* Seleccionar cliente */}
                           <div className="mb-3">
-                            <label className="form-label fw-medium">Cliente</label>
+                            <div className="d-flex justify-content-between align-items-center">
+                              <label className="form-label fw-medium mb-0">Cliente</label>
+                              {!showQuickCustomer && (
+                                <button
+                                  type="button"
+                                  className="btn btn-link btn-sm p-0"
+                                  onClick={() => { setQuickCustomerSuccess(false); setShowQuickCustomer(true); }}
+                                >
+                                  + Nuevo cliente
+                                </button>
+                              )}
+                            </div>
                             <select
                               className={`form-select ${wizardData.customerId ? 'is-valid' : ''}`}
                               value={wizardData.customerId}
@@ -2519,12 +2545,25 @@ const Reservations = () => {
                                 </option>
                               ))}
                             </select>
-                            {customers.length === 0 && (
+                            {customers.length === 0 && !showQuickCustomer && (
                               <p className="mt-2 small" style={{ color: 'var(--warning-text)' }}>
-                                No hay clientes registrados. Crea un cliente primero.
+                                No hay clientes registrados. Usa &quot;+ Nuevo cliente&quot; para crear el primero.
+                              </p>
+                            )}
+                            {quickCustomerSuccess && (
+                              <p className="mt-2 small" style={{ color: 'var(--success)' }}>
+                                Cliente creado correctamente.
                               </p>
                             )}
                           </div>
+
+                          {showQuickCustomer && (
+                            <QuickCustomerForm
+                              restaurantId={wizardData.restaurantId}
+                              onCreated={handleQuickCustomerCreated}
+                              onCancel={() => setShowQuickCustomer(false)}
+                            />
+                          )}
 
                           {/* Notas */}
                           <div className="mb-3">
