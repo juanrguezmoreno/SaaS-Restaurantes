@@ -57,6 +57,14 @@ public class DemoDataInitializer implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
+        log.warn("==================================================================================");
+        log.warn(" PERFIL 'dev' ACTIVO — base de datos H2 en memoria (NO es tu MySQL real)");
+        log.warn(" Se está recreando y sembrando TODA la base con datos de demostración,");
+        log.warn(" incluidas reservas con fecha de HOY (ver data.sql) — no son reservas reales.");
+        log.warn(" Todo se pierde al reiniciar. Para trabajar contra tus datos reales (MySQL),");
+        log.warn(" arranca SIN perfil: mvn spring-boot:run");
+        log.warn("==================================================================================");
+
         String encodedPassword = passwordEncoder.encode("admin123");
         List<Restaurant> allRestaurants = restaurantRepository.findAll();
 

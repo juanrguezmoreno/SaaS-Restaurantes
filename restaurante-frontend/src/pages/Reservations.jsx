@@ -12,6 +12,7 @@ import {
 import { getRestaurants } from '../services/restaurantService';
 import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
+import QuickCustomerForm from '../components/QuickCustomerForm';
 import { canAccess, PERMISSIONS } from '../config/permissions';
 import { filterPendingReservations, getLocalTodayString } from '../lib/reservationHelpers';
 
@@ -120,6 +121,8 @@ const Reservations = () => {
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [availabilityChecked, setAvailabilityChecked] = useState(false);
   const [wizardSuccess, setWizardSuccess] = useState(false);
+  const [showQuickCustomer, setShowQuickCustomer] = useState(false);
+  const [quickCustomerSuccess, setQuickCustomerSuccess] = useState(false);
 
   // ─── Estados del calendario diario ──────────────────────────────────────
   const [viewMode, setViewMode] = useState('table');
@@ -476,9 +479,11 @@ const Reservations = () => {
   // ─── Handlers del modal de formulario ──────────────────────────────────
   const handleOpenCreate = () => {
     // Abrir wizard multi-paso en lugar del modal tradicional
+    const preselected = restaurants.find((r) => String(r.id) === String(filterRestaurantId));
     setWizardData({
       ...INITIAL_WIZARD,
       restaurantId: filterRestaurantId || '',
+      restaurantName: preselected?.name || '',
     });
     setWizardStep(0);
     setWizardError('');
@@ -486,6 +491,8 @@ const Reservations = () => {
     setAvailableTables([]);
     setAvailabilityChecked(false);
     setWizardSuccess(false);
+    setShowQuickCustomer(false);
+    setQuickCustomerSuccess(false);
     setShowWizard(true);
   };
 
@@ -611,7 +618,11 @@ const Reservations = () => {
         throw new Error('El servidor devolvió un formato de disponibilidad inesperado.');
       }
 
-      setAvailableTables(tables);
+      // El endpoint devuelve tableId (no id): normalizar para que funcionen
+      // la selección, las keys de React y el diningTableId del payload.
+      const normalizedTables = tables.map((t) => ({ ...t, id: t.id ?? t.tableId }));
+
+      setAvailableTables(normalizedTables);
       setAvailabilityChecked(true);
       setWizardStep(3);
 
@@ -632,6 +643,18 @@ const Reservations = () => {
     setWizardError('');
   };
 
+  // ─── Alta rápida de cliente desde el wizard ───────────────────────────
+  const handleQuickCustomerCreated = async (customer) => {
+    setCustomers((prev) => {
+      if (prev.some((c) => c.id === customer.id)) return prev;
+      return [...prev, customer];
+    });
+    handleWizardChange('customerId', String(customer.id));
+    setShowQuickCustomer(false);
+    setQuickCustomerSuccess(true);
+    await fetchCustomers();
+  };
+
   // ─── Cerrar wizard ───────────────────────────────────────────────────
   const handleCloseWizard = () => {
     setShowWizard(false);
@@ -641,6 +664,8 @@ const Reservations = () => {
     setAvailableTables([]);
     setAvailabilityChecked(false);
     setWizardSuccess(false);
+    setShowQuickCustomer(false);
+    setQuickCustomerSuccess(false);
   };
 
   // ─── Confirmar y crear reserva ───────────────────────────────────────
@@ -918,8 +943,7 @@ const Reservations = () => {
             className="btn btn-primary d-flex align-items-center gap-2"
             onClick={handleOpenCreate}
             type="button"
-            title={noCustomers ? 'No hay clientes disponibles' : 'Nueva reserva'}
-            disabled={noCustomers}
+            title="Nueva reserva"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -939,16 +963,6 @@ const Reservations = () => {
         </div>
       )}
 
-      {noCustomers && (
-        <div className="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <span>No hay clientes disponibles. Cree un cliente antes de registrar una reserva.</span>
-        </div>
-      )}
 
       {/* ═══ Messages ══════════════════════════════════════════════════════ */}
       {successMessage && (
@@ -1280,9 +1294,8 @@ const Reservations = () => {
               className="btn btn-primary"
               onClick={handleOpenCreate}
               type="button"
-              disabled={noCustomers}
             >
-              {noCustomers ? 'Sin clientes disponibles' : 'Crear Reserva'}
+              Crear Reserva
             </button>
           </div>
         </div>
@@ -2221,8 +2234,8 @@ const Reservations = () => {
                 {wizardSuccess ? (
                   /* ─── Éxito ───────────────────────────────── */
                   <div className="text-center py-4">
-                    <div className="mb-3" style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--success-bg, #d1fae5)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--success-color, #059669)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <div className="mb-3" style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--success-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                     </div>
@@ -2242,8 +2255,8 @@ const Reservations = () => {
                   <>
                     {/* ─── Progress Steps ──────────────────────────────── */}
                     <div className="wizard-steps d-flex justify-content-between mb-4" style={{ position: 'relative', padding: '0 8px' }}>
-                      <div style={{ position: 'absolute', top: '20px', left: '24px', right: '24px', height: '2px', background: 'var(--border-color)', zIndex: 0 }}>
-                        <div style={{ height: '100%', width: `${(wizardStep / (WIZARD_STEPS.length - 1)) * 100}%`, background: 'var(--accent-color, #6366f1)', transition: 'width 0.4s ease', borderRadius: '2px' }} />
+                      <div style={{ position: 'absolute', top: '20px', left: '24px', right: '24px', height: '2px', background: 'var(--border)', zIndex: 0 }}>
+                        <div style={{ height: '100%', width: `${(wizardStep / (WIZARD_STEPS.length - 1)) * 100}%`, background: 'var(--primary)', transition: 'width 0.4s ease', borderRadius: '2px' }} />
                       </div>
                       {WIZARD_STEPS.map((step, idx) => {
                         const isActive = idx <= wizardStep;
@@ -2255,9 +2268,9 @@ const Reservations = () => {
                                 width: '40px', height: '40px', borderRadius: '50%',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 fontWeight: 700, fontSize: '0.85rem',
-                                background: isActive ? 'var(--accent-color, #6366f1)' : 'var(--surface-color, #f1f5f9)',
+                                background: isActive ? 'var(--primary)' : 'var(--hover-color)',
                                 color: isActive ? '#fff' : 'var(--text-secondary)',
-                                border: isCurrent ? '3px solid var(--accent-hover, #4f46e5)' : 'none',
+                                border: isCurrent ? '3px solid var(--primary-hover)' : 'none',
                                 transition: 'all 0.3s ease',
                               }}
                             >
@@ -2308,15 +2321,15 @@ const Reservations = () => {
                                       onClick={() => handleWizardChange('restaurantId', String(r.id))}
                                       style={{
                                         padding: '16px', borderRadius: '12px', cursor: 'pointer',
-                                        border: selected ? '2px solid var(--accent-color, #6366f1)' : '2px solid var(--border-color)',
-                                        background: selected ? 'var(--accent-bg, #eef2ff)' : 'var(--card-bg)',
+                                        border: selected ? '2px solid var(--primary)' : '2px solid var(--border)',
+                                        background: selected ? 'var(--primary-light)' : 'var(--bg-card)',
                                         transition: 'all 0.2s ease',
                                       }}
                                     >
                                       <div className="d-flex align-items-center gap-3">
                                         <div style={{
                                           width: 44, height: 44, borderRadius: '10px',
-                                          background: selected ? 'var(--accent-color, #6366f1)' : 'var(--surface-color, #f1f5f9)',
+                                          background: selected ? 'var(--primary)' : 'var(--hover-color)',
                                           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                                         }}>
                                           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={selected ? '#fff' : 'var(--text-secondary)'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2390,7 +2403,7 @@ const Reservations = () => {
                             >
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12" /></svg>
                             </button>
-                            <div style={{ fontSize: '2.5rem', fontWeight: 700, minWidth: '60px', textAlign: 'center', color: 'var(--accent-color)' }}>
+                            <div style={{ fontSize: '2.5rem', fontWeight: 700, minWidth: '60px', textAlign: 'center', color: 'var(--primary)' }}>
                               {wizardData.partySize}
                             </div>
                             <button
@@ -2421,7 +2434,7 @@ const Reservations = () => {
                           </h6>
                           {checkingAvailability ? (
                             <div className="text-center py-5">
-                              <div className="spinner-border" role="status" style={{ color: 'var(--accent-color)' }}>
+                              <div className="spinner-border" role="status" style={{ color: 'var(--primary)' }}>
                                 <span className="visually-hidden">Verificando...</span>
                               </div>
                               <p className="mt-2 small" style={{ color: 'var(--text-secondary)' }}>Buscando mesas disponibles...</p>
@@ -2448,8 +2461,8 @@ const Reservations = () => {
                                       onClick={() => handleSelectTable(table)}
                                       style={{
                                         padding: '14px', borderRadius: '12px', cursor: 'pointer',
-                                        border: selected ? '2px solid var(--accent-color, #6366f1)' : '2px solid var(--border-color)',
-                                        background: selected ? 'var(--accent-bg, #eef2ff)' : 'var(--card-bg)',
+                                        border: selected ? '2px solid var(--primary)' : '2px solid var(--border)',
+                                        background: selected ? 'var(--primary-light)' : 'var(--bg-card)',
                                         transition: 'all 0.2s ease',
                                       }}
                                     >
@@ -2457,7 +2470,7 @@ const Reservations = () => {
                                         <div className="d-flex align-items-center gap-3">
                                           <div style={{
                                             width: 44, height: 44, borderRadius: '10px',
-                                            background: selected ? 'var(--accent-color, #6366f1)' : 'var(--surface-color, #f1f5f9)',
+                                            background: selected ? 'var(--primary)' : 'var(--hover-color)',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                             fontSize: '1.1rem',
                                           }}>
@@ -2481,7 +2494,7 @@ const Reservations = () => {
                                           </div>
                                         </div>
                                         {selected && (
-                                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color, #6366f1)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+                                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
                                         )}
                                       </div>
                                     </div>
@@ -2500,11 +2513,25 @@ const Reservations = () => {
 
                           {/* Seleccionar cliente */}
                           <div className="mb-3">
-                            <label className="form-label fw-medium">Cliente</label>
+                            <div className="d-flex justify-content-between align-items-center">
+                              <label className="form-label fw-medium mb-0">Cliente</label>
+                              {!showQuickCustomer && (
+                                <button
+                                  type="button"
+                                  className="btn btn-link btn-sm p-0"
+                                  onClick={() => { setQuickCustomerSuccess(false); setShowQuickCustomer(true); }}
+                                >
+                                  + Nuevo cliente
+                                </button>
+                              )}
+                            </div>
                             <select
                               className={`form-select ${wizardData.customerId ? 'is-valid' : ''}`}
                               value={wizardData.customerId}
-                              onChange={(e) => handleWizardChange('customerId', e.target.value)}
+                              onChange={(e) => {
+                                handleWizardChange('customerId', e.target.value);
+                                setQuickCustomerSuccess(false);
+                              }}
                             >
                               <option value="">Seleccionar cliente...</option>
                               {customers.map((c) => (
@@ -2513,12 +2540,25 @@ const Reservations = () => {
                                 </option>
                               ))}
                             </select>
-                            {customers.length === 0 && (
-                              <p className="mt-2 small" style={{ color: 'var(--warning-color, #d97706)' }}>
-                                No hay clientes registrados. Crea un cliente primero.
+                            {customers.length === 0 && !showQuickCustomer && (
+                              <p className="mt-2 small" style={{ color: 'var(--warning-text)' }}>
+                                No hay clientes registrados. Usa &quot;+ Nuevo cliente&quot; para crear el primero.
+                              </p>
+                            )}
+                            {quickCustomerSuccess && (
+                              <p className="mt-2 small" style={{ color: 'var(--success)' }}>
+                                Cliente creado correctamente.
                               </p>
                             )}
                           </div>
+
+                          {showQuickCustomer && (
+                            <QuickCustomerForm
+                              restaurantId={wizardData.restaurantId}
+                              onCreated={handleQuickCustomerCreated}
+                              onCancel={() => setShowQuickCustomer(false)}
+                            />
+                          )}
 
                           {/* Notas */}
                           <div className="mb-3">
@@ -2534,7 +2574,7 @@ const Reservations = () => {
                           </div>
 
                           {/* Resumen */}
-                          <div className="p-3 rounded-3" style={{ background: 'var(--surface-color, #f8fafc)', border: '1px solid var(--border-color)' }}>
+                          <div className="p-3 rounded-3" style={{ background: 'var(--bg-body)', border: '1px solid var(--border)' }}>
                             <h6 className="fw-semibold mb-2" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>RESUMEN DE LA RESERVA</h6>
                             <table style={{ width: '100%', fontSize: '0.9rem' }}>
                               <tbody>

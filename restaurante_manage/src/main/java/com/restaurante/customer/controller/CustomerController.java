@@ -6,6 +6,7 @@ import com.restaurante.common.util.Constants;
 import com.restaurante.customer.dto.CustomerRequest;
 import com.restaurante.customer.dto.CustomerResponse;
 import com.restaurante.customer.service.CustomerService;
+import com.restaurante.reservation.dto.ReservationResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,6 +20,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping(Constants.CUSTOMERS_PATH)
@@ -61,6 +64,14 @@ public class CustomerController {
     @Operation(summary = "Obtener cliente", description = "Obtiene los detalles de un cliente por su ID")
     public ResponseEntity<ApiResponse<CustomerResponse>> findById(@PathVariable Long id) {
         CustomerResponse response = customerService.findById(id);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/{id}/reservations")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
+    @Operation(summary = "Historial de reservas del cliente", description = "Obtiene todas las reservas de un cliente, más recientes primero")
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getReservationHistory(@PathVariable Long id) {
+        List<ReservationResponse> response = customerService.getReservationHistory(id);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
