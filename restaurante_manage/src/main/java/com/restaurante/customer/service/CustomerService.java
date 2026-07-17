@@ -8,6 +8,9 @@ import com.restaurante.customer.dto.CustomerRequest;
 import com.restaurante.customer.dto.CustomerResponse;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
+import com.restaurante.reservation.dto.ReservationMapper;
+import com.restaurante.reservation.dto.ReservationResponse;
+import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.user.entity.User;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -33,6 +37,8 @@ public class CustomerService {
     private final RestaurantRepository restaurantRepository;
     private final CustomerMapper customerMapper;
     private final CurrentUserService currentUserService;
+    private final ReservationRepository reservationRepository;
+    private final ReservationMapper reservationMapper;
 
     public Page<CustomerResponse> findAll(Pageable pageable) {
         // Obtener IDs de restaurantes visibles según rol y asignaciones
@@ -135,6 +141,18 @@ public class CustomerService {
 
         Customer saved = customerRepository.save(customer);
         return customerMapper.toResponse(saved);
+    }
+
+    public List<ReservationResponse> getReservationHistory(Long id) {
+        Customer customer = customerRepository.findByIdAndDeletedFalse(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Cliente", "id", id));
+        currentUserService.validateRestaurantAccess(customer.getRestaurant().getId());
+
+        return reservationRepository.findByCustomerIdAndDeletedFalse(id).stream()
+                .sorted(Comparator.comparing(r -> r.getReservationDate().atTime(r.getReservationTime()),
+                        Comparator.reverseOrder()))
+                .map(reservationMapper::toResponse)
+                .collect(Collectors.toList());
     }
 
     @Transactional
