@@ -69,6 +69,9 @@ const QuickCustomerForm = ({ restaurantId, onCreated, onCancel }) => {
         restaurantId: Number(restaurantId),
       };
       const created = await createCustomer(payload);
+      if (!created || created.id === undefined || created.id === null) {
+        throw new Error('El servidor no devolvió los datos del cliente creado.');
+      }
       onCreated(created);
     } catch (err) {
       setErrors({ submit: getErrorMessage(err) });

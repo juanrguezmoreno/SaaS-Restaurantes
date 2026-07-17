@@ -645,10 +645,14 @@ const Reservations = () => {
 
   // ─── Alta rápida de cliente desde el wizard ───────────────────────────
   const handleQuickCustomerCreated = async (customer) => {
-    await fetchCustomers();
+    setCustomers((prev) => {
+      if (prev.some((c) => c.id === customer.id)) return prev;
+      return [...prev, customer];
+    });
     handleWizardChange('customerId', String(customer.id));
     setShowQuickCustomer(false);
     setQuickCustomerSuccess(true);
+    await fetchCustomers();
   };
 
   // ─── Cerrar wizard ───────────────────────────────────────────────────
@@ -2524,7 +2528,10 @@ const Reservations = () => {
                             <select
                               className={`form-select ${wizardData.customerId ? 'is-valid' : ''}`}
                               value={wizardData.customerId}
-                              onChange={(e) => handleWizardChange('customerId', e.target.value)}
+                              onChange={(e) => {
+                                handleWizardChange('customerId', e.target.value);
+                                setQuickCustomerSuccess(false);
+                              }}
                             >
                               <option value="">Seleccionar cliente...</option>
                               {customers.map((c) => (
