@@ -196,49 +196,49 @@ WHERE c.email = 'maria.garcia@email.com'
 
 -- Reserva 2: Pedro — La Casa del Chef — Mañana — Pendiente — Mesa 2 (centro, 4p)
 INSERT INTO reservations (customer_id, dining_table_id, restaurant_id, reservation_date, reservation_time, party_size, status, notes, created_at, updated_at, deleted)
-SELECT c.id, dt.id, r.id, '2026-06-27', '14:30:00', 4, 'PENDING', 'Comida de negocios — solicitar menú sin gluten', NOW(), NOW(), FALSE
+SELECT c.id, dt.id, r.id, CURRENT_DATE + 1, '14:30:00', 4, 'PENDING', 'Comida de negocios — solicitar menú sin gluten', NOW(), NOW(), FALSE
 FROM customers c, dining_tables dt, restaurants r
 WHERE c.email = 'pedro.hernandez@email.com'
   AND dt.table_number = 2 AND dt.restaurant_id = r.id
   AND r.name = 'La Casa del Chef'
   AND NOT EXISTS (
       SELECT 1 FROM reservations res
-      WHERE res.customer_id = c.id AND res.reservation_date = '2026-06-27'
+      WHERE res.customer_id = c.id AND res.reservation_date = CURRENT_DATE + 1
   );
 
 -- Reserva 3: Laura — Sushi Master — En 2 días — Confirmada — Mesa 2 (salón, 4p)
 INSERT INTO reservations (customer_id, dining_table_id, restaurant_id, reservation_date, reservation_time, party_size, status, notes, created_at, updated_at, deleted)
-SELECT c.id, dt.id, r.id, '2026-06-28', '20:30:00', 3, 'CONFIRMED', 'Menú vegetariano para 1 persona', NOW(), NOW(), FALSE
+SELECT c.id, dt.id, r.id, CURRENT_DATE + 2, '20:30:00', 3, 'CONFIRMED', 'Menú vegetariano para 1 persona', NOW(), NOW(), FALSE
 FROM customers c, dining_tables dt, restaurants r
 WHERE c.email = 'laura.sanchez@email.com'
   AND dt.table_number = 2 AND dt.restaurant_id = r.id
   AND r.name = 'Sushi Master'
   AND NOT EXISTS (
       SELECT 1 FROM reservations res
-      WHERE res.customer_id = c.id AND res.reservation_date = '2026-06-28'
+      WHERE res.customer_id = c.id AND res.reservation_date = CURRENT_DATE + 2
   );
 
 -- Reserva 4: Roberto — Sushi Master — En 3 días — Cancelada — Sin mesa asignada
 INSERT INTO reservations (customer_id, dining_table_id, restaurant_id, reservation_date, reservation_time, party_size, status, notes, created_at, updated_at, deleted)
-SELECT c.id, NULL, r.id, '2026-06-29', '18:00:00', 6, 'CANCELLED', 'Cancelado por el cliente — reprogramará para la próxima semana', NOW(), NOW(), FALSE
+SELECT c.id, NULL, r.id, CURRENT_DATE + 3, '18:00:00', 6, 'CANCELLED', 'Cancelado por el cliente — reprogramará para la próxima semana', NOW(), NOW(), FALSE
 FROM customers c, restaurants r
 WHERE c.email = 'roberto.diaz@email.com'
   AND r.name = 'Sushi Master'
   AND NOT EXISTS (
       SELECT 1 FROM reservations res
-      WHERE res.customer_id = c.id AND res.reservation_date = '2026-06-29'
+      WHERE res.customer_id = c.id AND res.reservation_date = CURRENT_DATE + 3
   );
 
 -- Reserva 5: Sofía — La Casa del Chef — En 7 días — Pendiente — Mesa 5 (VIP, 8p)
 INSERT INTO reservations (customer_id, dining_table_id, restaurant_id, reservation_date, reservation_time, party_size, status, notes, created_at, updated_at, deleted)
-SELECT c.id, dt.id, r.id, '2026-07-03', '21:00:00', 5, 'PENDING', 'Celebración de aniversario — pastel sorpresa', NOW(), NOW(), FALSE
+SELECT c.id, dt.id, r.id, CURRENT_DATE + 7, '21:00:00', 5, 'PENDING', 'Celebración de aniversario — pastel sorpresa', NOW(), NOW(), FALSE
 FROM customers c, dining_tables dt, restaurants r
 WHERE c.email = 'sofia.ramirez@email.com'
   AND dt.table_number = 5 AND dt.restaurant_id = r.id
   AND r.name = 'La Casa del Chef'
   AND NOT EXISTS (
       SELECT 1 FROM reservations res
-      WHERE res.customer_id = c.id AND res.reservation_date = '2026-07-03'
+      WHERE res.customer_id = c.id AND res.reservation_date = CURRENT_DATE + 7
   );
 
 -- Reserva 6: Gabriela — El Rincón de la Abuela — Hoy — Confirmada — Mesa 3 (jardín, 6p)
@@ -255,11 +255,11 @@ WHERE c.email = 'gabriela.torres@email.com'
 
 -- Reserva 7: Fernando — El Rincón de la Abuela — Mañana — Pendiente — Sin mesa asignada aún
 INSERT INTO reservations (customer_id, dining_table_id, restaurant_id, reservation_date, reservation_time, party_size, status, notes, created_at, updated_at, deleted)
-SELECT c.id, NULL, r.id, '2026-06-27', '14:00:00', 4, 'PENDING', NULL, NOW(), NOW(), FALSE
+SELECT c.id, NULL, r.id, CURRENT_DATE + 1, '14:00:00', 4, 'PENDING', NULL, NOW(), NOW(), FALSE
 FROM customers c, restaurants r
 WHERE c.email = 'fernando.munoz@email.com'
   AND r.name = 'El Rincón de la Abuela'
   AND NOT EXISTS (
       SELECT 1 FROM reservations res
-      WHERE res.customer_id = c.id AND res.reservation_date = '2026-06-27'
+      WHERE res.customer_id = c.id AND res.reservation_date = CURRENT_DATE + 1
   );

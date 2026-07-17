@@ -71,12 +71,14 @@ class ReservationServiceTest {
         table.setId(TABLE_ID);
         table.setTableNumber("1");
         table.setCapacity(4);
+        table.setRestaurant(restaurant);
 
         customer = new Customer();
         customer.setId(CUSTOMER_ID);
         customer.setFirstName("Ana");
         customer.setLastName("García");
         customer.setEmail("ana@example.com");
+        customer.setRestaurant(restaurant);
 
         when(customerRepository.findByIdAndDeletedFalse(CUSTOMER_ID)).thenReturn(Optional.of(customer));
         when(restaurantRepository.findByIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(Optional.of(restaurant));
@@ -140,6 +142,7 @@ class ReservationServiceTest {
         otraMesa.setId(otraMesaId);
         otraMesa.setTableNumber("2");
         otraMesa.setCapacity(4);
+        otraMesa.setRestaurant(restaurant);
         when(diningTableRepository.findByIdAndDeletedFalse(otraMesaId)).thenReturn(Optional.of(otraMesa));
 
         stubMapperPending();
@@ -154,6 +157,75 @@ class ReservationServiceTest {
 
         assertDoesNotThrow(() -> service.create(req));
         verify(reservationRepository).save(any(Reservation.class));
+    }
+
+    @Test
+    void create_rechazaMesaDeOtroRestaurante() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        DiningTable mesaAjena = new DiningTable();
+        mesaAjena.setId(TABLE_ID);
+        mesaAjena.setTableNumber("1");
+        mesaAjena.setCapacity(4);
+        mesaAjena.setRestaurant(otroRestaurante);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaAjena));
+
+        stubMapperPending();
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(request()));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void update_rechazaMesaDeOtroRestaurante() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        DiningTable mesaAjena = new DiningTable();
+        mesaAjena.setId(TABLE_ID);
+        mesaAjena.setTableNumber("1");
+        mesaAjena.setCapacity(4);
+        mesaAjena.setRestaurant(otroRestaurante);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaAjena));
+
+        Reservation reservaExistente = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reservaExistente));
+
+        ReservationRequest req = request();
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.update(5L, req));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void update_rechazaCapacidadInsuficienteAunqueLaReservaSeaPending() {
+        DiningTable mesaPequena = new DiningTable();
+        mesaPequena.setId(TABLE_ID);
+        mesaPequena.setTableNumber("1");
+        mesaPequena.setCapacity(2);
+        mesaPequena.setRestaurant(restaurant);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaPequena));
+
+        Reservation reservaExistente = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reservaExistente));
+
+        ReservationRequest req = request();
+        req.setPartySize(6);
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.update(5L, req));
+        assertTrue(ex.getMessage().toLowerCase().contains("capacidad"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
     }
 
     // ─── RES-03: confirmar una reserva tampoco puede pisar un hueco ocupado ───
@@ -299,22 +371,6 @@ class ReservationServiceTest {
     }
 
     @Test
-    void cancel_publicaReservationCancelledEvent() {
-        Reservation reserva = reservaPendienteSinMesa(7L);
-        reserva.setStatus(ReservationStatus.CONFIRMED);
-        reserva.setDiningTable(table);
-        when(reservationRepository.findByIdAndDeletedFalse(7L)).thenReturn(Optional.of(reserva));
-        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
-                .thenReturn(List.of());
-
-        service.cancel(7L);
-
-        ArgumentCaptor<ReservationCancelledEvent> captor = ArgumentCaptor.forClass(ReservationCancelledEvent.class);
-        verify(eventPublisher).publishEvent(captor.capture());
-        assertEquals("Mesa 1", captor.getValue().data().tableInfo());
-    }
-
-    @Test
     void updateStatus_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
         Reservation reserva = reservaPendienteSinMesa(8L);
         reserva.setStatus(ReservationStatus.CANCELLED);
@@ -329,14 +385,179 @@ class ReservationServiceTest {
     }
 
     @Test
-    void cancel_noPublicaReservationCancelledEventSiYaEstabaCancelada() {
-        Reservation reserva = reservaPendienteSinMesa(9L);
+    void delete_marcaLaReservaComoBorradaYLiberaLaMesaSiNoEstaCanceladaNiCompletada() {
+        Reservation reserva = reservaPendienteSinMesa(40L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        when(reservationRepository.findByIdAndDeletedFalse(40L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.delete(40L);
+
+        assertTrue(reserva.getDeleted());
+        assertNotNull(reserva.getDeletedAt());
+    }
+
+    @Test
+    void create_rechazaClienteDeOtroRestaurante() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        Customer clienteAjeno = new Customer();
+        clienteAjeno.setId(CUSTOMER_ID);
+        clienteAjeno.setFirstName("Ana");
+        clienteAjeno.setLastName("García");
+        clienteAjeno.setEmail("ana@example.com");
+        clienteAjeno.setRestaurant(otroRestaurante);
+        when(customerRepository.findByIdAndDeletedFalse(CUSTOMER_ID)).thenReturn(Optional.of(clienteAjeno));
+
+        stubMapperPending();
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(request()));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void update_rechazaClienteDeOtroRestauranteAlCambiarDeCliente() {
+        Restaurant otroRestaurante = new Restaurant();
+        otroRestaurante.setId(2L);
+        otroRestaurante.setName("Otro Restaurante");
+
+        Long otroClienteId = 21L;
+        Customer clienteAjeno = new Customer();
+        clienteAjeno.setId(otroClienteId);
+        clienteAjeno.setFirstName("Luis");
+        clienteAjeno.setLastName("Ruiz");
+        clienteAjeno.setEmail("luis@example.com");
+        clienteAjeno.setRestaurant(otroRestaurante);
+        when(customerRepository.findByIdAndDeletedFalse(otroClienteId)).thenReturn(Optional.of(clienteAjeno));
+
+        Reservation reservaExistente = reservaPendienteSinMesa(5L);
+        when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reservaExistente));
+
+        ReservationRequest req = request();
+        req.setCustomerId(otroClienteId);
+        req.setDiningTableId(null);
+
+        com.restaurante.common.exception.BadRequestException ex = assertThrows(
+                com.restaurante.common.exception.BadRequestException.class,
+                () -> service.update(5L, req));
+        assertTrue(ex.getMessage().toLowerCase().contains("no pertenece"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    // ─── Matriz de transiciones de estado ─────────────────────────────────
+
+    @Test
+    void updateStatus_rechazaConfirmarUnaReservaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(30L);
         reserva.setStatus(ReservationStatus.CANCELLED);
-        reserva.setDiningTable(null);
-        when(reservationRepository.findByIdAndDeletedFalse(9L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findByIdAndDeletedFalse(30L)).thenReturn(Optional.of(reserva));
 
-        service.cancel(9L);
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(30L, "CONFIRMED"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
 
-        verify(eventPublisher, never()).publishEvent(any(ReservationCancelledEvent.class));
+    @Test
+    void updateStatus_rechazaCompletarUnaReservaCancelada() {
+        Reservation reserva = reservaPendienteSinMesa(31L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        when(reservationRepository.findByIdAndDeletedFalse(31L)).thenReturn(Optional.of(reserva));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(31L, "COMPLETED"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_rechazaNoShowDesdeCompleted() {
+        Reservation reserva = reservaPendienteSinMesa(32L);
+        reserva.setStatus(ReservationStatus.COMPLETED);
+        when(reservationRepository.findByIdAndDeletedFalse(32L)).thenReturn(Optional.of(reserva));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(32L, "NO_SHOW"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_rechazaVolverAPendingDesdeConfirmed() {
+        Reservation reserva = reservaPendienteSinMesa(33L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        when(reservationRepository.findByIdAndDeletedFalse(33L)).thenReturn(Optional.of(reserva));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.updateStatus(33L, "PENDING"));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void updateStatus_permiteCancelarDosVeces() {
+        Reservation reserva = reservaPendienteSinMesa(34L);
+        reserva.setStatus(ReservationStatus.CANCELLED);
+        when(reservationRepository.findByIdAndDeletedFalse(34L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        assertDoesNotThrow(() -> service.updateStatus(34L, "CANCELLED"));
+    }
+
+    @Test
+    void create_rechazaCapacidadInsuficienteAunqueLaReservaSeaPending() {
+        DiningTable mesaPequena = new DiningTable();
+        mesaPequena.setId(TABLE_ID);
+        mesaPequena.setTableNumber("1");
+        mesaPequena.setCapacity(2);
+        mesaPequena.setRestaurant(restaurant);
+        when(diningTableRepository.findByIdAndDeletedFalse(TABLE_ID)).thenReturn(Optional.of(mesaPequena));
+
+        // El mapper debe respetar el partySize del request
+        when(reservationMapper.toEntity(any(ReservationRequest.class))).thenAnswer(inv -> {
+            ReservationRequest req = inv.getArgument(0);
+            Reservation r = new Reservation();
+            r.setReservationDate(req.getReservationDate());
+            r.setReservationTime(req.getReservationTime());
+            r.setPartySize(req.getPartySize());
+            r.setStatus(ReservationStatus.PENDING);
+            return r;
+        });
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, null)).thenReturn(List.of());
+
+        ReservationRequest req = request();
+        req.setPartySize(6);
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(req));
+        verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    @Test
+    void create_rechazaHoraYaPasadaHoy() {
+        when(reservationMapper.toEntity(any(ReservationRequest.class))).thenAnswer(inv -> {
+            Reservation r = new Reservation();
+            r.setReservationDate(LocalDate.now());
+            r.setReservationTime(LocalTime.now().minusHours(1));
+            r.setPartySize(2);
+            r.setStatus(ReservationStatus.PENDING);
+            return r;
+        });
+
+        ReservationRequest req = request();
+        req.setReservationDate(LocalDate.now());
+        req.setReservationTime(LocalTime.now().minusHours(1));
+
+        assertThrows(com.restaurante.common.exception.BadRequestException.class,
+                () -> service.create(req));
+        verify(reservationRepository, never()).save(any(Reservation.class));
     }
 }

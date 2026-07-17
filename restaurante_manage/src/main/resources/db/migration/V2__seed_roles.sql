@@ -1,7 +1,8 @@
 -- ============================================================================
 -- V2 — Roles del sistema (imprescindibles en cualquier entorno)
 -- Los roles son datos de referencia requeridos por la lógica de negocio, no
--- datos de demostración; por eso viven en una migración y no en data-dev.sql.
+-- datos de demostración; por eso viven en una migración y no en data.sql
+-- (que solo se ejecuta en el perfil dev).
 -- ============================================================================
 
 INSERT INTO roles (name, deleted) VALUES

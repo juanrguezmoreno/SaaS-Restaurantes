@@ -3,12 +3,15 @@ package com.restaurante.publicapi.controller;
 import com.restaurante.common.dto.ApiResponse;
 import com.restaurante.common.util.Constants;
 import com.restaurante.common.exception.BadRequestException;
+import com.restaurante.common.exception.RateLimitExceededException;
 import com.restaurante.publicapi.dto.PublicReservationRequest;
 import com.restaurante.publicapi.dto.PublicReservationResponse;
 import com.restaurante.publicapi.dto.PublicRestaurantResponse;
+import com.restaurante.publicapi.ratelimit.PublicReservationRateLimiter;
 import com.restaurante.publicapi.service.PublicReservationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 public class PublicReservationController {
 
     private final PublicReservationService publicReservationService;
+    private final PublicReservationRateLimiter rateLimiter;
 
     @GetMapping
     @Operation(summary = "Obtener restaurante público",
@@ -41,7 +45,13 @@ public class PublicReservationController {
                     "El restaurante revisará la solicitud y confirmará disponibilidad.")
     public ResponseEntity<ApiResponse<PublicReservationResponse>> createReservationRequest(
             @PathVariable Long restaurantId,
-            @Valid @RequestBody PublicReservationRequest request) {
+            @Valid @RequestBody PublicReservationRequest request,
+            HttpServletRequest httpRequest) {
+
+        if (!rateLimiter.tryAcquire(httpRequest.getRemoteAddr())) {
+            throw new RateLimitExceededException(
+                    "Demasiadas solicitudes de reserva. Inténtalo de nuevo en unos minutos.");
+        }
 
         PublicReservationResponse response = publicReservationService.createReservationRequest(restaurantId, request);
 

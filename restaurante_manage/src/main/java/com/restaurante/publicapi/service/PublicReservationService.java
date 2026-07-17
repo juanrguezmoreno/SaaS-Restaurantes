@@ -1,6 +1,7 @@
 package com.restaurante.publicapi.service;
 
 import com.restaurante.common.exception.BadRequestException;
+import com.restaurante.common.exception.ConflictException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
@@ -16,6 +17,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -69,6 +72,17 @@ public class PublicReservationService {
 
         // 2. Buscar o crear cliente
         Customer customer = findOrCreateCustomer(restaurant, request);
+
+        // 2b. Rechazar solicitudes duplicadas: mismo cliente, fecha y hora,
+        // con una reserva todavía activa (PENDING o CONFIRMED).
+        boolean duplicada = reservationRepository
+                .existsByCustomerIdAndReservationDateAndReservationTimeAndStatusInAndDeletedFalse(
+                        customer.getId(), request.getReservationDate(), request.getReservationTime(),
+                        List.of(ReservationStatus.PENDING, ReservationStatus.CONFIRMED));
+        if (duplicada) {
+            throw new ConflictException(
+                    "Ya existe una solicitud de reserva activa para ese email, fecha y hora.");
+        }
 
         // 3. Crear reserva PENDING sin mesa
         Reservation reservation = new Reservation();

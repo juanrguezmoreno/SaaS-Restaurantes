@@ -113,7 +113,7 @@ public class ReservationController {
 
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
-    @Operation(summary = "Cambiar estado de reserva", description = "Actualiza el estado de una reserva. Enviar JSON: {\"status\": \"CONFIRMED\"}")
+    @Operation(summary = "Cambiar estado de reserva", description = "Actualiza el estado de una reserva según la matriz de transiciones permitida. Enviar JSON: {\"status\": \"CONFIRMED\"}. CANCELLED, COMPLETED y NO_SHOW son estados finales y no admiten más cambios.")
     public ResponseEntity<ApiResponse<ReservationResponse>> updateStatus(
             @PathVariable Long id,
             @Valid @RequestBody ReservationStatusUpdateRequest request) {
@@ -122,10 +122,12 @@ public class ReservationController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Cancelar reserva", description = "Cancela una reserva")
-    public ResponseEntity<ApiResponse<Void>> cancel(@PathVariable Long id) {
-        reservationService.cancel(id);
-        return ResponseEntity.ok(ApiResponse.success("Reserva cancelada exitosamente", null));
+    @Operation(summary = "Eliminar reserva",
+               description = "Elimina una reserva de forma permanente (borrado lógico). "
+                            + "Para cancelar sin eliminar usa PATCH /reservations/{id}/status con CANCELLED.")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
+        reservationService.delete(id);
+        return ResponseEntity.ok(ApiResponse.success("Reserva eliminada exitosamente", null));
     }
 
     // ════════════════════════════════════════════════════════════════

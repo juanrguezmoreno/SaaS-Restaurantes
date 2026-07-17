@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -47,6 +48,20 @@ public class ReservationService {
     private final ReservationMapper reservationMapper;
     private final CurrentUserService currentUserService;
     private final ApplicationEventPublisher eventPublisher;
+
+    /**
+     * Matriz explícita de transiciones de estado permitidas. CANCELLED,
+     * COMPLETED y NO_SHOW son estados finales: no admiten transiciones salientes.
+     * Una transición al mismo estado (idempotente) se permite siempre y no
+     * pasa por esta matriz (ver {@code updateStatus}).
+     */
+    private static final Map<ReservationStatus, Set<ReservationStatus>> ALLOWED_TRANSITIONS = Map.of(
+            ReservationStatus.PENDING, Set.of(ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED),
+            ReservationStatus.CONFIRMED, Set.of(ReservationStatus.CANCELLED, ReservationStatus.COMPLETED, ReservationStatus.NO_SHOW),
+            ReservationStatus.CANCELLED, Set.of(),
+            ReservationStatus.COMPLETED, Set.of(),
+            ReservationStatus.NO_SHOW, Set.of()
+    );
 
     public Page<ReservationResponse> findAll(Pageable pageable) {
         log.debug("findAll() llamado con pageable: page={}, size={}, sort={}",
@@ -205,9 +220,18 @@ public class ReservationService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(resolvedRestaurantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", resolvedRestaurantId));
 
+        if (!customer.getRestaurant().getId().equals(resolvedRestaurantId)) {
+            throw new BadRequestException("El cliente indicado no pertenece al restaurante de la reserva");
+        }
+
         Reservation reservation = reservationMapper.toEntity(request);
         reservation.setCustomer(customer);
         reservation.setRestaurant(restaurant);
+
+        if (reservation.getReservationDate().isEqual(LocalDate.now())
+                && reservation.getReservationTime().isBefore(LocalTime.now())) {
+            throw new BadRequestException("La hora de la reserva ya ha pasado para el día de hoy.");
+        }
 
         // Determinar el estado final de la reserva
         ReservationStatus finalStatus = reservation.getStatus(); // ya se mapeó desde el request o PENDING por defecto
@@ -217,6 +241,17 @@ public class ReservationService {
         if (request.getDiningTableId() != null) {
             table = diningTableRepository.findByIdAndDeletedFalse(request.getDiningTableId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa", "id", request.getDiningTableId()));
+
+            if (!table.getRestaurant().getId().equals(resolvedRestaurantId)) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " no pertenece al restaurante indicado");
+            }
+
+            if (table.getCapacity() < reservation.getPartySize()) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " tiene capacidad para " + table.getCapacity()
+                                + " personas, pero la reserva es para " + reservation.getPartySize() + ".");
+            }
 
             // RES-03: el conflicto de hueco (409) tiene prioridad sobre el chequeo
             // de disponibilidad (400) para que un solape devuelva siempre Conflict.
@@ -277,6 +312,9 @@ public class ReservationService {
         if (request.getCustomerId() != null && !request.getCustomerId().equals(reservation.getCustomer().getId())) {
             Customer customer = customerRepository.findByIdAndDeletedFalse(request.getCustomerId())
                     .orElseThrow(() -> new ResourceNotFoundException("Cliente", "id", request.getCustomerId()));
+            if (!customer.getRestaurant().getId().equals(reservation.getRestaurant().getId())) {
+                throw new BadRequestException("El cliente indicado no pertenece al restaurante de la reserva");
+            }
             reservation.setCustomer(customer);
         }
 
@@ -284,6 +322,20 @@ public class ReservationService {
         if (request.getDiningTableId() != null) {
             DiningTable table = diningTableRepository.findByIdAndDeletedFalse(request.getDiningTableId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mesa", "id", request.getDiningTableId()));
+
+            if (!table.getRestaurant().getId().equals(reservation.getRestaurant().getId())) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " no pertenece al restaurante de la reserva");
+            }
+
+            // El partySize del request es el que prevalecerá tras reservationMapper.updateEntity(),
+            // así que la capacidad se valida contra ese valor y no contra el de la entidad aún sin actualizar.
+            Integer nuevoPartySize = request.getPartySize() != null ? request.getPartySize() : reservation.getPartySize();
+            if (table.getCapacity() < nuevoPartySize) {
+                throw new BadRequestException(
+                        "La mesa " + table.getTableNumber() + " tiene capacidad para " + table.getCapacity()
+                                + " personas, pero la reserva es para " + nuevoPartySize + ".");
+            }
 
             // Si la reserva está CONFIRMED, actualizar estado de mesas
             if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
@@ -357,16 +409,18 @@ public class ReservationService {
         ReservationStatus oldStatus = reservation.getStatus();
         log.debug("Cambiando estado de reserva #{}: {} → {}", id, oldStatus, newStatus);
 
+        // Matriz de transiciones: CANCELLED/COMPLETED/NO_SHOW son estados
+        // finales; una transición al mismo estado (idempotente) siempre se permite.
+        if (oldStatus != newStatus
+                && !ALLOWED_TRANSITIONS.getOrDefault(oldStatus, Set.of()).contains(newStatus)) {
+            throw new BadRequestException(
+                    "Transición de estado no permitida: " + oldStatus + " → " + newStatus);
+        }
+
         // ─── Transición a CONFIRMED ─────────────────────────────────
         // NOTA: la verificación de disponibilidad excluye esta misma reserva
         // (excludeReservationId) para no detectarla como auto-conflicto.
         if (newStatus == ReservationStatus.CONFIRMED) {
-            // Solo permitir confirmar desde PENDING
-            if (oldStatus != ReservationStatus.PENDING) {
-                throw new BadRequestException(
-                        "Solo se puede confirmar una reserva que esté en estado PENDING. Estado actual: " + oldStatus);
-            }
-
             DiningTable table = reservation.getDiningTable();
 
             // Si no tiene mesa asignada, intentar auto-asignar una disponible
@@ -448,36 +502,6 @@ public class ReservationService {
         log.info("Estado de reserva #{} actualizado a {}", saved.getId(), saved.getStatus());
 
         return reservationMapper.toResponse(saved);
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    //  CANCELACIÓN (endpoint DELETE)
-    // ════════════════════════════════════════════════════════════════
-
-    @Transactional
-    public void cancel(Long id) {
-        Reservation reservation = reservationRepository.findByIdAndDeletedFalse(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reserva", "id", id));
-        currentUserService.validateRestaurantAccess(reservation.getRestaurant().getId());
-
-        // Snapshot ANTES de desasignar la mesa: el listener corre
-        // post-commit con la sesión de Hibernate cerrada.
-        // Solo publicar si no estaba ya CANCELLED, para evitar un
-        // segundo email de cancelación (idempotencia de la notificación).
-        if (reservation.getStatus() != ReservationStatus.CANCELLED) {
-            eventPublisher.publishEvent(new ReservationCancelledEvent(ReservationEmailData.from(reservation)));
-        }
-
-        // Liberar mesa si estaba asignada
-        if (reservation.getDiningTable() != null) {
-            releaseTableIfNoActiveConfirmedReservations(reservation.getDiningTable().getId());
-            reservation.setDiningTable(null);
-            log.info("Mesa liberada al cancelar reserva #{}", id);
-        }
-
-        reservation.setStatus(ReservationStatus.CANCELLED);
-        reservationRepository.save(reservation);
-        log.info("Reserva #{} cancelada", id);
     }
 
     // ════════════════════════════════════════════════════════════════

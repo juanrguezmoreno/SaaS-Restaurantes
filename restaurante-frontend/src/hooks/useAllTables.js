@@ -27,16 +27,17 @@ export const useAllTables = ({ auto = true } = {}) => {
         return;
       }
 
-      const promises = restaurantList.map((r) =>
-        api.get(`/restaurants/${r.id}/tables`)
-          .then((res) => extractArray(res))
-          .catch(() => [])
-      );
+      const promises = restaurantList.map((r) => api.get(`/restaurants/${r.id}/tables`).then((res) => extractArray(res)));
       const results = await Promise.allSettled(promises);
       const fetchedTables = results.flatMap(
         (r) => (r.status === 'fulfilled' && Array.isArray(r.value) ? r.value : [])
       );
       setTables(fetchedTables);
+
+      const failedCount = results.filter((r) => r.status === 'rejected').length;
+      if (failedCount > 0) {
+        setError(`No se pudieron cargar las mesas de ${failedCount} restaurante(s).`);
+      }
     } catch (err) {
       setError(err?.message || 'Error al cargar las mesas.');
       setTables([]);

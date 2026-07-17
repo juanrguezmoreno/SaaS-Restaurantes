@@ -13,6 +13,7 @@ import { getRestaurants } from '../services/restaurantService';
 import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
+import { filterPendingReservations, getLocalTodayString } from '../lib/reservationHelpers';
 
 // ─── Estados posibles ─────────────────────────────────────────────────────
 const RESERVATION_STATUSES = [
@@ -60,10 +61,15 @@ const Reservations = () => {
   // ─── Estados de referencias (selectores) ───────────────────────────────
   const [restaurants, setRestaurants] = useState([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [restaurantsLoadError, setRestaurantsLoadError] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [customersLoadError, setCustomersLoadError] = useState(null);
   const [tables, setTables] = useState([]);
   const [loadingTables, setLoadingTables] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [tablesLoadError, setTablesLoadError] = useState(null);
 
   // ─── Estados de filtros ────────────────────────────────────────────────
   const [filterRestaurantId, setFilterRestaurantId] = useState('');
@@ -147,11 +153,13 @@ const Reservations = () => {
 
   const fetchRestaurantsList = useCallback(async () => {
     setLoadingRestaurants(true);
+    setRestaurantsLoadError(null);
     try {
       const data = await getRestaurants();
       setRestaurants(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
       setRestaurants([]);
+      setRestaurantsLoadError(getErrorMessage(err));
     } finally {
       setLoadingRestaurants(false);
     }
@@ -159,11 +167,13 @@ const Reservations = () => {
 
   const fetchCustomers = useCallback(async () => {
     setLoadingCustomers(true);
+    setCustomersLoadError(null);
     try {
       const data = await getCustomers();
       setCustomers(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
       setCustomers([]);
+      setCustomersLoadError(getErrorMessage(err));
     } finally {
       setLoadingCustomers(false);
     }
@@ -187,11 +197,13 @@ const Reservations = () => {
     }
     const fetchTables = async () => {
       setLoadingTables(true);
+      setTablesLoadError(null);
       try {
         const data = await getTablesByRestaurant(restaurantIdNum);
         setTables(Array.isArray(data) ? data : []);
-      } catch {
+      } catch (err) {
         setTables([]);
+        setTablesLoadError(getErrorMessage(err));
       } finally {
         setLoadingTables(false);
       }
@@ -226,8 +238,9 @@ const Reservations = () => {
   });
 
   // ─── Pending reservations (for solicitudes section) ──────────────────────
+  // Mismo criterio que el KPI de Inicio: PENDING con fecha hoy o futura.
   const pendingReservations = useMemo(
-    () => safeReservations.filter((r) => r.status === 'PENDING'),
+    () => filterPendingReservations(safeReservations),
     [safeReservations]
   );
 
@@ -273,17 +286,6 @@ const Reservations = () => {
     [safeReservations, todayStr]
   );
 
-  // Activas: PENDING + CONFIRMED con fecha hoy o futura
-  const activePendingReservations = useMemo(
-    () => safeReservations.filter(
-      (r) =>
-        r.status === 'PENDING' &&
-        r.reservationDate &&
-        String(r.reservationDate).substring(0, 10) >= todayStr
-    ),
-    [safeReservations, todayStr]
-  );
-
   const HISTORY_STATUSES = useMemo(() => ['CANCELLED', 'COMPLETED', 'NO_SHOW'], []);
 
   const historyReservations = useMemo(
@@ -301,8 +303,9 @@ const Reservations = () => {
   // ─── Helpers de formato ────────────────────────────────────────────────
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return String(dateStr).substring(0, 10);
+    const isoDate = String(dateStr).substring(0, 10);
+    const d = new Date(`${isoDate}T12:00:00`);
+    if (isNaN(d.getTime())) return isoDate;
     return d.toLocaleDateString('es-ES', {
       day: '2-digit',
       month: '2-digit',
@@ -382,7 +385,9 @@ const Reservations = () => {
               data-bs-toggle="dropdown"
               aria-expanded="false"
               title="Cambiar estado"
+              disabled={changingStatus === r.id}
               onClick={(e) => {
+                if (changingStatus === r.id) return;
                 const next = e.currentTarget.nextElementSibling;
                 if (next) next.classList.toggle('show');
               }}
@@ -591,29 +596,19 @@ const Reservations = () => {
     };
 
     try {
-      // Intentar endpoint de disponibilidad
-      let tables = [];
-      try {
-        const res = await api.post('/availability/tables', payload);
-        const body = res.data;
-        if (Array.isArray(body)) {
-          tables = body;
-        } else if (body?.data && Array.isArray(body.data)) {
-          tables = body.data;
-        } else if (body?.content && Array.isArray(body.content)) {
-          tables = body.content;
-        } else if (body?.tables && Array.isArray(body.tables)) {
-          tables = body.tables;
-        } else {
-          // Fallback: no se reconoció el formato
-          throw new Error('Formato no esperado');
-        }
-      } catch {
-        // Fallback: obtener todas las mesas y filtrar por capacidad
-        const allTables = await getTablesByRestaurant(Number(wizardData.restaurantId));
-        tables = Array.isArray(allTables)
-          ? allTables.filter((t) => t.capacity >= Number(wizardData.partySize) && t.status === 'AVAILABLE')
-          : [];
+      const res = await api.post('/availability/tables', payload);
+      const body = res.data;
+      let tables;
+      if (Array.isArray(body)) {
+        tables = body;
+      } else if (body?.data && Array.isArray(body.data)) {
+        tables = body.data;
+      } else if (body?.content && Array.isArray(body.content)) {
+        tables = body.content;
+      } else if (body?.tables && Array.isArray(body.tables)) {
+        tables = body.tables;
+      } else {
+        throw new Error('El servidor devolvió un formato de disponibilidad inesperado.');
       }
 
       setAvailableTables(tables);
@@ -663,7 +658,7 @@ const Reservations = () => {
         reservationDate: wizardData.reservationDate,
         reservationTime: `${String(wizardData.reservationTime).substring(0, 5)}:00`,
         partySize: Number(wizardData.partySize),
-        notes: (wizardData.notes || '').trim() || 'Reserva creada desde flujo inteligente',
+        notes: (wizardData.notes || '').trim(),
         status: 'CONFIRMED',
       };
 
@@ -758,7 +753,7 @@ const Reservations = () => {
     setSubmitting(true);
 
     try {
-      const payload = {
+      const basePayload = {
         customerId: Number(formData.customerId),
         restaurantId: Number(formData.restaurantId),
         diningTableId: Number(formData.diningTableId),
@@ -766,14 +761,15 @@ const Reservations = () => {
         reservationTime: `${String(formData.reservationTime).substring(0, 5)}:00`,
         partySize: Number(formData.partySize),
         notes: (formData.notes || '').trim(),
-        status: formData.status || 'PENDING',
       };
 
       if (editingReservation) {
-        await updateReservation(editingReservation.id, payload);
+        // El backend ignora "status" en el PUT: el estado solo cambia vía
+        // el menú "Cambiar estado" (PATCH /reservations/{id}/status).
+        await updateReservation(editingReservation.id, basePayload);
         setSuccessMessage('Reserva actualizada correctamente.');
       } else {
-        await createReservation(payload);
+        await createReservation({ ...basePayload, status: formData.status || 'PENDING' });
         setSuccessMessage('Reserva creada correctamente.');
       }
 
@@ -822,7 +818,9 @@ const Reservations = () => {
   const handleStatusChange = async (reservation, newStatus) => {
     if (!reservation || !newStatus) return;
     if (reservation.status === newStatus) return;
+    if (changingStatus === reservation.id) return;
 
+    setChangingStatus(reservation.id);
     try {
       const updated = await updateReservationStatus(reservation.id, newStatus);
 
@@ -841,7 +839,16 @@ const Reservations = () => {
             : 'Reserva confirmada, pero el cliente no tiene email registrado.'
         );
       } else if (newStatus === 'CANCELLED') {
-        setSuccessMessage('Reserva rechazada. El cliente será notificado.');
+        const hasEmail = !(
+          updated?.customerEmail === null ||
+          updated?.customerEmail === undefined ||
+          updated?.customerEmail === ''
+        );
+        setSuccessMessage(
+          hasEmail
+            ? 'Reserva rechazada. El cliente será notificado.'
+            : 'Reserva rechazada. El cliente no tiene email registrado, no se le notificará.'
+        );
       } else {
         setSuccessMessage(`Estado actualizado a "${STATUS_MAP[newStatus]?.label || newStatus}".`);
       }
@@ -849,11 +856,13 @@ const Reservations = () => {
       await fetchReservations();
     } catch (err) {
       setError(getErrorMessage(err));
+    } finally {
+      setChangingStatus(null);
     }
   };
 
   // ─── Verificar si hay clientes ─────────────────────────────────────────
-  const noCustomers = !loadingCustomers && customers.length === 0;
+  const noCustomers = !loadingCustomers && !customersLoadError && customers.length === 0;
 
   // ─── Render ────────────────────────────────────────────────────────────
   return (
@@ -920,6 +929,15 @@ const Reservations = () => {
           </button>
         </div>
       </div>
+
+      {customersLoadError && (
+        <div className="alert alert-warning d-flex justify-content-between align-items-center">
+          <span>No se pudieron cargar los clientes: {customersLoadError}</span>
+          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={fetchCustomers}>
+            Reintentar
+          </button>
+        </div>
+      )}
 
       {noCustomers && (
         <div className="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
@@ -1336,7 +1354,7 @@ const Reservations = () => {
               {activeTab === 'active' && (
                 <div id="reservations-panel" role="tabpanel">
                   {/* Pendientes por confirmar */}
-                  {activePendingReservations.length > 0 && (
+                  {pendingReservations.length > 0 && (
                     <div className="mb-4">
                       <div className="d-flex align-items-center gap-2 mb-3">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1345,7 +1363,7 @@ const Reservations = () => {
                           <line x1="12" y1="16" x2="12.01" y2="16" />
                         </svg>
                         <h6 className="mb-0 fw-semibold" style={{ fontSize: '0.9rem' }}>Pendientes de Confirmar</h6>
-                        <span className="pending-badge">{activePendingReservations.length}</span>
+                        <span className="pending-badge">{pendingReservations.length}</span>
                       </div>
                       <div className="app-card">
                         <div className="app-table-wrapper">
@@ -1364,7 +1382,7 @@ const Reservations = () => {
                               </tr>
                             </thead>
                             <tbody>
-                              {[...activePendingReservations]
+                              {[...pendingReservations]
                                 .sort((a, b) => {
                                   const dateA = a.reservationDate || '';
                                   const dateB = b.reservationDate || '';
@@ -1529,7 +1547,7 @@ const Reservations = () => {
                   )}
 
                   {/* Empty state for active tab */}
-                  {activePendingReservations.length === 0 && todayReservations.length === 0 && upcomingReservations.length === 0 && (
+                  {pendingReservations.length === 0 && todayReservations.length === 0 && upcomingReservations.length === 0 && (
                     <div className="app-card">
                       <div className="empty-state" style={{ padding: '2.5rem 1rem' }}>
                         <div className="empty-state-icon" style={{ width: 56, height: 56 }}>
@@ -1684,7 +1702,7 @@ const Reservations = () => {
                   <button
                     className="res-calendar-nav-btn"
                     onClick={() => {
-                      const d = new Date(calendarDate);
+                      const d = new Date(`${calendarDate}T12:00:00`);
                       d.setDate(d.getDate() - 1);
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -1708,7 +1726,7 @@ const Reservations = () => {
                   <button
                     className="res-calendar-nav-btn"
                     onClick={() => {
-                      const d = new Date(calendarDate);
+                      const d = new Date(`${calendarDate}T12:00:00`);
                       d.setDate(d.getDate() + 1);
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -2065,13 +2083,19 @@ const Reservations = () => {
                         value={formData.status}
                         onChange={handleFormChange}
                         aria-label="Estado de la reserva"
+                        disabled={!!editingReservation}
                       >
-                        {RESERVATION_STATUSES.map((s) => (
+                        {(editingReservation ? RESERVATION_STATUSES : RESERVATION_STATUSES.filter((s) => s.value === 'PENDING' || s.value === 'CONFIRMED')).map((s) => (
                           <option key={s.value} value={s.value}>
                             {s.label}
                           </option>
                         ))}
                       </select>
+                      <div className="form-text">
+                        {editingReservation
+                          ? 'El estado se cambia desde el menú "Cambiar estado" de la tabla.'
+                          : 'Una reserva solo puede crearse como Pendiente o Confirmada.'}
+                      </div>
                     </div>
 
                     {/* Fecha */}
@@ -2327,7 +2351,7 @@ const Reservations = () => {
                                 type="date"
                                 className="form-control form-control-lg"
                                 value={wizardData.reservationDate}
-                                min={new Date().toISOString().split('T')[0]}
+                                min={getLocalTodayString()}
                                 onChange={(e) => handleWizardChange('reservationDate', e.target.value)}
                               />
                             </div>
