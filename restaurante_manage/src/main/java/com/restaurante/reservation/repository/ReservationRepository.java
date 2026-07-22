@@ -54,20 +54,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                    @Param("now") LocalTime now);
 
     /**
-     * RES-03: reservas ACTIVAS (PENDING o CONFIRMED) que ocupan una mesa en una
-     * fecha/hora exactas. Las CANCELLED, COMPLETED y NO_SHOW no bloquean.
-     * {@code excludeId} permite ignorar la propia reserva al editar (null = ninguna).
-     */
-    @Query("SELECT r FROM Reservation r WHERE r.diningTable.id = :tableId " +
-           "AND r.deleted = false AND r.status IN ('PENDING','CONFIRMED') " +
-           "AND r.reservationDate = :date AND r.reservationTime = :time " +
-           "AND (:excludeId IS NULL OR r.id <> :excludeId)")
-    List<Reservation> findActiveConflicts(@Param("tableId") Long tableId,
-                                          @Param("date") LocalDate date,
-                                          @Param("time") LocalTime time,
-                                          @Param("excludeId") Long excludeId);
-
-    /**
      * Reservas ACTIVAS (PENDING o CONFIRMED, no borradas) de una mesa cuya
      * {@code reservationDate} cae dentro de {@code [from, to]} (ambos inclusive).
      * Usada por {@code AvailabilityService} para calcular solape por intervalo
