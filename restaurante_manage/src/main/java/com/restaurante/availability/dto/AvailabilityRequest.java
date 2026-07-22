@@ -13,6 +13,7 @@ public class AvailabilityRequest {
     @NotNull(message = "La fecha es obligatoria")
     private LocalDate date;
 
+    @NotNull(message = "La hora es obligatoria")
     private LocalTime time;
 
     private Integer partySize;
