@@ -66,4 +66,23 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                           @Param("date") LocalDate date,
                                           @Param("time") LocalTime time,
                                           @Param("excludeId") Long excludeId);
+
+    /**
+     * Reservas ACTIVAS (PENDING o CONFIRMED, no borradas) de una mesa cuya
+     * {@code reservationDate} cae dentro de {@code [from, to]} (ambos inclusive).
+     * Usada por {@code AvailabilityService} para calcular solape por intervalo
+     * horario (no solo por hora exacta): el rango debe cubrir el día anterior
+     * y el siguiente al de la reserva solicitada, para detectar solapes que
+     * cruzan medianoche (p.ej. una reserva a las 23:30 con 90 min de duración
+     * termina a la 01:00 del día siguiente).
+     * {@code excludeId} permite ignorar la propia reserva al editar (null = ninguna).
+     */
+    @Query("SELECT r FROM Reservation r WHERE r.diningTable.id = :tableId " +
+           "AND r.deleted = false AND r.status IN ('PENDING','CONFIRMED') " +
+           "AND r.reservationDate BETWEEN :from AND :to " +
+           "AND (:excludeId IS NULL OR r.id <> :excludeId)")
+    List<Reservation> findActiveByTableAndDateBetween(@Param("tableId") Long tableId,
+                                                       @Param("from") LocalDate from,
+                                                       @Param("to") LocalDate to,
+                                                       @Param("excludeId") Long excludeId);
 }

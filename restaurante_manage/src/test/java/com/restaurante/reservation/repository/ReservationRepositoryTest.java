@@ -213,4 +213,91 @@ class ReservationRepositoryTest {
 
         assertTrue(resultado.isEmpty());
     }
+
+    // ─── findActiveByTableAndDateBetween: solape por intervalo (duración configurable) ───
+
+    @Test
+    void findActiveByTableAndDateBetween_incluyeReservaPendienteDentroDelRango() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertEquals(1, resultado.size());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_incluyeReservaConfirmadaDentroDelRango() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.CONFIRMED);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertEquals(1, resultado.size());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeCanceladasCompletadasYNoShow() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.CANCELLED);
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.COMPLETED);
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.NO_SHOW);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeOtraMesa() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa2.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeFechasFueraDelRango() {
+        crearReserva(mesa1, DATE.plusDays(5), TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excludeIdIgnoraLaPropiaReserva() {
+        Reservation propia = crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), propia.getId());
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeBorradasLogicamente() {
+        Reservation borrada = crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+        borrada.setDeleted(true);
+        borrada.setDeletedAt(LocalDateTime.now());
+        em.persistAndFlush(borrada);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_incluyeReservaEnElLimiteInferiorDelRango() {
+        crearReserva(mesa1, DATE.minusDays(1), TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertEquals(1, resultado.size());
+    }
 }
