@@ -17,6 +17,7 @@ const INITIAL_FORM = {
   openingTime: '',
   closingTime: '',
   capacity: '',
+  defaultReservationDurationMinutes: '',
 };
 
 // ─── Helper: extraer mensaje de error de forma segura ──────────────────
@@ -111,6 +112,7 @@ const Restaurants = () => {
         ? String(restaurant.closingTime).substring(0, 5)
         : '',
       capacity: restaurant.capacity ?? '',
+      defaultReservationDurationMinutes: restaurant.defaultReservationDurationMinutes ?? '',
     });
     setFormErrors({});
     setShowModal(true);
@@ -165,6 +167,16 @@ const Restaurants = () => {
       errors.capacity = 'La capacidad debe ser un número entero positivo.';
     }
 
+    const duration = formData.defaultReservationDurationMinutes;
+    if (
+      duration !== '' &&
+      duration !== null &&
+      duration !== undefined &&
+      (!Number.isInteger(Number(duration)) || Number(duration) < 15 || Number(duration) > 480)
+    ) {
+      errors.defaultReservationDurationMinutes = 'La duración debe ser un número entero entre 15 y 480 minutos.';
+    }
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -194,6 +206,10 @@ const Restaurants = () => {
         capacity:
           formData.capacity !== '' && formData.capacity !== null
             ? Number(formData.capacity)
+            : null,
+        defaultReservationDurationMinutes:
+          formData.defaultReservationDurationMinutes !== '' && formData.defaultReservationDurationMinutes !== null
+            ? Number(formData.defaultReservationDurationMinutes)
             : null,
       };
 
@@ -825,6 +841,26 @@ const Restaurants = () => {
                         value={formData.closingTime || ''}
                         onChange={handleFormChange}
                       />
+                    </div>
+
+                    {/* Duración de reserva */}
+                    <div className="col-6 col-md-3">
+                      <label htmlFor="rest-duration" className="form-label">Duración de reserva (min)</label>
+                      <input
+                        id="rest-duration"
+                        type="number"
+                        className={`form-control ${formErrors.defaultReservationDurationMinutes ? 'is-invalid' : ''}`}
+                        name="defaultReservationDurationMinutes"
+                        value={formData.defaultReservationDurationMinutes ?? ''}
+                        onChange={handleFormChange}
+                        placeholder="Ej: 90"
+                        min="15"
+                        max="480"
+                        step="1"
+                      />
+                      {formErrors.defaultReservationDurationMinutes && (
+                        <div className="invalid-feedback">{formErrors.defaultReservationDurationMinutes}</div>
+                      )}
                     </div>
 
                     {/* Descripción */}
