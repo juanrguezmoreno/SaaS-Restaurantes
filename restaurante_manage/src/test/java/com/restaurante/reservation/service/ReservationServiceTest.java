@@ -532,18 +532,24 @@ class ReservationServiceTest {
 
     @Test
     void create_rechazaHoraYaPasadaHoy() {
+        // Se calcula como LocalDateTime y luego se separa en fecha/hora: restar
+        // horas directamente sobre LocalTime.now() "envuelve" cerca de
+        // medianoche (p.ej. a las 00:08, minusHours(1) da 23:08, que en
+        // realidad es una hora futura del mismo LocalDate.now()).
+        java.time.LocalDateTime haceUnaHora = java.time.LocalDateTime.now().minusHours(1);
+
         when(reservationMapper.toEntity(any(ReservationRequest.class))).thenAnswer(inv -> {
             Reservation r = new Reservation();
-            r.setReservationDate(LocalDate.now());
-            r.setReservationTime(LocalTime.now().minusHours(1));
+            r.setReservationDate(haceUnaHora.toLocalDate());
+            r.setReservationTime(haceUnaHora.toLocalTime());
             r.setPartySize(2);
             r.setStatus(ReservationStatus.PENDING);
             return r;
         });
 
         ReservationRequest req = request();
-        req.setReservationDate(LocalDate.now());
-        req.setReservationTime(LocalTime.now().minusHours(1));
+        req.setReservationDate(haceUnaHora.toLocalDate());
+        req.setReservationTime(haceUnaHora.toLocalTime());
 
         assertThrows(com.restaurante.common.exception.BadRequestException.class,
                 () -> service.create(req));

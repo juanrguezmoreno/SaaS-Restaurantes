@@ -31,6 +31,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -230,8 +231,12 @@ public class ReservationService {
         reservation.setCustomer(customer);
         reservation.setRestaurant(restaurant);
 
-        if (reservation.getReservationDate().isEqual(LocalDate.now())
-                && reservation.getReservationTime().isBefore(LocalTime.now())) {
+        // Comparar como LocalDateTime (no fecha y hora por separado): comparar
+        // solo reservationTime contra LocalTime.now() se rompe cerca de
+        // medianoche (p.ej. minusHours(1) a las 00:08 "envuelve" a las 23:08,
+        // que parece futura aunque la intención sea "hace una hora").
+        if (LocalDateTime.of(reservation.getReservationDate(), reservation.getReservationTime())
+                .isBefore(LocalDateTime.now())) {
             throw new BadRequestException("La hora de la reserva ya ha pasado para el día de hoy.");
         }
 
