@@ -24,6 +24,7 @@ public class RestaurantResponse {
     private LocalTime closingTime;
     private Integer capacity;
     private Boolean publicBookingEnabled;
+    private Integer defaultReservationDurationMinutes;
     private Long tenantId;
     private String tenantName;
     private int tableCount;

@@ -1,6 +1,8 @@
 package com.restaurante.restaurant.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
@@ -39,6 +41,10 @@ public class RestaurantRequest {
     private Integer capacity;
 
     private Boolean publicBookingEnabled;
+
+    @Min(value = 15, message = "La duración mínima de una reserva es de 15 minutos")
+    @Max(value = 480, message = "La duración máxima de una reserva es de 480 minutos")
+    private Integer defaultReservationDurationMinutes;
 
     private Long tenantId;
 }

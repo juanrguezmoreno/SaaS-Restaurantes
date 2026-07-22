@@ -22,6 +22,7 @@ public class RestaurantMapper {
                 .closingTime(restaurant.getClosingTime())
                 .capacity(restaurant.getCapacity())
                 .publicBookingEnabled(restaurant.getPublicBookingEnabled())
+                .defaultReservationDurationMinutes(restaurant.getDefaultReservationDurationMinutes())
                 .tenantId(restaurant.getTenant() != null ? restaurant.getTenant().getId() : null)
                 .tenantName(restaurant.getTenant() != null ? restaurant.getTenant().getName() : null)
                 .tableCount(restaurant.getTables() != null ? restaurant.getTables().size() : 0)
@@ -48,6 +49,9 @@ public class RestaurantMapper {
         if (request.getPublicBookingEnabled() != null) {
             restaurant.setPublicBookingEnabled(request.getPublicBookingEnabled());
         }
+        if (request.getDefaultReservationDurationMinutes() != null) {
+            restaurant.setDefaultReservationDurationMinutes(request.getDefaultReservationDurationMinutes());
+        }
         return restaurant;
     }
 
@@ -65,6 +69,9 @@ public class RestaurantMapper {
         restaurant.setCapacity(request.getCapacity());
         if (request.getPublicBookingEnabled() != null) {
             restaurant.setPublicBookingEnabled(request.getPublicBookingEnabled());
+        }
+        if (request.getDefaultReservationDurationMinutes() != null) {
+            restaurant.setDefaultReservationDurationMinutes(request.getDefaultReservationDurationMinutes());
         }
     }
 }

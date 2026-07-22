@@ -52,6 +52,9 @@ public class Restaurant extends BaseEntity {
     @Column(name = "public_booking_enabled", nullable = false)
     private Boolean publicBookingEnabled = true;
 
+    @Column(name = "default_reservation_duration_minutes", nullable = false)
+    private Integer defaultReservationDurationMinutes = 90;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tenant_id")
     private Tenant tenant;
