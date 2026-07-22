@@ -1,5 +1,6 @@
 package com.restaurante.reservation.service;
 
+import com.restaurante.availability.service.AvailabilityService;
 import com.restaurante.common.exception.ConflictException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.customer.entity.Customer;
@@ -54,6 +55,7 @@ class ReservationServiceTest {
     @Mock private ReservationMapper reservationMapper;
     @Mock private CurrentUserService currentUserService;
     @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private AvailabilityService availabilityService;
 
     @InjectMocks private ReservationService service;
 
@@ -113,23 +115,18 @@ class ReservationServiceTest {
     @Test
     void create_rechazaReservaSolapadaEnLaMismaMesaFechaHora() {
         stubMapperPending();
-        // Ya existe una reserva activa (PENDING/CONFIRMED) en ese hueco
-        Reservation existente = new Reservation();
-        existente.setId(99L);
-        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, null))
-                .thenReturn(List.of(existente));
+        doThrow(new ConflictException("La mesa 1 ya tiene una reserva que solapa con la franja solicitada."))
+                .when(availabilityService).assertNoOverlap(table, DATE, TIME, null);
 
         ConflictException ex = assertThrows(ConflictException.class,
                 () -> service.create(request()));
-        assertTrue(ex.getMessage().contains("reserva activa"));
+        assertTrue(ex.getMessage().contains("solapa"));
         verify(reservationRepository, never()).save(any(Reservation.class));
     }
 
     @Test
     void create_permiteReservaSiElHuecoEstaLibre() {
         stubMapperPending();
-        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, null))
-                .thenReturn(List.of());
 
         assertDoesNotThrow(() -> service.create(request()));
         verify(reservationRepository).save(any(Reservation.class));
@@ -146,17 +143,15 @@ class ReservationServiceTest {
         when(diningTableRepository.findByIdAndDeletedFalse(otraMesaId)).thenReturn(Optional.of(otraMesa));
 
         stubMapperPending();
-        // La mesa 1 está ocupada, pero se pide la mesa 2, que está libre
-        when(reservationRepository.findActiveConflicts(eq(TABLE_ID), eq(DATE), eq(TIME), any()))
-                .thenReturn(List.of(new Reservation()));
-        when(reservationRepository.findActiveConflicts(eq(otraMesaId), eq(DATE), eq(TIME), any()))
-                .thenReturn(List.of());
+        doThrow(new ConflictException("La mesa 1 ya tiene una reserva que solapa."))
+                .when(availabilityService).assertNoOverlap(eq(table), any(), any(), any());
 
         ReservationRequest req = request();
         req.setDiningTableId(otraMesaId);
 
         assertDoesNotThrow(() -> service.create(req));
         verify(reservationRepository).save(any(Reservation.class));
+        verify(availabilityService, never()).assertNoOverlap(eq(table), any(), any(), any());
     }
 
     @Test
@@ -244,14 +239,11 @@ class ReservationServiceTest {
     }
 
     @Test
-    void updateStatus_noConfirmaSiLaUnicaMesaTieneOtraReservaActivaEnElHueco() {
+    void updateStatus_rechazaConfirmarSiNoHayMesaDisponibleParaAutoAsignar() {
         Reservation reserva = reservaPendienteSinMesa(5L);
         when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reserva));
-        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
-                .thenReturn(List.of(table));
-        // La única mesa ya tiene una reserva activa (p.ej. PENDING) en ese hueco
-        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, 5L))
-                .thenReturn(List.of(new Reservation()));
+        when(availabilityService.assignFirstAvailableTable(restaurant, DATE, TIME, 2, 5L))
+                .thenReturn(Optional.empty());
 
         assertThrows(com.restaurante.common.exception.BadRequestException.class,
                 () -> service.updateStatus(5L, "CONFIRMED"));
@@ -262,16 +254,15 @@ class ReservationServiceTest {
     void updateStatus_confirmaYAsignaMesaCuandoElHuecoEstaLibre() {
         Reservation reserva = reservaPendienteSinMesa(5L);
         when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reserva));
-        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
-                .thenReturn(List.of(table));
-        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, 5L))
-                .thenReturn(List.of());
+        when(availabilityService.assignFirstAvailableTable(restaurant, DATE, TIME, 2, 5L))
+                .thenReturn(Optional.of(table));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
         when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
 
         assertDoesNotThrow(() -> service.updateStatus(5L, "CONFIRMED"));
         assertEquals(ReservationStatus.CONFIRMED, reserva.getStatus());
         assertEquals(table, reserva.getDiningTable());
+        verify(availabilityService).assertNoOverlap(table, DATE, TIME, 5L);
     }
 
     @Test
@@ -325,7 +316,7 @@ class ReservationServiceTest {
         });
         when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, null)).thenReturn(List.of());
+        when(availabilityService.isTableAvailable(table, DATE, TIME, 2, null)).thenReturn(true);
 
         service.create(request());
 
@@ -339,9 +330,8 @@ class ReservationServiceTest {
     void updateStatus_publicaReservationConfirmedEventAlConfirmar() {
         Reservation reserva = reservaPendienteSinMesa(5L);
         when(reservationRepository.findByIdAndDeletedFalse(5L)).thenReturn(Optional.of(reserva));
-        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
-                .thenReturn(List.of(table));
-        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, 5L)).thenReturn(List.of());
+        when(availabilityService.assignFirstAvailableTable(restaurant, DATE, TIME, 2, 5L))
+                .thenReturn(Optional.of(table));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
         when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
 
@@ -531,7 +521,6 @@ class ReservationServiceTest {
         });
         when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(reservationRepository.findActiveConflicts(TABLE_ID, DATE, TIME, null)).thenReturn(List.of());
 
         ReservationRequest req = request();
         req.setPartySize(6);
@@ -543,18 +532,24 @@ class ReservationServiceTest {
 
     @Test
     void create_rechazaHoraYaPasadaHoy() {
+        // Se calcula como LocalDateTime y luego se separa en fecha/hora: restar
+        // horas directamente sobre LocalTime.now() "envuelve" cerca de
+        // medianoche (p.ej. a las 00:08, minusHours(1) da 23:08, que en
+        // realidad es una hora futura del mismo LocalDate.now()).
+        java.time.LocalDateTime haceUnaHora = java.time.LocalDateTime.now().minusHours(1);
+
         when(reservationMapper.toEntity(any(ReservationRequest.class))).thenAnswer(inv -> {
             Reservation r = new Reservation();
-            r.setReservationDate(LocalDate.now());
-            r.setReservationTime(LocalTime.now().minusHours(1));
+            r.setReservationDate(haceUnaHora.toLocalDate());
+            r.setReservationTime(haceUnaHora.toLocalTime());
             r.setPartySize(2);
             r.setStatus(ReservationStatus.PENDING);
             return r;
         });
 
         ReservationRequest req = request();
-        req.setReservationDate(LocalDate.now());
-        req.setReservationTime(LocalTime.now().minusHours(1));
+        req.setReservationDate(haceUnaHora.toLocalDate());
+        req.setReservationTime(haceUnaHora.toLocalTime());
 
         assertThrows(com.restaurante.common.exception.BadRequestException.class,
                 () -> service.create(req));

@@ -1,7 +1,7 @@
 package com.restaurante.reservation.service;
 
+import com.restaurante.availability.service.AvailabilityService;
 import com.restaurante.common.exception.BadRequestException;
-import com.restaurante.common.exception.ConflictException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.customer.entity.Customer;
@@ -27,9 +27,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +50,7 @@ public class ReservationService {
     private final ReservationMapper reservationMapper;
     private final CurrentUserService currentUserService;
     private final ApplicationEventPublisher eventPublisher;
+    private final AvailabilityService availabilityService;
 
     /**
      * Matriz explícita de transiciones de estado permitidas. CANCELLED,
@@ -202,7 +205,7 @@ public class ReservationService {
     //  CREACIÓN
     // ════════════════════════════════════════════════════════════════
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ReservationResponse create(ReservationRequest request) {
         // Usar el restaurantId del usuario autenticado si no se especifica
         Long requestRestaurantId = request.getRestaurantId();
@@ -228,8 +231,12 @@ public class ReservationService {
         reservation.setCustomer(customer);
         reservation.setRestaurant(restaurant);
 
-        if (reservation.getReservationDate().isEqual(LocalDate.now())
-                && reservation.getReservationTime().isBefore(LocalTime.now())) {
+        // Comparar como LocalDateTime (no fecha y hora por separado): comparar
+        // solo reservationTime contra LocalTime.now() se rompe cerca de
+        // medianoche (p.ej. minusHours(1) a las 00:08 "envuelve" a las 23:08,
+        // que parece futura aunque la intención sea "hace una hora").
+        if (LocalDateTime.of(reservation.getReservationDate(), reservation.getReservationTime())
+                .isBefore(LocalDateTime.now())) {
             throw new BadRequestException("La hora de la reserva ya ha pasado para el día de hoy.");
         }
 
@@ -255,11 +262,11 @@ public class ReservationService {
 
             // RES-03: el conflicto de hueco (409) tiene prioridad sobre el chequeo
             // de disponibilidad (400) para que un solape devuelva siempre Conflict.
-            assertNoOverlap(table, reservation.getReservationDate(), reservation.getReservationTime(), null);
+            availabilityService.assertNoOverlap(table, reservation.getReservationDate(), reservation.getReservationTime(), null);
 
             // Si la reserva se crea como CONFIRMED, verificar disponibilidad y marcar mesa como RESERVED
             if (finalStatus == ReservationStatus.CONFIRMED) {
-                if (!isTableAvailableForReservation(table, reservation.getReservationDate(),
+                if (!availabilityService.isTableAvailable(table, reservation.getReservationDate(),
                         reservation.getReservationTime(), reservation.getPartySize(), null)) {
                     throw new BadRequestException(
                             "La mesa " + table.getTableNumber() + " no está disponible para la fecha y hora solicitadas");
@@ -271,7 +278,8 @@ public class ReservationService {
             // Si la reserva es PENDING, NO cambiamos el estado de la mesa bajo ninguna circunstancia
         } else if (finalStatus == ReservationStatus.CONFIRMED) {
             // No se proporcionó mesa pero la reserva es CONFIRMED → auto-asignar
-            table = assignAvailableTable(reservation);
+            table = availabilityService.assignFirstAvailableTable(restaurant, reservation.getReservationDate(),
+                    reservation.getReservationTime(), reservation.getPartySize(), null).orElse(null);
             if (table == null) {
                 throw new BadRequestException(
                         "No hay mesas disponibles para la fecha, hora y número de comensales solicitados. " +
@@ -284,7 +292,7 @@ public class ReservationService {
 
         if (table != null) {
             // RES-03: impedir dos reservas activas (PENDING/CONFIRMED) en la misma mesa/fecha/hora.
-            assertNoOverlap(table, reservation.getReservationDate(), reservation.getReservationTime(), null);
+            availabilityService.assertNoOverlap(table, reservation.getReservationDate(), reservation.getReservationTime(), null);
             reservation.setDiningTable(table);
         }
 
@@ -303,7 +311,7 @@ public class ReservationService {
     //  ACTUALIZACIÓN
     // ════════════════════════════════════════════════════════════════
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ReservationResponse update(Long id, ReservationRequest request) {
         Reservation reservation = reservationRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reserva", "id", id));
@@ -340,7 +348,7 @@ public class ReservationService {
             // Si la reserva está CONFIRMED, actualizar estado de mesas
             if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
                 // Verificar disponibilidad de la nueva mesa
-                if (!isTableAvailableForReservation(table, reservation.getReservationDate(),
+                if (!availabilityService.isTableAvailable(table, reservation.getReservationDate(),
                         reservation.getReservationTime(), reservation.getPartySize(), reservation.getId())) {
                     throw new BadRequestException(
                             "La mesa " + table.getTableNumber() + " no está disponible para la fecha y hora solicitadas");
@@ -368,7 +376,7 @@ public class ReservationService {
         // RES-03: validar solape con el estado final (fecha/hora/mesa ya actualizadas),
         // excluyendo la propia reserva.
         if (reservation.getDiningTable() != null) {
-            assertNoOverlap(reservation.getDiningTable(), reservation.getReservationDate(),
+            availabilityService.assertNoOverlap(reservation.getDiningTable(), reservation.getReservationDate(),
                     reservation.getReservationTime(), reservation.getId());
         }
 
@@ -376,24 +384,11 @@ public class ReservationService {
         return reservationMapper.toResponse(saved);
     }
 
-    /**
-     * RES-03: lanza {@link ConflictException} (HTTP 409) si la mesa ya tiene otra
-     * reserva activa (PENDING o CONFIRMED) en esa fecha y hora exactas.
-     */
-    private void assertNoOverlap(DiningTable table, LocalDate date, LocalTime time, Long excludeId) {
-        List<Reservation> conflicts = reservationRepository
-                .findActiveConflicts(table.getId(), date, time, excludeId);
-        if (!conflicts.isEmpty()) {
-            throw new ConflictException("La mesa " + table.getTableNumber()
-                    + " ya tiene una reserva activa para el " + date + " a las " + time + ".");
-        }
-    }
-
     // ════════════════════════════════════════════════════════════════
     //  CAMBIO DE ESTADO (CORAZÓN DE LA LÓGICA DE NEGOCIO)
     // ════════════════════════════════════════════════════════════════
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ReservationResponse updateStatus(Long id, String status) {
         Reservation reservation = reservationRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reserva", "id", id));
@@ -425,7 +420,9 @@ public class ReservationService {
 
             // Si no tiene mesa asignada, intentar auto-asignar una disponible
             if (table == null) {
-                table = assignAvailableTable(reservation);
+                table = availabilityService.assignFirstAvailableTable(reservation.getRestaurant(),
+                        reservation.getReservationDate(), reservation.getReservationTime(),
+                        reservation.getPartySize(), reservation.getId()).orElse(null);
                 if (table == null) {
                     throw new BadRequestException(
                             "No hay mesas disponibles para la fecha, hora y número de comensales solicitados. " +
@@ -435,10 +432,12 @@ public class ReservationService {
                 log.info("Mesa {} auto-asignada a la reserva #{}", table.getId(), id);
             } else {
                 // Tiene mesa asignada → verificar que sigue disponible
-                if (!isTableAvailableForReservation(table, reservation.getReservationDate(),
+                if (!availabilityService.isTableAvailable(table, reservation.getReservationDate(),
                         reservation.getReservationTime(), reservation.getPartySize(), reservation.getId())) {
                     // Intentar re-asignar otra mesa
-                    DiningTable alternativeTable = assignAvailableTable(reservation);
+                    DiningTable alternativeTable = availabilityService.assignFirstAvailableTable(reservation.getRestaurant(),
+                            reservation.getReservationDate(), reservation.getReservationTime(),
+                            reservation.getPartySize(), reservation.getId()).orElse(null);
                     if (alternativeTable != null) {
                         reservation.setDiningTable(alternativeTable);
                         table = alternativeTable;
@@ -452,7 +451,7 @@ public class ReservationService {
 
             // RES-03: guarda final antes de confirmar — ninguna otra reserva activa
             // (PENDING o CONFIRMED) puede ocupar ya esa mesa en esa fecha/hora.
-            assertNoOverlap(table, reservation.getReservationDate(),
+            availabilityService.assertNoOverlap(table, reservation.getReservationDate(),
                     reservation.getReservationTime(), reservation.getId());
 
             // Marcar la mesa como RESERVED
@@ -556,81 +555,6 @@ public class ReservationService {
         } else {
             log.debug("Mesa {} NO se libera — tiene {} reserva(s) CONFIRMED activa(s)", tableId, activeConfirmed.size());
         }
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    //  HELPER: Verificar disponibilidad de una mesa
-    // ════════════════════════════════════════════════════════════════
-
-    /**
-     * Verifica si una mesa está disponible para una reserva en una fecha/hora específicas.
-     * Una mesa está disponible si:
-     * - Su capacidad >= partySize
-     * - Su estado NO es MAINTENANCE
-     * - NO tiene una reserva ACTIVA (PENDING o CONFIRMED) que choque en la misma fecha y hora
-     *
-     * NOTA: Las reservas CANCELLED, COMPLETED y NO_SHOW NO bloquean disponibilidad (RES-03).
-     * {@code excludeReservationId} ignora la propia reserva al reconfirmar/editar (null = ninguna).
-     */
-    private boolean isTableAvailableForReservation(DiningTable table, LocalDate date, LocalTime time,
-                                                   Integer partySize, Long excludeReservationId) {
-        // 1. Verificar capacidad
-        if (table.getCapacity() < partySize) {
-            log.debug("Mesa {} NO disponible: capacidad {} < comensales {}", table.getId(), table.getCapacity(), partySize);
-            return false;
-        }
-
-        // 2. Verificar que no esté fuera de servicio
-        if (table.getStatus() == TableStatus.MAINTENANCE) {
-            log.debug("Mesa {} NO disponible: está en MANTENIMIENTO", table.getId());
-            return false;
-        }
-
-        // 3. RES-03: verificar que no haya reservas ACTIVAS (PENDING/CONFIRMED)
-        // que choquen en la misma fecha/hora, ignorando la propia reserva.
-        List<Reservation> conflicts = reservationRepository
-                .findActiveConflicts(table.getId(), date, time, excludeReservationId);
-
-        if (!conflicts.isEmpty()) {
-            log.debug("Mesa {} NO disponible: {} reserva(s) activa(s) conflictiva(s) en esa fecha/hora",
-                    table.getId(), conflicts.size());
-            return false;
-        }
-
-        return true;
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    //  HELPER: Auto-asignar mesa disponible
-    // ════════════════════════════════════════════════════════════════
-
-    /**
-     * Busca y asigna automáticamente una mesa disponible para una reserva.
-     * Busca mesas del mismo restaurante que:
-     * - Tengan capacidad suficiente
-     * - No estén en MAINTENANCE
-     * - No tengan una reserva ACTIVA (PENDING/CONFIRMED) conflictiva en la misma fecha/hora
-     *
-     * @return la mesa asignada, o null si no hay ninguna disponible
-     */
-    private DiningTable assignAvailableTable(Reservation reservation) {
-        Long restaurantId = reservation.getRestaurant().getId();
-        LocalDate date = reservation.getReservationDate();
-        LocalTime time = reservation.getReservationTime();
-        Integer partySize = reservation.getPartySize();
-
-        List<DiningTable> allTables = diningTableRepository
-                .findByRestaurantIdAndDeletedFalse(restaurantId);
-
-        for (DiningTable table : allTables) {
-            if (isTableAvailableForReservation(table, date, time, partySize, reservation.getId())) {
-                return table;
-            }
-        }
-
-        log.warn("No se encontró mesa disponible para reserva en restaurante {}: fecha={}, hora={}, comensales={}",
-                restaurantId, date, time, partySize);
-        return null;
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -14,7 +14,7 @@ import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
 import QuickCustomerForm from '../components/QuickCustomerForm';
 import { canAccess, PERMISSIONS } from '../config/permissions';
-import { filterPendingReservations, getLocalTodayString } from '../lib/reservationHelpers';
+import { filterPendingReservations, getLocalTodayString, isFutureReservation } from '../lib/reservationHelpers';
 
 // ─── Estados posibles ─────────────────────────────────────────────────────
 const RESERVATION_STATUSES = [
@@ -253,9 +253,9 @@ const Reservations = () => {
   // ─── Stats ─────────────────────────────────────────────────────────────
   const stats = {
     total: safeReservations.length,
-    confirmed: safeReservations.filter((r) => r.status === 'CONFIRMED').length,
+    confirmed: safeReservations.filter((r) => r.status === 'CONFIRMED' && isFutureReservation(r)).length,
     pending: pendingReservations.length,
-    cancelled: safeReservations.filter((r) => r.status === 'CANCELLED').length,
+    cancelled: safeReservations.filter((r) => r.status === 'CANCELLED' && isFutureReservation(r)).length,
   };
 
   // ─── Today string (stable reference) ────────────────────────────────────

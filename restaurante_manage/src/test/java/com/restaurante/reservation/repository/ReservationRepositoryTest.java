@@ -22,8 +22,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * RES-03: verifica contra una base de datos real (H2) la semántica de
- * {@link ReservationRepository#findActiveConflicts}: solo las reservas ACTIVAS
- * (PENDING/CONFIRMED) y no borradas bloquean el hueco mesa+fecha+hora.
+ * {@link ReservationRepository#findActiveByTableAndDateBetween}: solo las
+ * reservas ACTIVAS (PENDING/CONFIRMED) y no borradas bloquean una mesa, y
+ * el solape real por duración se calcula en {@code AvailabilityService}
+ * sobre este resultado (ver AvailabilityServiceTest).
  */
 @DataJpaTest(properties = {
         "spring.flyway.enabled=false",
@@ -92,76 +94,6 @@ class ReservationRepositoryTest {
     }
 
     @Test
-    void detectaConflictoConReservaPendienteEnElMismoHueco() {
-        crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
-
-        List<Reservation> conflictos = repository.findActiveConflicts(mesa1.getId(), DATE, TIME, null);
-
-        assertEquals(1, conflictos.size());
-    }
-
-    @Test
-    void detectaConflictoConReservaConfirmadaEnElMismoHueco() {
-        crearReserva(mesa1, DATE, TIME, ReservationStatus.CONFIRMED);
-
-        List<Reservation> conflictos = repository.findActiveConflicts(mesa1.getId(), DATE, TIME, null);
-
-        assertEquals(1, conflictos.size());
-    }
-
-    @Test
-    void lasReservasCanceladasCompletadasONoShowNoBloqueanElHueco() {
-        crearReserva(mesa1, DATE, TIME, ReservationStatus.CANCELLED);
-        crearReserva(mesa1, DATE, TIME, ReservationStatus.COMPLETED);
-        crearReserva(mesa1, DATE, TIME, ReservationStatus.NO_SHOW);
-
-        List<Reservation> conflictos = repository.findActiveConflicts(mesa1.getId(), DATE, TIME, null);
-
-        assertTrue(conflictos.isEmpty());
-    }
-
-    @Test
-    void otraMesaALaMismaHoraNoEsConflicto() {
-        crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
-
-        List<Reservation> conflictos = repository.findActiveConflicts(mesa2.getId(), DATE, TIME, null);
-
-        assertTrue(conflictos.isEmpty());
-    }
-
-    @Test
-    void laMismaMesaAOtraHoraNoEsConflicto() {
-        crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
-
-        List<Reservation> conflictos = repository
-                .findActiveConflicts(mesa1.getId(), DATE, TIME.plusHours(2), null);
-
-        assertTrue(conflictos.isEmpty());
-    }
-
-    @Test
-    void excludeIdIgnoraLaPropiaReservaAlEditar() {
-        Reservation propia = crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
-
-        List<Reservation> conflictos = repository
-                .findActiveConflicts(mesa1.getId(), DATE, TIME, propia.getId());
-
-        assertTrue(conflictos.isEmpty());
-    }
-
-    @Test
-    void lasReservasBorradasLogicamenteNoBloqueanElHueco() {
-        Reservation borrada = crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
-        borrada.setDeleted(true);
-        borrada.setDeletedAt(LocalDateTime.now());
-        em.persistAndFlush(borrada);
-
-        List<Reservation> conflictos = repository.findActiveConflicts(mesa1.getId(), DATE, TIME, null);
-
-        assertTrue(conflictos.isEmpty());
-    }
-
-    @Test
     void filtraReservasPorRestauranteYFechaExacta() {
         crearReserva(mesa1, DATE, TIME, ReservationStatus.CONFIRMED);
         crearReserva(mesa2, DATE, TIME.plusHours(1), ReservationStatus.PENDING);
@@ -212,5 +144,92 @@ class ReservationRepositoryTest {
                 .findByRestaurantIdAndReservationDateAndDeletedFalse(restaurant.getId(), DATE);
 
         assertTrue(resultado.isEmpty());
+    }
+
+    // ─── findActiveByTableAndDateBetween: solape por intervalo (duración configurable) ───
+
+    @Test
+    void findActiveByTableAndDateBetween_incluyeReservaPendienteDentroDelRango() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertEquals(1, resultado.size());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_incluyeReservaConfirmadaDentroDelRango() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.CONFIRMED);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertEquals(1, resultado.size());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeCanceladasCompletadasYNoShow() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.CANCELLED);
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.COMPLETED);
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.NO_SHOW);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeOtraMesa() {
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa2.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeFechasFueraDelRango() {
+        crearReserva(mesa1, DATE.plusDays(5), TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excludeIdIgnoraLaPropiaReserva() {
+        Reservation propia = crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), propia.getId());
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_excluyeBorradasLogicamente() {
+        Reservation borrada = crearReserva(mesa1, DATE, TIME, ReservationStatus.PENDING);
+        borrada.setDeleted(true);
+        borrada.setDeletedAt(LocalDateTime.now());
+        em.persistAndFlush(borrada);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    void findActiveByTableAndDateBetween_incluyeReservaEnElLimiteInferiorDelRango() {
+        crearReserva(mesa1, DATE.minusDays(1), TIME, ReservationStatus.PENDING);
+
+        List<Reservation> resultado = repository
+                .findActiveByTableAndDateBetween(mesa1.getId(), DATE.minusDays(1), DATE.plusDays(1), null);
+
+        assertEquals(1, resultado.size());
     }
 }

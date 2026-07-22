@@ -17,33 +17,33 @@ INSERT INTO roles (name, deleted) SELECT 'ROLE_CLIENT',      FALSE WHERE NOT EXI
 -- ============================================
 -- 2. RESTAURANTES
 -- ============================================
-INSERT INTO restaurants (name, address, phone, email, description, opening_time, closing_time, capacity, public_booking_enabled, created_at, updated_at, deleted)
+INSERT INTO restaurants (name, address, phone, email, description, opening_time, closing_time, capacity, public_booking_enabled, default_reservation_duration_minutes, created_at, updated_at, deleted)
 SELECT 'La Casa del Chef',
        'Av. Reforma 123, Col. Juárez, Ciudad de México',
        '555-100-2000',
        'contacto@lacasadelchef.com',
        'Cocina fusión mexicana e italiana con ingredientes locales. Terraza al aire libre, barra de cocktails y ambiente familiar.',
-       '08:00', '23:00', 120, TRUE,
+       '08:00', '23:00', 120, TRUE, 90,
        NOW(), NOW(), FALSE
 WHERE NOT EXISTS (SELECT 1 FROM restaurants WHERE name = 'La Casa del Chef');
 
-INSERT INTO restaurants (name, address, phone, email, description, opening_time, closing_time, capacity, public_booking_enabled, created_at, updated_at, deleted)
+INSERT INTO restaurants (name, address, phone, email, description, opening_time, closing_time, capacity, public_booking_enabled, default_reservation_duration_minutes, created_at, updated_at, deleted)
 SELECT 'Sushi Master',
        'Insurgentes Sur 456, Col. Del Valle, Ciudad de México',
        '555-300-4000',
        'info@sushi-master.com',
        'Auténtica cocina japonesa con pescado fresco importado. Ambiente tradicional con barra de sushi y salones privados.',
-       '12:00', '22:00', 80, TRUE,
+       '12:00', '22:00', 80, TRUE, 90,
        NOW(), NOW(), FALSE
 WHERE NOT EXISTS (SELECT 1 FROM restaurants WHERE name = 'Sushi Master');
 
-INSERT INTO restaurants (name, address, phone, email, description, opening_time, closing_time, capacity, public_booking_enabled, created_at, updated_at, deleted)
+INSERT INTO restaurants (name, address, phone, email, description, opening_time, closing_time, capacity, public_booking_enabled, default_reservation_duration_minutes, created_at, updated_at, deleted)
 SELECT 'El Rincón de la Abuela',
        'Calle de la Paz 789, Col. Roma, Ciudad de México',
        '555-500-6000',
        'reservaciones@rinconabuela.com',
        'Comida casera tradicional mexicana. Especialidad en moles, pozole y barbacoa. Ambiente rústico y acogedor.',
-       '09:00', '22:00', 60, TRUE,
+       '09:00', '22:00', 60, TRUE, 90,
        NOW(), NOW(), FALSE
 WHERE NOT EXISTS (SELECT 1 FROM restaurants WHERE name = 'El Rincón de la Abuela');
 
