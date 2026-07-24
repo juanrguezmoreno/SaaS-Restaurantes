@@ -77,6 +77,9 @@ app:
     admin-username: ${BOOTSTRAP_ADMIN_USERNAME:}
     admin-email: ${BOOTSTRAP_ADMIN_EMAIL:}
     admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    # true: restablece la contraseña de la cuenta de bootstrap existente desde
+    # BOOTSTRAP_ADMIN_PASSWORD (recuperación). Retirar tras usar.
+    admin-reset-password: ${BOOTSTRAP_ADMIN_RESET_PASSWORD:false}
   maintenance:
     # Frecuencia (ms) del job que corrige mesas RESERVED sin reserva activa.
     # 900000 ms = 15 minutos.

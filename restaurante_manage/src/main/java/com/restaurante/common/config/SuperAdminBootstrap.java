@@ -54,6 +54,11 @@ public class SuperAdminBootstrap implements CommandLineRunner {
     @Value("${app.bootstrap.admin-password:}")
     private String adminPassword;
 
+    // BOOTSTRAP_ADMIN_RESET_PASSWORD=true restablece la contraseña de la cuenta
+    // de bootstrap existente (recuperación si el valor original se guardó mal).
+    @Value("${app.bootstrap.admin-reset-password:false}")
+    private boolean resetPassword;
+
     @Override
     @Transactional
     public void run(String... args) {
@@ -71,8 +76,12 @@ public class SuperAdminBootstrap implements CommandLineRunner {
         }
 
         if (userRepository.existsByRoles_NameAndDeletedFalse(RoleName.ROLE_SUPER_ADMIN)) {
-            log.info("[Bootstrap] Ya existe un SUPER_ADMIN activo — no se crea otro. "
-                    + "Puedes retirar las variables BOOTSTRAP_ADMIN_* del entorno.");
+            if (resetPassword) {
+                resetBootstrapAccountPassword();
+            } else {
+                log.info("[Bootstrap] Ya existe un SUPER_ADMIN activo — no se crea otro. "
+                        + "Puedes retirar las variables BOOTSTRAP_ADMIN_* del entorno.");
+            }
             return;
         }
 
@@ -106,5 +115,28 @@ public class SuperAdminBootstrap implements CommandLineRunner {
 
         log.warn("[Bootstrap] SUPER_ADMIN inicial '{}' creado. Cambia la contraseña tras el primer login "
                 + "y retira las variables BOOTSTRAP_ADMIN_* del entorno.", adminUsername);
+    }
+
+    /**
+     * Restablece la contraseña de la cuenta de bootstrap (misma username y rol
+     * SUPER_ADMIN) con el valor actual de BOOTSTRAP_ADMIN_PASSWORD. Solo actúa
+     * sobre esa cuenta concreta y solo con el flag explícito activado.
+     */
+    private void resetBootstrapAccountPassword() {
+        userRepository.findByUsernameAndDeletedFalse(adminUsername).ifPresentOrElse(user -> {
+            boolean esSuperAdmin = user.getRoles().stream()
+                    .anyMatch(role -> role.getName() == RoleName.ROLE_SUPER_ADMIN);
+            if (!esSuperAdmin) {
+                log.warn("[Bootstrap] La cuenta '{}' existe pero NO es SUPER_ADMIN — no se restablece su contraseña.",
+                        adminUsername);
+                return;
+            }
+            user.setPassword(passwordEncoder.encode(adminPassword));
+            userRepository.save(user);
+            log.warn("[Bootstrap] Contraseña del SUPER_ADMIN '{}' restablecida desde BOOTSTRAP_ADMIN_PASSWORD. "
+                    + "Retira BOOTSTRAP_ADMIN_RESET_PASSWORD del entorno para que no se repita en cada arranque.",
+                    adminUsername);
+        }, () -> log.warn("[Bootstrap] RESET_PASSWORD activo pero no existe la cuenta '{}' — nada que restablecer.",
+                adminUsername));
     }
 }

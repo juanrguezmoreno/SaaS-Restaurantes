@@ -50,9 +50,14 @@ class SuperAdminBootstrapTest {
     }
 
     private void setProps(String username, String email, String password) {
+        setProps(username, email, password, false);
+    }
+
+    private void setProps(String username, String email, String password, boolean resetPassword) {
         ReflectionTestUtils.setField(bootstrap, "adminUsername", username);
         ReflectionTestUtils.setField(bootstrap, "adminEmail", email);
         ReflectionTestUtils.setField(bootstrap, "adminPassword", password);
+        ReflectionTestUtils.setField(bootstrap, "resetPassword", resetPassword);
     }
 
     @Test
@@ -92,6 +97,44 @@ class SuperAdminBootstrapTest {
     @DisplayName("Con contraseña demasiado corta no crea el usuario")
     void passwordCorta_noCrea() {
         setProps("superadmin", "owner@example.com", "corta");
+
+        bootstrap.run();
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Con RESET_PASSWORD=true restablece la contraseña del SUPER_ADMIN de bootstrap existente")
+    void conFlagReset_restableceLaPassword() {
+        setProps("superadmin", "owner@example.com", "NuevaClaveSegura123!", true);
+        when(userRepository.existsByRoles_NameAndDeletedFalse(RoleName.ROLE_SUPER_ADMIN)).thenReturn(true);
+
+        User existente = new User();
+        existente.setUsername("superadmin");
+        existente.setPassword("$2a$10$hashViejo");
+        existente.setRoles(java.util.Set.of(superAdminRole));
+        when(userRepository.findByUsernameAndDeletedFalse("superadmin")).thenReturn(Optional.of(existente));
+        when(passwordEncoder.encode("NuevaClaveSegura123!")).thenReturn("$2a$10$hashNuevo");
+
+        bootstrap.run();
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertEquals("$2a$10$hashNuevo", captor.getValue().getPassword());
+    }
+
+    @Test
+    @DisplayName("Con RESET_PASSWORD=true pero la cuenta no es SUPER_ADMIN, no toca nada")
+    void conFlagReset_cuentaNoSuperAdmin_noHaceNada() {
+        setProps("superadmin", "owner@example.com", "NuevaClaveSegura123!", true);
+        when(userRepository.existsByRoles_NameAndDeletedFalse(RoleName.ROLE_SUPER_ADMIN)).thenReturn(true);
+
+        Role adminRole = new Role();
+        adminRole.setName(RoleName.ROLE_ADMIN);
+        User existente = new User();
+        existente.setUsername("superadmin");
+        existente.setRoles(java.util.Set.of(adminRole));
+        when(userRepository.findByUsernameAndDeletedFalse("superadmin")).thenReturn(Optional.of(existente));
 
         bootstrap.run();
 
