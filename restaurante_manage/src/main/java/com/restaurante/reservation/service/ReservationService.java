@@ -1,6 +1,7 @@
 package com.restaurante.reservation.service;
 
 import com.restaurante.availability.service.AvailabilityService;
+import com.restaurante.common.exception.AccessDeniedException;
 import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
@@ -577,7 +578,13 @@ public class ReservationService {
             reservedTables = diningTableRepository
                     .findByRestaurantIdAndStatusAndDeletedFalse(restaurantId, TableStatus.RESERVED);
         } else {
-            // Solo ADMIN puede ejecutar sin restaurantId
+            // P0-4: la ejecución global (sin restaurantId) solo es legítima para el job de
+            // mantenimiento (sin usuario autenticado) o un SUPER_ADMIN. Un usuario tenant-scoped
+            // NO puede convertir la ausencia de restaurantId en una operación sobre otros tenants.
+            if (currentUserService.getCurrentPrincipal() != null && !currentUserService.isSuperAdmin()) {
+                throw new AccessDeniedException(
+                        "Debe especificar restaurantId; solo un SUPER_ADMIN puede ejecutar el mantenimiento global.");
+            }
             reservedTables = diningTableRepository
                     .findByStatusAndDeletedFalse(TableStatus.RESERVED);
         }

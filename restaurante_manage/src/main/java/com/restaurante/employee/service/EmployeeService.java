@@ -1,5 +1,6 @@
 package com.restaurante.employee.service;
 
+import com.restaurante.common.exception.AccessDeniedException;
 import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
@@ -46,6 +47,29 @@ public class EmployeeService {
     private final PasswordEncoder passwordEncoder;
     private final EmployeeMapper employeeMapper;
     private final CurrentUserService currentUserService;
+
+    /** P0-1: roles que un SUPER_ADMIN puede asignar a un empleado con acceso al sistema. */
+    private static final Set<RoleName> SUPER_ADMIN_ASSIGNABLE_ROLES =
+            Set.of(RoleName.ROLE_ADMIN, RoleName.ROLE_MANAGER, RoleName.ROLE_EMPLOYEE);
+    /** P0-1: roles que un ADMIN (o cualquier no-SUPER_ADMIN) puede asignar. Nunca ADMIN ni SUPER_ADMIN. */
+    private static final Set<RoleName> ADMIN_ASSIGNABLE_ROLES =
+            Set.of(RoleName.ROLE_MANAGER, RoleName.ROLE_EMPLOYEE);
+
+    /**
+     * P0-1: whitelist explícita de roles asignables según el rol del usuario autenticado.
+     * Impide la escalada de privilegios (p. ej. un ADMIN creando un ROLE_SUPER_ADMIN) al
+     * crear un empleado con acceso al sistema. La autorización se garantiza en backend,
+     * sin confiar en las opciones que muestre el frontend.
+     */
+    private void assertCanAssignSystemRole(RoleName requested) {
+        Set<RoleName> allowed = currentUserService.isSuperAdmin()
+                ? SUPER_ADMIN_ASSIGNABLE_ROLES
+                : ADMIN_ASSIGNABLE_ROLES;
+        if (!allowed.contains(requested)) {
+            throw new AccessDeniedException(
+                    "No puede asignar el rol " + requested.name().replace("ROLE_", ""));
+        }
+    }
 
     /**
      * Lista todos los empleados visibles para el usuario actual,
@@ -164,17 +188,20 @@ public class EmployeeService {
                         .orElse(null);
             }
 
-            // Resolver rol
-            String fullRoleName = "ROLE_" + systemRole.toUpperCase();
-            Role role;
+            // Resolver rol solicitado (valor desconocido → rol mínimo EMPLOYEE)
+            RoleName resolvedRole;
             try {
-                RoleName rn = RoleName.valueOf(fullRoleName);
-                role = roleRepository.findByName(rn)
-                        .orElseThrow(() -> new RuntimeException("Rol " + fullRoleName + " no encontrado"));
+                resolvedRole = RoleName.valueOf("ROLE_" + systemRole.toUpperCase());
             } catch (IllegalArgumentException e) {
-                role = roleRepository.findByName(RoleName.ROLE_EMPLOYEE)
-                        .orElseThrow(() -> new RuntimeException("Rol ROLE_EMPLOYEE no encontrado"));
+                resolvedRole = RoleName.ROLE_EMPLOYEE;
             }
+            final RoleName requestedRole = resolvedRole;
+
+            // P0-1: aplicar whitelist ANTES de resolver el rol → bloquea la escalada de privilegios.
+            assertCanAssignSystemRole(requestedRole);
+
+            Role role = roleRepository.findByName(requestedRole)
+                    .orElseThrow(() -> new RuntimeException("Rol " + requestedRole + " no encontrado"));
 
             // Generar contraseña
             String defaultPassword = "admin123";

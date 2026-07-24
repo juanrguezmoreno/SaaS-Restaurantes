@@ -1,12 +1,15 @@
 package com.restaurante.reservation.service;
 
 import com.restaurante.availability.service.AvailabilityService;
+import com.restaurante.common.exception.AccessDeniedException;
 import com.restaurante.common.exception.ConflictException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
 import com.restaurante.diningtable.entity.DiningTable;
+import com.restaurante.diningtable.enums.TableStatus;
 import com.restaurante.diningtable.repository.DiningTableRepository;
+import com.restaurante.security.userdetails.UserPrincipal;
 import com.restaurante.reservation.dto.ReservationMapper;
 import com.restaurante.reservation.dto.ReservationRequest;
 import com.restaurante.reservation.dto.ReservationResponse;
@@ -554,5 +557,50 @@ class ReservationServiceTest {
         assertThrows(com.restaurante.common.exception.BadRequestException.class,
                 () -> service.create(req));
         verify(reservationRepository, never()).save(any(Reservation.class));
+    }
+
+    // ─── P0-4: mantenimiento fix-table-statuses ─────────────────────────────
+
+    @Test
+    void fixTableStatuses_denegadoParaUsuarioTenantScopedSinRestaurantId() {
+        // Un ADMIN/MANAGER (principal presente, no SUPER_ADMIN) no puede convertir
+        // la ausencia de restaurantId en una operación global sobre otros tenants.
+        when(currentUserService.getCurrentPrincipal()).thenReturn(mock(UserPrincipal.class));
+        when(currentUserService.isSuperAdmin()).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class, () -> service.fixTableStatuses(null));
+        verify(diningTableRepository, never()).findByStatusAndDeletedFalse(any());
+    }
+
+    @Test
+    void fixTableStatuses_globalPermitidoParaSuperAdmin() {
+        when(currentUserService.getCurrentPrincipal()).thenReturn(mock(UserPrincipal.class));
+        when(currentUserService.isSuperAdmin()).thenReturn(true);
+        when(diningTableRepository.findByStatusAndDeletedFalse(TableStatus.RESERVED))
+                .thenReturn(List.of());
+
+        assertDoesNotThrow(() -> service.fixTableStatuses(null));
+        verify(diningTableRepository).findByStatusAndDeletedFalse(TableStatus.RESERVED);
+    }
+
+    @Test
+    void fixTableStatuses_globalPermitidoParaSchedulerSinPrincipal() {
+        // El job automático corre sin usuario autenticado (principal null) → global permitido.
+        when(currentUserService.getCurrentPrincipal()).thenReturn(null);
+        when(diningTableRepository.findByStatusAndDeletedFalse(TableStatus.RESERVED))
+                .thenReturn(List.of());
+
+        assertDoesNotThrow(() -> service.fixTableStatuses(null));
+        verify(diningTableRepository).findByStatusAndDeletedFalse(TableStatus.RESERVED);
+    }
+
+    @Test
+    void fixTableStatuses_conRestaurantIdValidaAcceso() {
+        when(diningTableRepository.findByRestaurantIdAndStatusAndDeletedFalse(RESTAURANT_ID, TableStatus.RESERVED))
+                .thenReturn(List.of());
+
+        assertDoesNotThrow(() -> service.fixTableStatuses(RESTAURANT_ID));
+        verify(currentUserService).validateRestaurantAccess(RESTAURANT_ID);
+        verify(diningTableRepository, never()).findByStatusAndDeletedFalse(any());
     }
 }
