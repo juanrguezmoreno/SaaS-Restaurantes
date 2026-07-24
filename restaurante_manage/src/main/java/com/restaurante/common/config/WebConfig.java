@@ -1,19 +1,18 @@
 package com.restaurante.common.config;
 
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * Configuración MVC transversal.
+ *
+ * <p>IMPORTANTE: aquí NO se configura CORS. La única fuente de verdad de CORS es
+ * {@code SecurityConfig#corsConfigurationSource()}, que lee los orígenes permitidos
+ * de la propiedad {@code app.cors.allowed-origins} (variable de entorno
+ * {@code CORS_ALLOWED_ORIGINS}, valores separados por comas). Duplicar CORS aquí
+ * con {@code addCorsMappings} provocaba una configuración contradictoria con
+ * orígenes hardcodeados.</p>
+ */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
-
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOrigins("http://localhost:5173")
-                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                .allowedHeaders("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With")
-                .allowCredentials(true)
-                .maxAge(3600);
-    }
 }

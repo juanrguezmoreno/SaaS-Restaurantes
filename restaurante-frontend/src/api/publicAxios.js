@@ -6,7 +6,10 @@ import axios from 'axios';
  * Útil para páginas públicas como la reserva online de clientes.
  */
 // Configurable por entorno (Vite): define VITE_API_URL en producción.
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+// Se normaliza para tolerar el valor con o sin /api/v1 y con o sin barra final:
+// el backend siempre expone la API bajo /api/v1 (Constants.API_BASE_PATH).
+const rawBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1').replace(/\/+$/, '');
+const API_BASE_URL = rawBaseUrl.endsWith('/api/v1') ? rawBaseUrl : `${rawBaseUrl}/api/v1`;
 
 const publicApi = axios.create({
   baseURL: API_BASE_URL,
