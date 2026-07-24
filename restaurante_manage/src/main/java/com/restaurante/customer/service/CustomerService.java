@@ -105,6 +105,9 @@ public class CustomerService {
         if (targetRestaurantId == null) {
             throw new IllegalArgumentException("No se pudo determinar el restaurante para el cliente");
         }
+        // P0-2: el usuario debe tener acceso al restaurante destino (evita escritura
+        // cross-tenant al enviar un restaurantId de otro tenant). Coherente con update().
+        currentUserService.validateRestaurantAccess(targetRestaurantId);
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(targetRestaurantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", targetRestaurantId));
         customer.setRestaurant(restaurant);
