@@ -70,6 +70,13 @@ app:
     # Orígenes permitidos, separados por comas. En producción define
     # CORS_ALLOWED_ORIGINS con el dominio real del frontend.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  bootstrap:
+    # Bootstrap del primer SUPER_ADMIN en un entorno nuevo (ver SuperAdminBootstrap).
+    # Define las tres variables SOLO para el primer arranque; una vez creado el
+    # usuario puedes retirarlas. Sin ellas, el bootstrap no hace nada.
+    admin-username: ${BOOTSTRAP_ADMIN_USERNAME:}
+    admin-email: ${BOOTSTRAP_ADMIN_EMAIL:}
+    admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
   maintenance:
     # Frecuencia (ms) del job que corrige mesas RESERVED sin reserva activa.
     # 900000 ms = 15 minutos.

@@ -1,5 +1,6 @@
 package com.restaurante.user.repository;
 
+import com.restaurante.role.enums.RoleName;
 import com.restaurante.user.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,6 +29,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByUsernameAndDeletedFalse(String username);
 
     boolean existsByEmailAndDeletedFalse(String email);
+
+    boolean existsByRoles_NameAndDeletedFalse(RoleName roleName);
 
     @Query("SELECT u FROM User u WHERE u.username = :username AND u.deleted = false")
     @EntityGraph(attributePaths = {"roles", "restaurant", "tenant"})
