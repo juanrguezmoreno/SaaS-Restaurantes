@@ -1,36 +1,39 @@
 package com.restaurante.notification.service;
 
+import com.resend.core.exception.ResendException;
 import com.restaurante.notification.event.PasswordResetEmailData;
 import com.restaurante.notification.event.ReservationEmailData;
-import jakarta.mail.Session;
-import jakarta.mail.internet.MimeMessage;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mail.MailSendException;
-import org.springframework.mail.javamail.JavaMailSender;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Tests del EmailService sobre el transporte Resend (API HTTPS).
+ * Se mockea ResendMailClient: aquí se verifica la lógica de negocio del
+ * servicio (guardas, render de plantillas, asuntos, resiliencia a errores
+ * del proveedor), no el SDK.
+ */
 @ExtendWith(MockitoExtension.class)
 class EmailServiceTest {
 
-    @Mock private JavaMailSender mailSender;
+    @Mock private ResendMailClient mailClient;
 
-    private MimeMessage mimeMessage;
+    private static final String FROM = "no-reply@test.com";
 
-    @BeforeEach
-    void setUp() {
-        mimeMessage = new MimeMessage((Session) null);
+    private EmailService service(boolean enabled) {
+        return new EmailService(mailClient, enabled, FROM);
     }
 
     private ReservationEmailData data(String email) {
@@ -38,15 +41,62 @@ class EmailServiceTest {
                 "31/12/2026", "21:30", 4, "Mesa 7");
     }
 
+    private PasswordResetEmailData passwordResetData(String email) {
+        return new PasswordResetEmailData(email, "Ana García",
+                "http://localhost:5173/reset-password?token=abc123", 30);
+    }
+
+    // ─── MAIL_ENABLED=false ─────────────────────────────────────────────────
+
     @Test
-    void sendReservationConfirmed_renderizaLaPlantillaYEnviaElEmail() throws Exception {
-        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        EmailService service = new EmailService(mailSender, true, "no-reply@test.com");
+    void send_noEnviaSiMailEnabledEsFalse() throws Exception {
+        service(false).sendReservationConfirmed(data("ana@example.com"));
 
-        service.sendReservationConfirmed(data("ana@example.com"));
+        verify(mailClient, never()).send(anyString(), anyString(), anyString(), anyString());
+    }
 
-        verify(mailSender).send(mimeMessage);
-        String content = (String) mimeMessage.getContent();
+    @Test
+    void sendPasswordReset_noEnviaSiMailEnabledEsFalse() throws Exception {
+        service(false).sendPasswordReset(passwordResetData("ana@example.com"));
+
+        verify(mailClient, never()).send(anyString(), anyString(), anyString(), anyString());
+    }
+
+    // ─── Recuperación de contraseña ─────────────────────────────────────────
+
+    @Test
+    void sendPasswordReset_construyeElCorreoCorrectamente() throws Exception {
+        when(mailClient.send(anyString(), anyString(), anyString(), anyString())).thenReturn("email-id-1");
+
+        service(true).sendPasswordReset(passwordResetData("ana@example.com"));
+
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+        verify(mailClient).send(org.mockito.ArgumentMatchers.eq(FROM),
+                org.mockito.ArgumentMatchers.eq("ana@example.com"),
+                org.mockito.ArgumentMatchers.eq("Restablecer tu contraseña"),
+                html.capture());
+        String content = html.getValue();
+        assertTrue(content.contains("Ana García"));
+        assertTrue(content.contains("http://localhost:5173/reset-password?token=abc123"));
+        assertTrue(content.contains("30"));
+        assertFalse(content.contains("{{"));
+    }
+
+    // ─── Emails de reserva ──────────────────────────────────────────────────
+
+    @Test
+    void sendReservationConfirmed_construyeElCorreoCorrectamente() throws Exception {
+        when(mailClient.send(anyString(), anyString(), anyString(), anyString())).thenReturn("email-id-2");
+
+        service(true).sendReservationConfirmed(data("ana@example.com"));
+
+        ArgumentCaptor<String> subject = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+        verify(mailClient).send(org.mockito.ArgumentMatchers.eq(FROM),
+                org.mockito.ArgumentMatchers.eq("ana@example.com"),
+                subject.capture(), html.capture());
+        assertEquals("Reserva confirmada — La Buena Mesa", subject.getValue());
+        String content = html.getValue();
         assertTrue(content.contains("Ana García"));
         assertTrue(content.contains("La Buena Mesa"));
         assertTrue(content.contains("31/12/2026"));
@@ -56,62 +106,38 @@ class EmailServiceTest {
     }
 
     @Test
-    void send_noEnviaSiMailEnabledEsFalse() {
-        EmailService service = new EmailService(mailSender, false, "no-reply@test.com");
+    void sendReservationCancelled_construyeElCorreoCorrectamente() throws Exception {
+        when(mailClient.send(anyString(), anyString(), anyString(), anyString())).thenReturn("email-id-3");
 
-        service.sendReservationConfirmed(data("ana@example.com"));
+        service(true).sendReservationCancelled(data("ana@example.com"));
 
-        verify(mailSender, never()).createMimeMessage();
-        verify(mailSender, never()).send(any(MimeMessage.class));
+        ArgumentCaptor<String> subject = ArgumentCaptor.forClass(String.class);
+        verify(mailClient).send(anyString(), anyString(), subject.capture(), anyString());
+        assertEquals("Reserva cancelada — La Buena Mesa", subject.getValue());
     }
 
     @Test
-    void send_noEnviaSiElClienteNoTieneEmail() {
-        EmailService service = new EmailService(mailSender, true, "no-reply@test.com");
+    void send_noEnviaSiElClienteNoTieneEmail() throws Exception {
+        service(true).sendReservationCancelled(data(null));
 
-        service.sendReservationCancelled(data(null));
+        verify(mailClient, never()).send(anyString(), anyString(), anyString(), anyString());
+    }
 
-        verify(mailSender, never()).createMimeMessage();
+    // ─── Errores del proveedor ──────────────────────────────────────────────
+
+    @Test
+    void send_noPropagaLaExcepcionSiElProveedorFalla() throws Exception {
+        when(mailClient.send(anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new ResendException("api key inválida"));
+
+        assertDoesNotThrow(() -> service(true).sendReservationConfirmed(data("ana@example.com")));
     }
 
     @Test
-    void send_noPropagaLaExcepcionSiFallaElEnvio() {
-        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        doThrow(new MailSendException("fallo SMTP")).when(mailSender).send(any(MimeMessage.class));
-        EmailService service = new EmailService(mailSender, true, "no-reply@test.com");
+    void sendPasswordReset_noPropagaLaExcepcionSiElProveedorFalla() throws Exception {
+        when(mailClient.send(anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new ResendException("cuota excedida"));
 
-        assertDoesNotThrow(() -> service.sendReservationConfirmed(data("ana@example.com")));
-    }
-
-    // ─── sendPasswordReset ──────────────────────────────────────────────────
-
-    private PasswordResetEmailData passwordResetData(String email) {
-        return new PasswordResetEmailData(email, "Ana García",
-                "http://localhost:5173/reset-password?token=abc123", 30);
-    }
-
-    @Test
-    void sendPasswordReset_renderizaLaPlantillaYEnviaElEmail() throws Exception {
-        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        EmailService service = new EmailService(mailSender, true, "no-reply@test.com");
-
-        service.sendPasswordReset(passwordResetData("ana@example.com"));
-
-        verify(mailSender).send(mimeMessage);
-        String content = (String) mimeMessage.getContent();
-        assertTrue(content.contains("Ana García"));
-        assertTrue(content.contains("http://localhost:5173/reset-password?token=abc123"));
-        assertTrue(content.contains("30"));
-        assertFalse(content.contains("{{"));
-    }
-
-    @Test
-    void sendPasswordReset_noEnviaSiMailEnabledEsFalse() {
-        EmailService service = new EmailService(mailSender, false, "no-reply@test.com");
-
-        service.sendPasswordReset(passwordResetData("ana@example.com"));
-
-        verify(mailSender, never()).createMimeMessage();
-        verify(mailSender, never()).send(any(MimeMessage.class));
+        assertDoesNotThrow(() -> service(true).sendPasswordReset(passwordResetData("ana@example.com")));
     }
 }
