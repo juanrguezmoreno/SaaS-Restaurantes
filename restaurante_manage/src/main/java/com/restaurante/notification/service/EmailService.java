@@ -70,6 +70,9 @@ public class EmailService {
             return;
         }
         try {
+            // Se loguea ANTES de enviar para que un envío colgado (p. ej. puerto SMTP
+            // filtrado sin respuesta) sea visible en los logs y no falle en silencio.
+            log.info("Enviando email '{}' a {} vía SMTP...", subject, data.userEmail());
             String html = renderPasswordResetTemplate(data);
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");

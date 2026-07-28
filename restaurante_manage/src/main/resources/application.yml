@@ -56,6 +56,11 @@ spring:
           auth: true
           starttls:
             enable: true
+          # Timeouts (ms): sin ellos, un puerto SMTP filtrado deja el hilo de
+          # envío colgado indefinidamente y sin rastro en los logs.
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
 
 server:
   port: ${PORT:8080}
