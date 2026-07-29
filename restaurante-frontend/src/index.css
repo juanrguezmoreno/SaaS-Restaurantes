@@ -914,6 +914,20 @@ button.exec-kpi:active {
   transform: translateY(0);
 }
 
+/* Tarjeta-segmento seleccionada. Tiene que verse de un vistazo: si no, la
+   tabla muestra menos filas de las esperadas y no se entiende por qué. */
+button.stat-card[aria-pressed='true'] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+/* La de "Total" solo se marca cuando de verdad no hay ningún segmento puesto,
+   y sin llamar la atención: es el estado de reposo, no una selección. */
+button.stat-card[aria-pressed='true']:first-child {
+  box-shadow: none;
+  border-color: var(--border);
+}
+
 .stat-card-icon,
 .exec-kpi-icon {
   width: 42px;
@@ -2422,7 +2436,8 @@ a {
    respondían al teclado. Al pasar a <button> hay que neutralizar lo que aporta
    el navegador. Va en :where() —especificidad cero— para que cada tarjeta
    conserve su propio fondo, borde y color. */
-:where(button.exec-kpi,
+:where(button.stat-card,
+       button.exec-kpi,
        button.exec-upcoming-item,
        button.exec-attention-item,
        button.exec-card-footer-link) {
