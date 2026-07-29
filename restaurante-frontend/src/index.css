@@ -987,6 +987,14 @@ button.exec-kpi:active {
   margin-top: 2px;
 }
 
+/* Refresco en segundo plano: al buscar o filtrar, la tabla se atenúa un poco
+   en lugar de desaparecer. Así el buscador nunca se desmonta y no pierde el
+   foco mientras se escribe. */
+.app-card.is-refreshing .app-table tbody {
+  opacity: 0.55;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
 /* ─── Carga: esqueletos ───────────────────────────────────────────────────
    Un esqueleto con la forma del contenido real reserva el espacio (así no hay
    salto al llegar los datos) y adelanta qué va a aparecer. El spinner centrado
