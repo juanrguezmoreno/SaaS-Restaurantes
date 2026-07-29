@@ -2295,7 +2295,9 @@ a {
 }
 
 .exec-section-header.historical svg {
-  color: var(--violet, #8b5cf6);
+  /* Usaba var(--violet), un token que no existe, así que pintaba el violeta
+     del fallback: fuera de la paleta. */
+  color: var(--text-secondary);
 }
 
 .exec-section-title {
