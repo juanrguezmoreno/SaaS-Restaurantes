@@ -2345,9 +2345,26 @@ a {
   transition: all 0.2s ease;
 }
 
+/* Las tarjetas y filas accionables eran <div onClick>: no recibían foco ni
+   respondían al teclado. Al pasar a <button> hay que neutralizar lo que aporta
+   el navegador. Va en :where() —especificidad cero— para que cada tarjeta
+   conserve su propio fondo, borde y color. */
+:where(button.exec-kpi,
+       button.exec-upcoming-item,
+       button.exec-attention-item,
+       button.exec-card-footer-link) {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  background: none;
+  border: none;
+  appearance: none;
+}
+
 .exec-kpi:hover {
   border-color: var(--primary);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.10);
   transform: translateY(-1px);
 }
 
@@ -2585,6 +2602,9 @@ a {
 }
 
 .exec-upcoming-client {
+  /* Es un <span> dentro de un <button>: necesita ser bloque para que el
+     recorte con puntos suspensivos funcione. */
+  display: block;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-primary);

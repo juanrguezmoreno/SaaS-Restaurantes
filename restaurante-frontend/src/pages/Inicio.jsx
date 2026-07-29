@@ -270,55 +270,55 @@ const Inicio = () => {
       {!loading && !tablesLoading && (
         <>
           <div className="exec-kpi-grid">
-            <div className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver reservas de hoy">
-              <div className="exec-kpi-icon" style={{ color: 'var(--info, #06b6d4)' }}>
+            <button type="button" className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver reservas de hoy">
+              <span className="exec-kpi-icon" style={{ color: 'var(--primary)' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-              </div>
-              <div className="exec-kpi-body">
+              </span>
+              <span className="exec-kpi-body">
                 <span className="exec-kpi-value">{todayConfirmedReservations.length}</span>
                 <span className="exec-kpi-label">Reservas hoy</span>
                 <span className="exec-kpi-trend">Confirmadas</span>
-              </div>
-            </div>
+              </span>
+            </button>
 
-            <div className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver solicitudes pendientes">
-              <div className="exec-kpi-icon" style={{ color: 'var(--warning)' }}>
+            <button type="button" className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver solicitudes pendientes">
+              <span className="exec-kpi-icon" style={{ color: 'var(--warning)' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
-              </div>
-              <div className="exec-kpi-body">
+              </span>
+              <span className="exec-kpi-body">
                 <span className="exec-kpi-value">{pendingReservations.length}</span>
                 <span className="exec-kpi-label">Solicitudes pendientes</span>
                 <span className="exec-kpi-trend">{pendingReservations.length === 1 ? 'Requiere atención' : 'Requieren atención'}</span>
-              </div>
-            </div>
+              </span>
+            </button>
 
-            <div className="exec-kpi" onClick={() => navigate('/floor-plan')} title="Ver plano de sala">
-              <div className="exec-kpi-icon" style={{ color: 'var(--violet, #8b5cf6)' }}>
+            <button type="button" className="exec-kpi" onClick={() => navigate('/floor-plan')} title="Ver plano de sala">
+              <span className="exec-kpi-icon" style={{ color: 'var(--text-secondary)' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
-              </div>
-              <div className="exec-kpi-body">
+              </span>
+              <span className="exec-kpi-body">
                 <span className="exec-kpi-value" style={{ fontSize: '1.75rem' }}>{totalTables > 0 ? `${occupiedPercent}%` : '—'}</span>
                 <span className="exec-kpi-label">Estado de sala</span>
                 <span className="exec-kpi-trend" style={{ color: occupiedPercent > 75 ? 'var(--danger)' : occupiedPercent > 50 ? 'var(--warning)' : 'var(--success)' }}>
                   {availableTablesCount} disponibles &middot; {reservedTablesCount} reservadas &middot; {occupiedCount} ocupadas
                 </span>
-              </div>
-            </div>
+              </span>
+            </button>
 
-            <div className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver próximas reservas">
-              <div className="exec-kpi-icon" style={{ color: 'var(--primary)' }}>
+            <button type="button" className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver próximas reservas">
+              <span className="exec-kpi-icon" style={{ color: 'var(--primary)' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-              </div>
-              <div className="exec-kpi-body">
+              </span>
+              <span className="exec-kpi-body">
                 <span className="exec-kpi-label" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: '0.125rem' }}>Próxima reserva</span>
                 <span className="exec-kpi-value" style={{ fontSize: '1rem', fontWeight: 600 }}>{nextReservation ? formatTime(nextReservation.reservationTime) : '—'}</span>
                 <span className="exec-kpi-trend">{nextReservation ? getCustomerDisplay(nextReservation) : 'Sin reservas confirmadas'}</span>
-              </div>
-            </div>
+              </span>
+            </button>
           </div>
 
           <div className="exec-two-col-wide exec-main-zone">
@@ -349,26 +349,26 @@ const Inicio = () => {
                       .sort((a, b) => (a.reservationTime || '').localeCompare(b.reservationTime || ''))
                       .slice(0, 5)
                       .map((r, idx) => (
-                        <div key={r.id || idx} className="exec-upcoming-item" onClick={() => navigate('/reservations')}>
-                          <div className="exec-upcoming-time"><span className="exec-upcoming-time-value">{formatTime(r.reservationTime)}</span></div>
-                          <div className="exec-upcoming-info">
-                            <div className="exec-upcoming-client">{getCustomerDisplay(r)}</div>
-                            <div className="exec-upcoming-meta">
+                        <button type="button" key={r.id || idx} className="exec-upcoming-item" onClick={() => navigate('/reservations')}>
+                          <span className="exec-upcoming-time"><span className="exec-upcoming-time-value">{formatTime(r.reservationTime)}</span></span>
+                          <span className="exec-upcoming-info">
+                            <span className="exec-upcoming-client">{getCustomerDisplay(r)}</span>
+                            <span className="exec-upcoming-meta">
                               <span>{r.partySize || '?'} {r.partySize === 1 ? 'persona' : 'personas'}</span>
                               <span className="exec-dot" />
                               <span>{getTableDisplay(r, safeTables)}</span>
-                            </div>
-                          </div>
-                          <div className="exec-upcoming-status">{renderStatusBadge(r.status)}</div>
-                        </div>
+                            </span>
+                          </span>
+                          <span className="exec-upcoming-status">{renderStatusBadge(r.status)}</span>
+                        </button>
                       ))}
                   </div>
                 )}
                 {todayConfirmedReservations.length > 5 && (
-                  <div className="exec-card-footer-link" onClick={() => navigate('/reservations')}>
+                  <button type="button" className="exec-card-footer-link" onClick={() => navigate('/reservations')}>
                     Ver todas las {todayConfirmedReservations.length} reservas de hoy
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
-                  </div>
+                  </button>
                 )}
               </div>
             </div>
@@ -392,58 +392,58 @@ const Inicio = () => {
                 ) : (
                   <div className="d-flex flex-column gap-2">
                     {pendingReservations.length > 0 && (
-                      <div className="exec-attention-item" onClick={() => navigate('/reservations')}>
-                        <div className="exec-attention-icon" style={{ background: 'var(--warning-light)', color: 'var(--warning)' }}>
+                      <button type="button" className="exec-attention-item" onClick={() => navigate('/reservations')}>
+                        <span className="exec-attention-icon" style={{ background: 'var(--warning-light)', color: 'var(--warning)' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-                        </div>
-                        <div className="flex-grow-1"><span className="exec-attention-text">{pendingReservations.length} {pendingReservations.length === 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}</span></div>
+                        </span>
+                        <span className="flex-grow-1"><span className="exec-attention-text">{pendingReservations.length} {pendingReservations.length === 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}</span></span>
                         <span className="exec-attention-badge">{pendingReservations.length}</span>
-                      </div>
+                      </button>
                     )}
                     {unassignedTableReservations.length > 0 && (
-                      <div className="exec-attention-item" onClick={() => navigate('/reservations')}>
-                        <div className="exec-attention-icon" style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--warning)' }}>
+                      <button type="button" className="exec-attention-item" onClick={() => navigate('/reservations')}>
+                        <span className="exec-attention-icon" style={{ background: 'var(--warning-light)', color: 'var(--warning)' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><path d="M9 3v18" /></svg>
-                        </div>
-                        <div className="flex-grow-1"><span className="exec-attention-text">{unassignedTableReservations.length} {unassignedTableReservations.length === 1 ? 'reserva sin mesa asignada' : 'reservas sin mesa asignada'}</span></div>
+                        </span>
+                        <span className="flex-grow-1"><span className="exec-attention-text">{unassignedTableReservations.length} {unassignedTableReservations.length === 1 ? 'reserva sin mesa asignada' : 'reservas sin mesa asignada'}</span></span>
                         <span className="exec-attention-badge" style={{ background: 'var(--warning)', color: '#fff' }}>{unassignedTableReservations.length}</span>
-                      </div>
+                      </button>
                     )}
                     {outOfServiceCount > 0 && (
-                      <div className="exec-attention-item" onClick={() => navigate('/floor-plan')}>
-                        <div className="exec-attention-icon" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)' }}>
+                      <button type="button" className="exec-attention-item" onClick={() => navigate('/floor-plan')}>
+                        <span className="exec-attention-icon" style={{ background: 'var(--danger-light)', color: 'var(--danger)' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
-                        </div>
-                        <div className="flex-grow-1"><span className="exec-attention-text">{outOfServiceCount} {outOfServiceCount === 1 ? 'mesa en mantenimiento' : 'mesas en mantenimiento'}</span></div>
+                        </span>
+                        <span className="flex-grow-1"><span className="exec-attention-text">{outOfServiceCount} {outOfServiceCount === 1 ? 'mesa en mantenimiento' : 'mesas en mantenimiento'}</span></span>
                         <span className="exec-attention-badge" style={{ background: 'var(--danger)', color: '#fff' }}>{outOfServiceCount}</span>
-                      </div>
+                      </button>
                     )}
                     {highOccupancy && (
-                      <div className="exec-attention-item" onClick={() => navigate('/floor-plan')}>
-                        <div className="exec-attention-icon" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)' }}>
+                      <button type="button" className="exec-attention-item" onClick={() => navigate('/floor-plan')}>
+                        <span className="exec-attention-icon" style={{ background: 'var(--danger-light)', color: 'var(--danger)' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
-                        </div>
-                        <div className="flex-grow-1"><span className="exec-attention-text">Ocupación crítica ({occupiedPercent}%)</span></div>
+                        </span>
+                        <span className="flex-grow-1"><span className="exec-attention-text">Ocupación crítica ({occupiedPercent}%)</span></span>
                         <span className="exec-attention-time">Ahora</span>
-                      </div>
+                      </button>
                     )}
                     {noTablesAvailable && (
-                      <div className="exec-attention-item" onClick={() => navigate('/floor-plan')}>
-                        <div className="exec-attention-icon" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)' }}>
+                      <button type="button" className="exec-attention-item" onClick={() => navigate('/floor-plan')}>
+                        <span className="exec-attention-icon" style={{ background: 'var(--danger-light)', color: 'var(--danger)' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
-                        </div>
-                        <div className="flex-grow-1"><span className="exec-attention-text">Sin mesas disponibles</span></div>
+                        </span>
+                        <span className="flex-grow-1"><span className="exec-attention-text">Sin mesas disponibles</span></span>
                         <span className="exec-attention-time">Ahora</span>
-                      </div>
+                      </button>
                     )}
                     {urgentReservations.map((r, idx) => (
-                      <div key={r.id || `urg-${idx}`} className="exec-attention-item" onClick={() => navigate('/reservations')}>
-                        <div className="exec-attention-icon" style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--primary)' }}>
+                      <button type="button" key={r.id || `urg-${idx}`} className="exec-attention-item" onClick={() => navigate('/reservations')}>
+                        <span className="exec-attention-icon" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                        </div>
-                        <div className="flex-grow-1"><span className="exec-attention-text">Reserva a las {formatTime(r.reservationTime)} &mdash; {getCustomerDisplay(r)}</span></div>
+                        </span>
+                        <span className="flex-grow-1"><span className="exec-attention-text">Reserva a las {formatTime(r.reservationTime)} &mdash; {getCustomerDisplay(r)}</span></span>
                         <span className="exec-attention-time">Pronto</span>
-                      </div>
+                      </button>
                     ))}
                     <div className="exec-attention-actions">
                       {(pendingReservations.length > 0 || unassignedTableReservations.length > 0) && (
