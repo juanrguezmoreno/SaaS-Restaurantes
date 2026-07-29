@@ -5,6 +5,7 @@ import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.customer.dto.CustomerMapper;
 import com.restaurante.customer.dto.CustomerRequest;
+import com.restaurante.customer.dto.CustomerReservationStats;
 import com.restaurante.customer.dto.CustomerResponse;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -65,13 +67,44 @@ public class CustomerService {
 
         String normalizedSearch = normalizeSearch(search);
 
-        return customerRepository
+        Page<CustomerResponse> page = customerRepository
                 .search(unrestricted,
                         unrestricted ? Set.of(-1L) : scope,
                         restaurantId,
                         normalizedSearch,
                         pageable)
                 .map(customerMapper::toResponse);
+
+        return enrichWithReservationStats(page);
+    }
+
+    /**
+     * Rellena el total de reservas y la fecha de la última para toda la página
+     * con UNA sola consulta agregada, en vez de una por cliente.
+     */
+    private Page<CustomerResponse> enrichWithReservationStats(Page<CustomerResponse> page) {
+        Set<Long> customerIds = page.getContent().stream()
+                .map(CustomerResponse::getId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (customerIds.isEmpty()) {
+            return page;
+        }
+
+        Map<Long, CustomerReservationStats> statsById = reservationRepository
+                .findStatsByCustomerIds(customerIds).stream()
+                .collect(Collectors.toMap(CustomerReservationStats::getCustomerId, s -> s));
+
+        page.getContent().forEach(customer -> {
+            CustomerReservationStats stats = statsById.get(customer.getId());
+            if (stats != null) {
+                customer.setTotalReservations(stats.getTotalReservations());
+                customer.setLastReservationDate(stats.getLastReservationDate());
+            }
+        });
+
+        return page;
     }
 
     /**

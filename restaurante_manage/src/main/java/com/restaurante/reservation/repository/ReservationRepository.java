@@ -13,11 +13,31 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import com.restaurante.customer.dto.CustomerReservationStats;
 import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.enums.ReservationStatus;
 
 @Repository
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
+
+    /**
+     * Reservas por cliente (total y fecha de la última) para un conjunto de
+     * clientes, en una sola consulta.
+     *
+     * <p>Se excluyen las canceladas y las borradas: lo que interesa aquí es si
+     * el cliente vino de verdad y cuándo fue la última vez.</p>
+     */
+    @Query("""
+            SELECT r.customer.id AS customerId,
+                   COUNT(r) AS totalReservations,
+                   MAX(r.reservationDate) AS lastReservationDate
+            FROM Reservation r
+            WHERE r.deleted = false
+              AND r.customer.id IN :customerIds
+              AND r.status <> com.restaurante.reservation.enums.ReservationStatus.CANCELLED
+            GROUP BY r.customer.id
+            """)
+    List<CustomerReservationStats> findStatsByCustomerIds(@Param("customerIds") Set<Long> customerIds);
 
     Optional<Reservation> findByIdAndDeletedFalse(Long id);
 

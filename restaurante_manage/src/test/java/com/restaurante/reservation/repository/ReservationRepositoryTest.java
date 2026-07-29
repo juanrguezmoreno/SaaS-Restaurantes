@@ -93,6 +93,44 @@ class ReservationRepositoryTest {
         return r;
     }
 
+    // ─── Agregado de reservas por cliente ────────────────────────────────────
+
+    @Test
+    void statsPorCliente_cuentaVisitasYdevuelveLaFechaMasReciente() {
+        crearReserva(mesa1, DATE.minusDays(30), TIME, ReservationStatus.COMPLETED);
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.CONFIRMED);
+
+        var stats = repository.findStatsByCustomerIds(java.util.Set.of(customer.getId()));
+
+        assertEquals(1, stats.size());
+        assertEquals(2, stats.get(0).getTotalReservations());
+        assertEquals(DATE, stats.get(0).getLastReservationDate());
+    }
+
+    @Test
+    void statsPorCliente_ignoraCanceladasYborradas() {
+        crearReserva(mesa1, DATE.minusDays(10), TIME, ReservationStatus.CONFIRMED);
+        crearReserva(mesa1, DATE, TIME, ReservationStatus.CANCELLED);
+        Reservation borrada = crearReserva(mesa2, DATE, TIME, ReservationStatus.CONFIRMED);
+        borrada.setDeleted(true);
+        em.flush();
+
+        var stats = repository.findStatsByCustomerIds(java.util.Set.of(customer.getId()));
+
+        // Solo cuenta la CONFIRMED viva; la fecha más reciente es la suya, no la
+        // de la cancelada, que es posterior.
+        assertEquals(1, stats.get(0).getTotalReservations());
+        assertEquals(DATE.minusDays(10), stats.get(0).getLastReservationDate());
+    }
+
+    @Test
+    void statsPorCliente_clienteSinReservasNoApareceEnElResultado() {
+        var stats = repository.findStatsByCustomerIds(java.util.Set.of(customer.getId()));
+
+        // Sin filas para ese cliente: el servicio lo interpreta como 0 visitas.
+        assertTrue(stats.isEmpty());
+    }
+
     @Test
     void filtraReservasPorRestauranteYFechaExacta() {
         crearReserva(mesa1, DATE, TIME, ReservationStatus.CONFIRMED);

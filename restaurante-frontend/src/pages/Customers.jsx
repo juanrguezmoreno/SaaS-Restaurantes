@@ -127,6 +127,8 @@ const Customers = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRestaurantId, setFilterRestaurantId] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  // Segmento activo elegido desde las tarjetas de cifras ('' = todos).
+  const [segment, setSegment] = useState('');
 
   // ─── Modal de formulario (crear/editar) ────────────────────────────────
   const [showFormModal, setShowFormModal] = useState(false);
@@ -209,13 +211,44 @@ const Customers = () => {
   // STATS
   // ══════════════════════════════════════════════════════════════════════════
 
-  const stats = useMemo(() => {
-    const total = safeCustomers.length;
-    const active = safeCustomers.filter((c) => c.active !== false).length;
-    const withEmail = safeCustomers.filter((c) => c.email).length;
-    const withPhone = safeCustomers.filter((c) => c.phone).length;
-    return { total, active, withEmail, withPhone };
-  }, [safeCustomers]);
+  // ─── Segmentos ────────────────────────────────────────────────────────────
+  // Cada KPI es un segmento de la clientela. Se define UNA sola vez: la cifra
+  // de la tarjeta y las filas que aparecen al pulsarla salen de la misma
+  // función, así que no pueden discrepar.
+  const segmentPredicates = useMemo(() => {
+    const ahora = new Date();
+    const inicioDeMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const limite = new Date(ahora.getFullYear(), ahora.getMonth() - 3, ahora.getDate());
+
+    return {
+      // Ha vuelto al menos una vez.
+      recurrentes: (c) => (c.totalReservations ?? 0) > 1,
+      nuevos: (c) => {
+        if (!c.createdAt) return false;
+        const alta = new Date(c.createdAt);
+        return !Number.isNaN(alta.getTime()) && alta >= inicioDeMes;
+      },
+      // Última visita hace más de 3 meses. Quien no ha venido nunca queda fuera
+      // a propósito: es otro segmento, no un cliente que se enfría.
+      sinVenir: (c) => {
+        if (!c.lastReservationDate) return false;
+        const ultima = new Date(c.lastReservationDate);
+        return !Number.isNaN(ultima.getTime()) && ultima < limite;
+      },
+    };
+  }, []);
+
+  // Las cifras anteriores (Activos, Con Email) no podían diferir nunca del
+  // total: no existe el campo `active` y el email es obligatorio. Estas cuatro
+  // sí varían y cada una lleva a una acción distinta.
+  // Se calculan siempre sobre la lista completa, no sobre el segmento elegido:
+  // si no, al pulsar una tarjeta las otras tres cambiarían bajo el dedo.
+  const stats = useMemo(() => ({
+    total: safeCustomers.length,
+    recurrentes: safeCustomers.filter(segmentPredicates.recurrentes).length,
+    nuevosEsteMes: safeCustomers.filter(segmentPredicates.nuevos).length,
+    sinVenir: safeCustomers.filter(segmentPredicates.sinVenir).length,
+  }), [safeCustomers, segmentPredicates]);
 
   // ─── Estado de la vista ───────────────────────────────────────────────────
   // Solo la PRIMERA carga oculta la vista. En las siguientes (al escribir en
@@ -224,22 +257,34 @@ const Customers = () => {
   // perdía el foco y la pantalla parpadeaba en cada pulsación.
   const isInitialLoad = loading && safeCustomers.length === 0 && !error;
 
-  const hasActiveFilters = Boolean(searchQuery || filterRestaurantId || filterStatus !== '');
+  const hasActiveFilters = Boolean(searchQuery || filterRestaurantId || filterStatus !== '' || segment);
 
-  // ─── Filtro de estado ─────────────────────────────────────────────────────
-  // El texto y el restaurante los filtra el backend. El estado se queda aquí
-  // porque no existe: la entidad Customer no tiene campo `active` ni lo expone
-  // su DTO, de modo que todos los clientes se consideran activos.
+  // ─── Filtrado de la tabla ─────────────────────────────────────────────────
+  // El texto y el restaurante los filtra el backend. Aquí quedan el segmento
+  // elegido en las tarjetas y el estado (que no existe en el backend: la
+  // entidad Customer no tiene campo `active` ni lo expone su DTO).
   const filteredCustomers = useMemo(() => {
-    if (filterStatus === '') return safeCustomers;
-    return safeCustomers.filter((customer) => String(customer?.active !== false) === filterStatus);
-  }, [safeCustomers, filterStatus]);
+    let list = safeCustomers;
+
+    const bySegment = segmentPredicates[segment];
+    if (bySegment) list = list.filter(bySegment);
+
+    if (filterStatus !== '') {
+      list = list.filter((customer) => String(customer?.active !== false) === filterStatus);
+    }
+
+    return list;
+  }, [safeCustomers, segment, segmentPredicates, filterStatus]);
 
   const handleClearFilters = () => {
     setSearchQuery('');
     setFilterRestaurantId('');
     setFilterStatus('');
+    setSegment('');
   };
+
+  /** Pulsar la tarjeta ya activa la desactiva: es un interruptor, no un menú. */
+  const toggleSegment = (value) => setSegment((actual) => (actual === value ? '' : value));
 
   // ══════════════════════════════════════════════════════════════════════════
   // NOMBRES DE RESTAURANTES
@@ -550,57 +595,92 @@ const Customers = () => {
       {/* ═══ Data View ═════════════════════════════════════════════════════ */}
       {!isInitialLoad && !error && (safeCustomers.length > 0 || hasActiveFilters) && (
         <>
-          {/* ─── Stats Cards ────────────────────────────────────────────── */}
+          {/* ─── Segmentos ──────────────────────────────────────────────────
+              Cada tarjeta filtra la tabla por su segmento. Son interruptores:
+              volver a pulsarlas quita el filtro. */}
           <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-card-icon primary">
+            <button
+              type="button"
+              className="stat-card"
+              onClick={() => setSegment('')}
+              aria-pressed={segment === ''}
+              title="Ver todos los clientes"
+            >
+              <span className="stat-card-icon primary">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                   <circle cx="9" cy="7" r="4" />
                   <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                   <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{stats.total}</div>
-                <div className="stat-card-label">Total Clientes</div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-icon success">
+              </span>
+              <span className="stat-card-info">
+                <span className="stat-card-value">{stats.total}</span>
+                <span className="stat-card-label">Total Clientes</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="stat-card"
+              onClick={() => toggleSegment('recurrentes')}
+              aria-pressed={segment === 'recurrentes'}
+              title="Ver solo los clientes que han vuelto"
+            >
+              <span className="stat-card-icon success">
+                {/* Flechas en ciclo: ha vuelto */}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
+                  <polyline points="17 1 21 5 17 9" />
+                  <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                  <polyline points="7 23 3 19 7 15" />
+                  <path d="M21 13v2a4 4 0 0 1-4 4H3" />
                 </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{stats.active}</div>
-                <div className="stat-card-label">Activos</div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-icon warning">
+              </span>
+              <span className="stat-card-info">
+                <span className="stat-card-value">{stats.recurrentes}</span>
+                <span className="stat-card-label">Recurrentes</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="stat-card"
+              onClick={() => toggleSegment('nuevos')}
+              aria-pressed={segment === 'nuevos'}
+              title="Ver solo las altas de este mes"
+            >
+              <span className="stat-card-icon primary">
+                {/* Persona con un más: alta reciente */}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                  <polyline points="22,6 12,13 2,6" />
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="8.5" cy="7" r="4" />
+                  <line x1="20" y1="8" x2="20" y2="14" />
+                  <line x1="23" y1="11" x2="17" y2="11" />
                 </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{stats.withEmail}</div>
-                <div className="stat-card-label">Con Email</div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-icon primary">
+              </span>
+              <span className="stat-card-info">
+                <span className="stat-card-value">{stats.nuevosEsteMes}</span>
+                <span className="stat-card-label">Nuevos este mes</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="stat-card"
+              onClick={() => toggleSegment('sinVenir')}
+              aria-pressed={segment === 'sinVenir'}
+              title="Ver solo los clientes a recuperar"
+            >
+              <span className="stat-card-icon warning">
+                {/* Reloj con flecha atrás: hace tiempo que no viene */}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                  <path d="M3 3v5h5" />
+                  <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+                  <polyline points="12 7 12 12 15 14" />
                 </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{stats.withPhone}</div>
-                <div className="stat-card-label">Con Teléfono</div>
-              </div>
-            </div>
+              </span>
+              <span className="stat-card-info">
+                <span className="stat-card-value">{stats.sinVenir}</span>
+                <span className="stat-card-label">Sin venir en 3 meses</span>
+              </span>
+            </button>
           </div>
 
           {/* ─── Filters ────────────────────────────────────────────────── */}
