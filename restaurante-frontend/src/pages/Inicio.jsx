@@ -271,7 +271,7 @@ const Inicio = () => {
         <>
           <div className="exec-kpi-grid">
             <button type="button" className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver reservas de hoy">
-              <span className="exec-kpi-icon" style={{ color: 'var(--primary)' }}>
+              <span className="exec-kpi-icon primary">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
@@ -284,7 +284,7 @@ const Inicio = () => {
             </button>
 
             <button type="button" className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver solicitudes pendientes">
-              <span className="exec-kpi-icon" style={{ color: 'var(--warning)' }}>
+              <span className="exec-kpi-icon warning">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
@@ -297,11 +297,11 @@ const Inicio = () => {
             </button>
 
             <button type="button" className="exec-kpi" onClick={() => navigate('/floor-plan')} title="Ver plano de sala">
-              <span className="exec-kpi-icon" style={{ color: 'var(--text-secondary)' }}>
+              <span className="exec-kpi-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
               </span>
               <span className="exec-kpi-body">
-                <span className="exec-kpi-value" style={{ fontSize: '1.75rem' }}>{totalTables > 0 ? `${occupiedPercent}%` : '—'}</span>
+                <span className="exec-kpi-value">{totalTables > 0 ? `${occupiedPercent}%` : '—'}</span>
                 <span className="exec-kpi-label">Estado de sala</span>
                 <span className="exec-kpi-trend" style={{ color: occupiedPercent > 75 ? 'var(--danger)' : occupiedPercent > 50 ? 'var(--warning)' : 'var(--success)' }}>
                   {availableTablesCount} disponibles &middot; {reservedTablesCount} reservadas &middot; {occupiedCount} ocupadas
@@ -310,12 +310,12 @@ const Inicio = () => {
             </button>
 
             <button type="button" className="exec-kpi" onClick={() => navigate('/reservations')} title="Ver próximas reservas">
-              <span className="exec-kpi-icon" style={{ color: 'var(--primary)' }}>
+              <span className="exec-kpi-icon primary">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
               </span>
               <span className="exec-kpi-body">
-                <span className="exec-kpi-label" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: '0.125rem' }}>Próxima reserva</span>
-                <span className="exec-kpi-value" style={{ fontSize: '1rem', fontWeight: 600 }}>{nextReservation ? formatTime(nextReservation.reservationTime) : '—'}</span>
+                <span className="exec-kpi-value">{nextReservation ? formatTime(nextReservation.reservationTime) : '—'}</span>
+                <span className="exec-kpi-label">Próxima reserva</span>
                 <span className="exec-kpi-trend">{nextReservation ? getCustomerDisplay(nextReservation) : 'Sin reservas confirmadas'}</span>
               </span>
             </button>
