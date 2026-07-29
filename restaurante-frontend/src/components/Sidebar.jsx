@@ -3,27 +3,26 @@ import { useAuth } from '../context/AuthContext';
 import { canAccess, SIDEBAR_PERMISSIONS, ROLE_LABELS, normalizeRole } from '../config/permissions';
 
 // ─── SVG icons para cada ruta ──────────────────────────────────────────────
+// Cada entrada necesita una silueta reconocible de un vistazo: antes Inicio y
+// Plano de sala compartían los mismos cuatro cuadrados, y Restaurantes repetía
+// exactamente el icono del logotipo de la marca.
 const icons = {
+  // Paneles asimétricos: se lee como "resumen", no como una rejilla de mesas.
   dashboard: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="3" width="8" height="12" rx="1.5" />
+      <rect x="3" y="18" width="8" height="3" rx="1.5" />
+      <rect x="14" y="3" width="7" height="5" rx="1.5" />
+      <rect x="14" y="11" width="7" height="10" rx="1.5" />
     </svg>
   ),
+  // Escaparate con toldo: son locales, no viviendas, y así no repite la marca.
   restaurants: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
-    </svg>
-  ),
-  tables: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <path d="M3 8.5 4.5 4h15L21 8.5" />
+      <path d="M3 8.5h18" />
+      <path d="M5 8.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5" />
+      <path d="M9.5 21v-5.5h5V21" />
     </svg>
   ),
   customers: (
@@ -48,16 +47,15 @@ const icons = {
       <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
+  // Sala con mesas redondas dentro: la silueta la dominan los círculos, así que
+  // no se confunde con los paneles de Inicio ni a tamaño pequeño.
   floorPlan: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-      <circle cx="6.5" cy="6.5" r="1.5" />
-      <circle cx="17.5" cy="6.5" r="1.5" />
-      <circle cx="6.5" cy="17.5" r="1.5" />
-      <circle cx="17.5" cy="17.5" r="1.5" />
+      <rect x="2.5" y="4" width="19" height="16" rx="2" />
+      <circle cx="8" cy="9.5" r="2" />
+      <circle cx="16" cy="9.5" r="2" />
+      <circle cx="8" cy="15.5" r="2" />
+      <circle cx="16" cy="15.5" r="2" />
     </svg>
   ),
 };

@@ -40,6 +40,10 @@ const handleError = (error) => {
 export const getCustomers = async (params = {}) => {
   try {
     const queryParams = new URLSearchParams();
+    // El endpoint pagina con size=10 por defecto y aquí nunca se enviaba
+    // tamaño: solo llegaban los 10 primeros clientes, de modo que la lista
+    // aparecía recortada en silencio y el total mostrado era el de la página.
+    queryParams.append('size', String(params.size ?? 500));
     if (params.search) queryParams.append('search', params.search);
     if (params.restaurantId) queryParams.append('restaurantId', params.restaurantId);
     if (params.active !== undefined && params.active !== '' && params.active !== null) {

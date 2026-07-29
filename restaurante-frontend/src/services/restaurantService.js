@@ -7,13 +7,13 @@ const RESOURCE = '/restaurants';
  * Obtiene todos los restaurantes.
  */
 export const getRestaurants = async () => {
-  console.log('[restaurantService] getRestaurants — Request URL:', RESOURCE);
   try {
-    const response = await api.get(RESOURCE);
-    console.log('[restaurantService] getRestaurants — Response:', response.data);
+    // El endpoint pagina con size=10 por defecto: sin tamaño explícito, un
+    // tenant con más de 10 restaurantes perdía el resto en silencio, tanto en
+    // la pantalla de Restaurantes como en los desplegables que la usan.
+    const response = await api.get(RESOURCE, { params: { size: 500 } });
     return extractData(response);
   } catch (error) {
-    console.error('[restaurantService] getRestaurants — Error:', error.response?.status, error.response?.data);
     throw handleError(error);
   }
 };

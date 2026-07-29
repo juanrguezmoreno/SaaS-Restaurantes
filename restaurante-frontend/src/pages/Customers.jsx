@@ -182,21 +182,20 @@ const Customers = () => {
     }
   }, []);
 
-  // ─── Carga inicial + refetch con debounce ─────────────────────────────
-  // Se usa setTimeout para evitar el warning de React 19
-  // (llamar setState sincrónicamente en un effect).
+  // ─── Carga y búsqueda ─────────────────────────────────────────────────────
+  // El backend filtra por texto y por restaurante (CustomerController), así que
+  // la búsqueda recorre TODOS los clientes y no solo los que hubiera cargados.
+  // El debounce evita una consulta por pulsación; que la vista ya no se
+  // desmonte al refrescar (ver isInitialLoad) es lo que hace esto indoloro.
   useEffect(() => {
-    const buildParams = () => ({
-      search: searchQuery || undefined,
-      restaurantId: filterRestaurantId || undefined,
-      active: filterStatus !== '' ? filterStatus : undefined,
-    });
-
     const timer = setTimeout(() => {
-      fetchCustomers(buildParams());
+      fetchCustomers({
+        search: searchQuery.trim() || undefined,
+        restaurantId: filterRestaurantId || undefined,
+      });
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, filterRestaurantId, filterStatus, fetchCustomers]);
+  }, [searchQuery, filterRestaurantId, fetchCustomers]);
 
   // ─── Limpiar mensajes ─────────────────────────────────────────────────
   useEffect(() => {
@@ -217,6 +216,30 @@ const Customers = () => {
     const withPhone = safeCustomers.filter((c) => c.phone).length;
     return { total, active, withEmail, withPhone };
   }, [safeCustomers]);
+
+  // ─── Estado de la vista ───────────────────────────────────────────────────
+  // Solo la PRIMERA carga oculta la vista. En las siguientes (al escribir en
+  // el buscador o cambiar un filtro) se conserva en pantalla: antes `loading`
+  // desmontaba el bloque entero —buscador incluido—, de modo que el campo
+  // perdía el foco y la pantalla parpadeaba en cada pulsación.
+  const isInitialLoad = loading && safeCustomers.length === 0 && !error;
+
+  const hasActiveFilters = Boolean(searchQuery || filterRestaurantId || filterStatus !== '');
+
+  // ─── Filtro de estado ─────────────────────────────────────────────────────
+  // El texto y el restaurante los filtra el backend. El estado se queda aquí
+  // porque no existe: la entidad Customer no tiene campo `active` ni lo expone
+  // su DTO, de modo que todos los clientes se consideran activos.
+  const filteredCustomers = useMemo(() => {
+    if (filterStatus === '') return safeCustomers;
+    return safeCustomers.filter((customer) => String(customer?.active !== false) === filterStatus);
+  }, [safeCustomers, filterStatus]);
+
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setFilterRestaurantId('');
+    setFilterStatus('');
+  };
 
   // ══════════════════════════════════════════════════════════════════════════
   // NOMBRES DE RESTAURANTES
@@ -343,11 +366,8 @@ const Customers = () => {
 
       handleCloseFormModal();
       // Recargar con los filtros actuales
-      fetchCustomers({
-        search: searchQuery || undefined,
-        restaurantId: filterRestaurantId || undefined,
-        active: filterStatus !== '' ? filterStatus : undefined,
-      });
+      // Se recarga la lista completa; los filtros se aplican en el cliente.
+      fetchCustomers();
     } catch (err) {
       const msg = getErrorMessage(err);
       setFormErrors({ submit: msg });
@@ -424,11 +444,8 @@ const Customers = () => {
       setTogglingCustomer(null);
 
       // Recargar con los filtros actuales
-      fetchCustomers({
-        search: searchQuery || undefined,
-        restaurantId: filterRestaurantId || undefined,
-        active: filterStatus !== '' ? filterStatus : undefined,
-      });
+      // Se recarga la lista completa; los filtros se aplican en el cliente.
+      fetchCustomers();
     } catch (err) {
       setTogglingError(getErrorMessage(err));
     } finally {
@@ -495,7 +512,7 @@ const Customers = () => {
       )}
 
       {/* ═══ Loading ═══════════════════════════════════════════════════════ */}
-      {loading && (
+      {isInitialLoad && (
         <div className="loading-state">
           <div className="spinner-border mb-3" role="status" style={{ width: '2.25rem', height: '2.25rem' }}>
             <span className="visually-hidden">Cargando...</span>
@@ -504,8 +521,11 @@ const Customers = () => {
         </div>
       )}
 
-      {/* ═══ Empty State ═══════════════════════════════════════════════════ */}
-      {!loading && !error && safeCustomers.length === 0 && (
+      {/* ═══ Empty State ═══════════════════════════════════════════════════
+          Solo cuando no hay ningún cliente Y no hay filtros puestos. Si la
+          búsqueda no devuelve nada se mantiene la vista con el buscador: de
+          lo contrario el usuario se quedaba sin forma de borrar su búsqueda. */}
+      {!isInitialLoad && !error && safeCustomers.length === 0 && !hasActiveFilters && (
         <div className="app-card">
           <div className="empty-state">
             <div className="empty-state-icon">
@@ -528,7 +548,7 @@ const Customers = () => {
       )}
 
       {/* ═══ Data View ═════════════════════════════════════════════════════ */}
-      {!loading && !error && safeCustomers.length > 0 && (
+      {!isInitialLoad && !error && (safeCustomers.length > 0 || hasActiveFilters) && (
         <>
           {/* ─── Stats Cards ────────────────────────────────────────────── */}
           <div className="stats-grid">
@@ -644,7 +664,7 @@ const Customers = () => {
           </div>
 
           {/* ─── Table ──────────────────────────────────────────────────── */}
-          <div className="app-card">
+          <div className={`app-card${loading ? ' is-refreshing' : ''}`} aria-busy={loading}>
             <div className="app-table-wrapper">
               <table className="app-table">
                 <thead>
@@ -659,18 +679,32 @@ const Customers = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Sin resultados de búsqueda/filtros */}
-                  {safeCustomers.length > 0 && customers.length === 0 && (
+                  {/* Cargando y todavía sin filas que mostrar */}
+                  {loading && filteredCustomers.length === 0 && (
+                    <tr className="no-results">
+                      <td colSpan={7} className="text-center text-muted py-4">Cargando…</td>
+                    </tr>
+                  )}
+                  {/* Sin resultados de búsqueda/filtros.
+                      La condición anterior (safeCustomers.length > 0 && customers.length === 0)
+                      no podía cumplirse nunca —safeCustomers deriva de customers—,
+                      así que este aviso jamás llegaba a verse. */}
+                  {!loading && filteredCustomers.length === 0 && (
                     <tr className="no-results">
                       <td colSpan={7} className="text-center text-muted py-4">
-                        {searchQuery
-                          ? `No se encontraron clientes que coincidan con "${searchQuery}".`
-                          : 'No hay clientes con los filtros seleccionados.'}
+                        <div className="mb-2">
+                          {searchQuery
+                            ? `Ningún cliente coincide con "${searchQuery}".`
+                            : 'Ningún cliente coincide con los filtros seleccionados.'}
+                        </div>
+                        <button className="btn btn-secondary btn-sm" onClick={handleClearFilters} type="button">
+                          Limpiar búsqueda y filtros
+                        </button>
                       </td>
                     </tr>
                   )}
                   {/* Filas */}
-                  {customers.length > 0 && customers.map((customer, index) => {
+                  {filteredCustomers.map((customer, index) => {
                     const customerId = customer?.id ?? index;
                     const fullName = getFullName(customer);
                     const email = customer?.email || '';

@@ -41,46 +41,95 @@ public class CustomerService {
     private final ReservationMapper reservationMapper;
 
     public Page<CustomerResponse> findAll(Pageable pageable) {
-        // Obtener IDs de restaurantes visibles según rol y asignaciones
-        List<Long> visibleIds = currentUserService.getVisibleRestaurantIds();
+        return findAll(pageable, null, null);
+    }
 
-        // Si contiene -1L, sin acceso a ninguno
-        if (visibleIds.size() == 1 && visibleIds.get(0) == -1L) {
+    /**
+     * Lista clientes con filtros opcionales de texto y restaurante.
+     *
+     * <p>El alcance multi-tenant se resuelve aquí y se aplica siempre en la
+     * consulta: pedir un {@code restaurantId} fuera del alcance del usuario
+     * devuelve vacío, nunca datos de otro tenant.</p>
+     *
+     * @param search       texto libre sobre nombre completo, email o teléfono.
+     * @param restaurantId restringe a un restaurante concreto, si se indica.
+     */
+    public Page<CustomerResponse> findAll(Pageable pageable, String search, Long restaurantId) {
+        Set<Long> scope = resolveVisibleRestaurantIds();
+        boolean unrestricted = scope == null;
+
+        // Alcance vacío: el usuario no ve ningún restaurante.
+        if (!unrestricted && scope.isEmpty()) {
             return Page.empty();
         }
 
-        // Si hay IDs específicos, filtrar por ellos
+        String normalizedSearch = normalizeSearch(search);
+
+        return customerRepository
+                .search(unrestricted,
+                        unrestricted ? Set.of(-1L) : scope,
+                        restaurantId,
+                        normalizedSearch,
+                        pageable)
+                .map(customerMapper::toResponse);
+    }
+
+    /**
+     * Convierte el texto de búsqueda en un patrón LIKE en minúsculas.
+     * Devuelve {@code null} cuando no hay nada que buscar, que es como la
+     * consulta entiende "sin filtro".
+     */
+    private String normalizeSearch(String search) {
+        if (search == null || search.isBlank()) {
+            return null;
+        }
+        // Se escapan los comodines para que un '%' escrito por el usuario se
+        // busque literalmente en vez de convertir la consulta en "todo".
+        String escaped = search.trim().toLowerCase()
+                .replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_");
+        return "%" + escaped + "%";
+    }
+
+    /**
+     * Restaurantes visibles para el usuario actual.
+     *
+     * @return {@code null} si no hay restricción (SUPER_ADMIN ve todo); en caso
+     *         contrario el conjunto de IDs visibles, que puede venir vacío
+     *         cuando el usuario no tiene acceso a ninguno.
+     */
+    private Set<Long> resolveVisibleRestaurantIds() {
+        List<Long> visibleIds = currentUserService.getVisibleRestaurantIds();
+
+        // [-1] es el convenio de CurrentUserService para "no ve nada".
+        if (visibleIds.size() == 1 && visibleIds.get(0) == -1L) {
+            return Set.of();
+        }
+
+        // Asignaciones explícitas.
         if (!visibleIds.isEmpty()) {
-            return customerRepository.findByRestaurantIdInAndDeletedFalse(Set.copyOf(visibleIds), pageable)
-                    .map(customerMapper::toResponse);
+            return Set.copyOf(visibleIds);
         }
 
-        // SUPER_ADMIN: ve todos los clientes
         if (currentUserService.isSuperAdmin()) {
-            return customerRepository.findAllByDeletedFalse(pageable)
-                    .map(customerMapper::toResponse);
+            return null;
         }
 
-        // ADMIN/MANAGER sin asignaciones: filtrar por restaurantes del tenant
+        // ADMIN/MANAGER sin asignaciones: todos los restaurantes de su tenant.
         Long tenantId = currentUserService.getCurrentTenantId();
         if (tenantId != null) {
-            Set<Long> restaurantIds = restaurantRepository.findByTenantIdAndDeletedFalse(tenantId)
+            return restaurantRepository.findByTenantIdAndDeletedFalse(tenantId)
                     .stream().map(Restaurant::getId).collect(Collectors.toSet());
-            if (restaurantIds.isEmpty()) {
-                return Page.empty();
-            }
-            return customerRepository.findByRestaurantIdInAndDeletedFalse(restaurantIds, pageable)
-                    .map(customerMapper::toResponse);
         }
 
-        // Fallback: restaurante asignado directamente
-        Long restaurantId = currentUserService.getCurrentRestaurantId();
-        if (restaurantId != null) {
-            return customerRepository.findByRestaurantIdAndDeletedFalse(restaurantId, pageable)
-                    .map(customerMapper::toResponse);
+        // Último recurso: el restaurante asignado directamente al usuario.
+        Long ownRestaurantId = currentUserService.getCurrentRestaurantId();
+        if (ownRestaurantId != null) {
+            return Set.of(ownRestaurantId);
         }
 
-        return Page.empty();
+        return Set.of();
     }
 
     public CustomerResponse findById(Long id) {

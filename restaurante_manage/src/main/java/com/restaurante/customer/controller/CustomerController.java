@@ -34,16 +34,20 @@ public class CustomerController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
-    @Operation(summary = "Listar clientes", description = "Obtiene lista paginada de clientes")
+    @Operation(summary = "Listar clientes",
+            description = "Lista paginada de clientes, con búsqueda por nombre, email o teléfono "
+                    + "y filtro opcional por restaurante. El alcance multi-tenant se aplica siempre.")
     public ResponseEntity<PagedResponse<CustomerResponse>> findAll(
             @RequestParam(defaultValue = Constants.DEFAULT_PAGE) int page,
             @RequestParam(defaultValue = Constants.DEFAULT_SIZE) int size,
             @RequestParam(defaultValue = Constants.DEFAULT_SORT) String sort,
-            @RequestParam(defaultValue = "asc") String direction) {
+            @RequestParam(defaultValue = "asc") String direction,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Long restaurantId) {
 
         Sort.Direction dir = direction.equalsIgnoreCase("desc") ? Sort.Direction.DESC : Sort.Direction.ASC;
         Pageable pageable = PageRequest.of(page, size, Sort.by(dir, sort));
-        Page<CustomerResponse> customerPage = customerService.findAll(pageable);
+        Page<CustomerResponse> customerPage = customerService.findAll(pageable, search, restaurantId);
 
         PagedResponse<CustomerResponse> response = PagedResponse.<CustomerResponse>builder()
                 .content(customerPage.getContent())
