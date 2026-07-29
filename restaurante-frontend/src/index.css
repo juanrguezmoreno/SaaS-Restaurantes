@@ -6,15 +6,24 @@
    ??????????????????????????????????????????????????????????????????????????? */
 
 :root {
-  /* ─── Sidebar ─────────────────────────────────────────────────────────── */
+  /* ─── Sidebar ─────────────────────────────────────────────────────────────
+     En modo día el sidebar es verde pino profundo: ancla la marca en el tema
+     claro, donde el resto del lienzo es papel. Los grises llevan un matiz
+     verde para no parecer sucios sobre ese fondo. */
   --sidebar-width: 240px;
-  --sidebar-bg: #1A1715;
-  --sidebar-hover: #292421;
-  --sidebar-active-bg: rgba(110, 190, 155, 0.16);
-  --sidebar-text: #A8A29E;
-  --sidebar-text-active: #FAFAF9;
-  --sidebar-section-title: #78716C;
-  --sidebar-border: rgba(255, 255, 255, 0.07);
+  --sidebar-bg: #16362A;
+  --sidebar-hover: #1F4A3A;
+  --sidebar-active-bg: rgba(111, 199, 164, 0.16);
+  --sidebar-text: #9CB5AA;
+  --sidebar-text-active: #F2FAF6;
+  --sidebar-section-title: #6F8C80;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+
+  /* El sidebar es una superficie oscura en AMBOS temas, así que necesita su
+     propio acento claro. Usar --primary aquí dejaba el indicador de ítem
+     activo en verde oscuro sobre verde oscuro, es decir, invisible. */
+  --sidebar-accent: #6FC7A4;
+  --sidebar-accent-end: #A8E3C9;
 
   /* ─── Layout ──────────────────────────────────────────────────────────── */
   --header-height: 60px;
@@ -142,7 +151,9 @@
   /* El tema oscuro también es cálido: mismo tono de tinta, no gris azulado.
      Los acentos se aclaran (no se invierten) para conservar el contraste. */
 
-  /* ─── Sidebar ─────────────────────────────────────────────────────────── */
+  /* ─── Sidebar ─────────────────────────────────────────────────────────────
+     De noche se mantiene la tinta cálida: el verde profundo del día sobre un
+     lienzo ya oscuro perdería el contraste que lo hace legible. */
   --sidebar-bg: #14110F;
   --sidebar-hover: #292421;
   --sidebar-active-bg: rgba(111, 199, 164, 0.18);
@@ -150,6 +161,8 @@
   --sidebar-text-active: #FAFAF9;
   --sidebar-section-title: #78716C;
   --sidebar-border: rgba(255, 255, 255, 0.07);
+  --sidebar-accent: #6FC7A4;
+  --sidebar-accent-end: #A8E3C9;
 
   /* ─── Layout ──────────────────────────────────────────────────────────── */
   --bg-body: #14110F;
@@ -209,10 +222,14 @@
   --public-bg-end: #100D0C;
 }
 
-/* En oscuro el relleno verde es claro: el texto del botón pasa a tinta
-   para mantener el contraste del rótulo por encima del mínimo AA. */
+/* En oscuro el relleno verde es claro: todo lo que va relleno de marca pasa a
+   texto tinta para mantener el rótulo por encima del mínimo AA. Con blanco
+   encima, estos elementos se quedarían en torno a 1,9:1. */
 [data-theme="dark"] .btn-primary,
-[data-theme="dark"] .permission-denied-actions .btn-primary {
+[data-theme="dark"] .permission-denied-actions .btn-primary,
+[data-theme="dark"] .header-user-avatar,
+[data-theme="dark"] .public-header-icon,
+[data-theme="dark"] .public-submit-btn {
   color: var(--text-inverse);
 }
 
@@ -459,7 +476,8 @@ h1, h2, h3,
 .sidebar-brand-icon {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, var(--primary), var(--brand-gradient-end));
+  background: linear-gradient(135deg, var(--sidebar-accent), var(--sidebar-accent-end));
+  color: #14332A;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
@@ -518,7 +536,7 @@ h1, h2, h3,
   transform: translateY(-50%);
   width: 3px;
   height: 20px;
-  background: var(--primary);
+  background: var(--sidebar-accent);
   border-radius: 0 3px 3px 0;
 }
 
@@ -531,7 +549,7 @@ h1, h2, h3,
 
 .sidebar-nav .nav-link.active svg {
   opacity: 1;
-  color: var(--primary);
+  color: var(--sidebar-accent);
 }
 
 /* ─── Grupos de navegación ──────────────────────────────────────────────── */
@@ -582,11 +600,12 @@ h1, h2, h3,
   width: 28px;
   height: 28px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--primary), var(--brand-gradient-end));
+  background: linear-gradient(135deg, var(--sidebar-accent), var(--sidebar-accent-end));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  /* Iniciales en tinta oscura: el relleno es claro en ambos temas. */
+  color: #14332A;
   font-size: 0.6875rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -609,7 +628,7 @@ h1, h2, h3,
   font-size: 0.625rem;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--primary);
+  color: var(--sidebar-accent);
   text-transform: uppercase;
   margin-top: 1px;
 }
