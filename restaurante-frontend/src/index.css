@@ -10,7 +10,7 @@
   --sidebar-width: 240px;
   --sidebar-bg: #1A1715;
   --sidebar-hover: #292421;
-  --sidebar-active-bg: rgba(190, 122, 140, 0.16);
+  --sidebar-active-bg: rgba(110, 190, 155, 0.16);
   --sidebar-text: #A8A29E;
   --sidebar-text-active: #FAFAF9;
   --sidebar-section-title: #78716C;
@@ -23,17 +23,19 @@
   --max-content: 1280px;
 
   /* ─── Marca ───────────────────────────────────────────────────────────────
-     Burdeos: viene del mundo del vino y da calidez de hostelería. Es oscuro y
-     desaturado a propósito, para no competir con el rojo de peligro ni con los
-     colores de estado de mesa, que aquí SIGNIFICAN algo. */
-  --primary: #7F2D42;
-  --primary-hover: #6A2536;
-  --primary-light: #FBF1F3;
-  --primary-ring: rgba(127, 45, 66, 0.18);
+     Verde botella profundo. El verde de "mesa libre" (--success) es un esmeralda
+     mucho más claro y saturado: la marca se mantiene oscura y desaturada a
+     propósito para que ambos nunca se confundan. Además ningún estado se
+     comunica solo con color — todos llevan punto y etiqueta de texto. */
+  --primary: #1E4D3B;
+  --primary-hover: #173C2E;
+  --primary-rgb: 30, 77, 59;
+  --primary-light: #ECF4F0;
+  --primary-ring: rgba(30, 77, 59, 0.18);
   /* Segundo tono del degradado de marca (avatares, logotipo). Antes estaba
      escrito a mano como índigo en 5 sitios, así que al cambiar la marca el
-     degradado iba de burdeos a índigo. */
-  --brand-gradient-end: #B4576E;
+     degradado iba de la marca a índigo. */
+  --brand-gradient-end: #3E8368;
 
   /* ─── Estado (reservados para significado, nunca decoración) ──────────── */
   --success: #16A34A;
@@ -143,7 +145,7 @@
   /* ─── Sidebar ─────────────────────────────────────────────────────────── */
   --sidebar-bg: #14110F;
   --sidebar-hover: #292421;
-  --sidebar-active-bg: rgba(196, 104, 126, 0.18);
+  --sidebar-active-bg: rgba(111, 199, 164, 0.18);
   --sidebar-text: #A8A29E;
   --sidebar-text-active: #FAFAF9;
   --sidebar-section-title: #78716C;
@@ -154,14 +156,16 @@
   --bg-card: #1F1B18;
 
   /* ─── Marca ───────────────────────────────────────────────────────────────
-     Burdeos aclarado: sobre fondo oscuro, el tono claro alcanza 5,9:1 como
-     texto e icono. El relleno de los botones lleva texto oscuro (ver más
-     abajo), porque el blanco sobre este tono no llegaría al mínimo. */
-  --primary: #C4687E;
-  --primary-hover: #D68296;
-  --primary-light: rgba(196, 104, 126, 0.16);
-  --primary-ring: rgba(196, 104, 126, 0.32);
-  --brand-gradient-end: #E2A2B2;
+     Verde aclarado: sobre fondo oscuro el tono profundo no llegaría al mínimo
+     de contraste, así que se aclara (no se invierte). El relleno de los botones
+     lleva texto oscuro (ver más abajo), porque el blanco sobre este tono claro
+     se quedaría por debajo de AA. */
+  --primary: #6FC7A4;
+  --primary-hover: #8AD6B8;
+  --primary-rgb: 111, 199, 164;
+  --primary-light: rgba(111, 199, 164, 0.16);
+  --primary-ring: rgba(111, 199, 164, 0.32);
+  --brand-gradient-end: #A8E3C9;
 
   /* ─── Estado ──────────────────────────────────────────────────────────── */
   --success: #22C55E;
@@ -205,11 +209,122 @@
   --public-bg-end: #100D0C;
 }
 
-/* En oscuro el relleno burdeos es claro: el texto del botón pasa a tinta
+/* En oscuro el relleno verde es claro: el texto del botón pasa a tinta
    para mantener el contraste del rótulo por encima del mínimo AA. */
 [data-theme="dark"] .btn-primary,
 [data-theme="dark"] .permission-denied-actions .btn-primary {
   color: var(--text-inverse);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PUENTE CON BOOTSTRAP
+
+   El proyecto usa utilidades de color de Bootstrap en 13 archivos (bg-primary,
+   btn-primary, text-primary, form-check...) y hasta ahora no se redefinía
+   ninguna variable --bs-*, así que todas ellas seguían pintando el azul #0d6efd
+   de serie. Solo se sobrescribía `.btn-primary`, que tiene menos especificidad
+   que `.btn:disabled`: por eso el botón del login se volvía azul justo al
+   pulsarlo (se deshabilita mientras carga) y el círculo del logotipo, que usa
+   `bg-primary`, era azul siempre.
+
+   Mapear las variables de Bootstrap a nuestros tokens lo arregla en todos los
+   componentes y en todos los estados de una vez, en lugar de ir parcheando
+   selectores sueltos.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="dark"] {
+  --bs-primary: var(--primary);
+  --bs-primary-rgb: var(--primary-rgb);
+  --bs-link-color: var(--primary);
+  --bs-link-color-rgb: var(--primary-rgb);
+  --bs-link-hover-color: var(--primary-hover);
+  --bs-focus-ring-color: var(--primary-ring);
+  --bs-border-color: var(--border);
+  --bs-body-color: var(--text-primary);
+  --bs-body-bg: var(--bg-body);
+  --bs-secondary-color: var(--text-secondary);
+  --bs-emphasis-color: var(--text-primary);
+}
+
+/* Botón primario: los seis estados, incluido el deshabilitado. */
+.btn-primary {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: var(--primary);
+  --bs-btn-border-color: var(--primary);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--primary-hover);
+  --bs-btn-hover-border-color: var(--primary-hover);
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: var(--primary-hover);
+  --bs-btn-active-border-color: var(--primary-hover);
+  --bs-btn-disabled-color: #fff;
+  --bs-btn-disabled-bg: var(--primary);
+  --bs-btn-disabled-border-color: var(--primary);
+  --bs-btn-focus-shadow-rgb: var(--primary-rgb);
+}
+
+[data-theme="dark"] .btn-primary {
+  --bs-btn-color: var(--text-inverse);
+  --bs-btn-hover-color: var(--text-inverse);
+  --bs-btn-active-color: var(--text-inverse);
+  --bs-btn-disabled-color: var(--text-inverse);
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--primary);
+  --bs-btn-border-color: var(--primary);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--primary);
+  --bs-btn-hover-border-color: var(--primary);
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: var(--primary);
+  --bs-btn-active-border-color: var(--primary);
+  --bs-btn-disabled-color: var(--primary);
+  --bs-btn-disabled-border-color: var(--primary);
+  --bs-btn-focus-shadow-rgb: var(--primary-rgb);
+}
+
+/* Casillas e interruptores: Bootstrap los compila con el azul escrito a
+   mano, así que no basta con redefinir variables. */
+.form-check-input:checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.form-check-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+.form-switch .form-check-input:focus {
+  --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23fff'/%3e%3c/svg%3e");
+}
+
+/* Resto de componentes que traen el azul de serie. */
+.nav-pills {
+  --bs-nav-pills-link-active-bg: var(--primary);
+}
+
+.progress {
+  --bs-progress-bar-bg: var(--primary);
+}
+
+.list-group {
+  --bs-list-group-active-bg: var(--primary);
+  --bs-list-group-active-border-color: var(--primary);
+}
+
+.dropdown-menu {
+  --bs-dropdown-link-active-bg: var(--primary);
+}
+
+.pagination {
+  --bs-pagination-active-bg: var(--primary);
+  --bs-pagination-active-border-color: var(--primary);
+  --bs-pagination-color: var(--primary);
+  --bs-pagination-hover-color: var(--primary-hover);
+  --bs-pagination-focus-color: var(--primary-hover);
 }
 
 /* Transici?n suave para todos los elementos al cambiar de tema */
