@@ -182,17 +182,20 @@ const Customers = () => {
     }
   }, []);
 
-  // ─── Carga inicial ────────────────────────────────────────────────────────
-  // Antes se reconsultaba al servidor (con debounce) en cada pulsación del
-  // buscador. No servía de nada: GET /customers solo admite paginación e
-  // ignora search/restaurantId/active, así que devolvía siempre la lista
-  // completa. El filtrado se hace ahora en el cliente (ver filteredCustomers).
-  // El aviso de React 19 salta si un efecto llama a setState de forma síncrona
-  // (fetchCustomers activa `loading` nada más entrar), así que se difiere un tick.
+  // ─── Carga y búsqueda ─────────────────────────────────────────────────────
+  // El backend filtra por texto y por restaurante (CustomerController), así que
+  // la búsqueda recorre TODOS los clientes y no solo los que hubiera cargados.
+  // El debounce evita una consulta por pulsación; que la vista ya no se
+  // desmonte al refrescar (ver isInitialLoad) es lo que hace esto indoloro.
   useEffect(() => {
-    const timer = setTimeout(() => fetchCustomers(), 0);
+    const timer = setTimeout(() => {
+      fetchCustomers({
+        search: searchQuery.trim() || undefined,
+        restaurantId: filterRestaurantId || undefined,
+      });
+    }, 300);
     return () => clearTimeout(timer);
-  }, [fetchCustomers]);
+  }, [searchQuery, filterRestaurantId, fetchCustomers]);
 
   // ─── Limpiar mensajes ─────────────────────────────────────────────────
   useEffect(() => {
@@ -223,38 +226,14 @@ const Customers = () => {
 
   const hasActiveFilters = Boolean(searchQuery || filterRestaurantId || filterStatus !== '');
 
-  // ─── Filtrado en cliente ──────────────────────────────────────────────────
-  // El endpoint no filtra, así que se hace aquí sobre la lista ya cargada.
+  // ─── Filtro de estado ─────────────────────────────────────────────────────
+  // El texto y el restaurante los filtra el backend. El estado se queda aquí
+  // porque no existe: la entidad Customer no tiene campo `active` ni lo expone
+  // su DTO, de modo que todos los clientes se consideran activos.
   const filteredCustomers = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const selectedRestaurant = filterRestaurantId
-      ? safeRestaurants.find((r) => String(r.id) === String(filterRestaurantId))
-      : null;
-
-    return safeCustomers.filter((customer) => {
-      if (filterStatus !== '') {
-        const isActive = customer?.active !== false;
-        if (String(isActive) !== filterStatus) return false;
-      }
-
-      if (selectedRestaurant) {
-        const names = Array.isArray(customer?.restaurantNames) ? customer.restaurantNames : [];
-        const matchesByName = names.some((n) => n === selectedRestaurant.name);
-        const matchesById = String(customer?.restaurantId ?? '') === String(selectedRestaurant.id);
-        if (!matchesByName && !matchesById) return false;
-      }
-
-      if (query) {
-        const haystack = [getFullName(customer), customer?.email, customer?.phone]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(query)) return false;
-      }
-
-      return true;
-    });
-  }, [safeCustomers, safeRestaurants, searchQuery, filterRestaurantId, filterStatus]);
+    if (filterStatus === '') return safeCustomers;
+    return safeCustomers.filter((customer) => String(customer?.active !== false) === filterStatus);
+  }, [safeCustomers, filterStatus]);
 
   const handleClearFilters = () => {
     setSearchQuery('');

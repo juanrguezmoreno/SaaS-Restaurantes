@@ -19,8 +19,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -97,5 +101,77 @@ class CustomerServiceTest {
         assertDoesNotThrow(() -> service.create(req));
         verify(currentUserService).validateRestaurantAccess(OWN_RESTAURANT);
         verify(customerRepository).save(any(Customer.class));
+    }
+
+    // ─── Búsqueda: alcance y normalización del texto ─────────────────────────
+    // La consulta en sí se verifica contra H2 en CustomerSearchRepositoryTest;
+    // aquí se comprueba qué argumentos le pasa el servicio.
+
+    @Test
+    void findAll_usuarioSinRestaurantesVisibles_noConsultaSiquieraElRepositorio() {
+        // [-1] es el convenio de CurrentUserService para "no ve ningún restaurante"
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(-1L));
+
+        Page<CustomerResponse> result = service.findAll(Pageable.unpaged(), "andrea", null);
+
+        assertTrue(result.isEmpty());
+        verify(customerRepository, never()).search(anyBoolean(), anySet(), any(), any(), any());
+    }
+
+    @Test
+    void findAll_superAdmin_consultaSinRestriccionDeAlcance() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of());
+        when(currentUserService.isSuperAdmin()).thenReturn(true);
+        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
+                .thenReturn(Page.empty());
+
+        service.findAll(Pageable.unpaged(), null, null);
+
+        verify(customerRepository).search(eq(true), anySet(), isNull(), isNull(), any());
+    }
+
+    @Test
+    void findAll_usuarioConAsignaciones_acotaAsusRestaurantes() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
+                .thenReturn(Page.empty());
+
+        service.findAll(Pageable.unpaged(), null, null);
+
+        verify(customerRepository).search(eq(false), eq(Set.of(OWN_RESTAURANT)), isNull(), isNull(), any());
+    }
+
+    @Test
+    void findAll_normalizaElTextoAminusculasYComodines() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
+                .thenReturn(Page.empty());
+
+        service.findAll(Pageable.unpaged(), "  AnDrea  ", null);
+
+        verify(customerRepository).search(anyBoolean(), anySet(), isNull(), eq("%andrea%"), any());
+    }
+
+    @Test
+    void findAll_textoEnBlancoEquivaleAsinFiltro() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
+                .thenReturn(Page.empty());
+
+        service.findAll(Pageable.unpaged(), "   ", null);
+
+        verify(customerRepository).search(anyBoolean(), anySet(), isNull(), isNull(), any());
+    }
+
+    @Test
+    void findAll_escapaLosComodinesEscritosPorElUsuario() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
+                .thenReturn(Page.empty());
+
+        service.findAll(Pageable.unpaged(), "100%", null);
+
+        // Sin escapar, '%' convertiría la búsqueda en "devuélvelo todo".
+        verify(customerRepository).search(anyBoolean(), anySet(), isNull(), eq("%100!%%"), any());
     }
 }
