@@ -6,63 +6,77 @@
    ??????????????????????????????????????????????????????????????????????????? */
 
 :root {
-  /* ??? Sidebar ??? */
+  /* ─── Sidebar ─────────────────────────────────────────────────────────── */
   --sidebar-width: 240px;
-  --sidebar-bg: #0f172a;
-  --sidebar-hover: #1e293b;
-  --sidebar-active-bg: rgba(79, 70, 229, 0.12);
-  --sidebar-text: #94a3b8;
-  --sidebar-text-active: #f1f5f9;
-  --sidebar-section-title: #64748b;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-bg: #1A1715;
+  --sidebar-hover: #292421;
+  --sidebar-active-bg: rgba(190, 122, 140, 0.16);
+  --sidebar-text: #A8A29E;
+  --sidebar-text-active: #FAFAF9;
+  --sidebar-section-title: #78716C;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
 
-  /* ??? Layout ??? */
+  /* ─── Layout ──────────────────────────────────────────────────────────── */
   --header-height: 60px;
-  --bg-body: #f8fafc;
-  --bg-card: #ffffff;
+  --bg-body: #FBFAF8;
+  --bg-card: #FFFFFF;
   --max-content: 1280px;
 
-  /* ??? Colors ??? */
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
-  --primary-light: #eef2ff;
-  --primary-ring: rgba(79, 70, 229, 0.2);
+  /* ─── Marca ───────────────────────────────────────────────────────────────
+     Burdeos: viene del mundo del vino y da calidez de hostelería. Es oscuro y
+     desaturado a propósito, para no competir con el rojo de peligro ni con los
+     colores de estado de mesa, que aquí SIGNIFICAN algo. */
+  --primary: #7F2D42;
+  --primary-hover: #6A2536;
+  --primary-light: #FBF1F3;
+  --primary-ring: rgba(127, 45, 66, 0.18);
+  /* Segundo tono del degradado de marca (avatares, logotipo). Antes estaba
+     escrito a mano como índigo en 5 sitios, así que al cambiar la marca el
+     degradado iba de burdeos a índigo. */
+  --brand-gradient-end: #B4576E;
 
-  --success: #22c55e;
-  --success-light: #f0fdf4;
-  --success-text: #15803d;
+  /* ─── Estado (reservados para significado, nunca decoración) ──────────── */
+  --success: #16A34A;
+  --success-light: #F0FDF4;
+  --success-text: #15803D;
 
-  --warning: #f59e0b;
-  --warning-light: #fffbeb;
-  --warning-text: #b45309;
+  --warning: #D97706;
+  --warning-light: #FFFBEB;
+  --warning-text: #B45309;
 
-  --danger: #ef4444;
-  --danger-light: #fef2f2;
-  --danger-text: #b91c1c;
+  --danger: #DC2626;
+  --danger-light: #FEF2F2;
+  --danger-text: #B91C1C;
 
-  /* ??? Text ??? */
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --text-inverse: #f8fafc;
+  /* ─── Texto (neutros cálidos, no el gris azulado de todo dashboard) ───── */
+  --text-primary: #1A1715;
+  --text-secondary: #57534E;
+  --text-muted: #8B8580;
+  --text-inverse: #FAFAF9;
 
-  /* ??? Borders ??? */
-  --border: #e2e8f0;
-  --border-light: #f1f5f9;
+  /* ─── Bordes ──────────────────────────────────────────────────────────── */
+  --border: #E7E3DE;
+  --border-light: #F1EDE8;
 
-  /* ??? Hover ??? */
-  --hover-color: #f1f5f9;
+  /* ─── Hover ───────────────────────────────────────────────────────────── */
+  --hover-color: #F5F2EE;
 
-  /* ??? Shadows ??? */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+  /* ─── Sombras (tintadas con la tinta cálida, no negro puro) ───────────── */
+  --shadow-xs: 0 1px 2px rgba(26, 23, 21, 0.04);
+  --shadow-sm: 0 1px 3px rgba(26, 23, 21, 0.06), 0 1px 2px rgba(26, 23, 21, 0.04);
+  --shadow-md: 0 4px 8px -2px rgba(26, 23, 21, 0.08), 0 2px 4px -2px rgba(26, 23, 21, 0.04);
+  --shadow-lg: 0 12px 20px -4px rgba(26, 23, 21, 0.10), 0 4px 8px -4px rgba(26, 23, 21, 0.05);
+  --shadow-xl: 0 24px 32px -8px rgba(26, 23, 21, 0.14), 0 8px 12px -6px rgba(26, 23, 21, 0.06);
 
-  /* ??? Public page ??? */
-  --public-bg-start: #f1f5f9;
-  --public-bg-end: #cbd5e1;
+  /* ─── Página pública ──────────────────────────────────────────────────── */
+  --public-bg-start: #FBFAF8;
+  --public-bg-end: #EDE7E0;
+
+  /* ─── Login ───────────────────────────────────────────────────────────────
+     En claro no había valores y el degradado caía al gris azulado del tema
+     oscuro: la puerta de entrada del producto no pegaba con el resto. */
+  --login-bg-start: #211C19;
+  --login-bg-end: #100D0C;
 
   /* ??? Radii ??? */
   --radius-xs: 4px;
@@ -123,65 +137,79 @@
    ??????????????????????????????????????????????????????????????????????????? */
 
 [data-theme="dark"] {
-  /* ??? Sidebar ??? */
-  --sidebar-bg: #111827;
-  --sidebar-hover: #1e293b;
-  --sidebar-active-bg: rgba(99, 102, 241, 0.15);
-  --sidebar-text: #94a3b8;
-  --sidebar-text-active: #f8fafc;
-  --sidebar-section-title: #64748b;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
+  /* El tema oscuro también es cálido: mismo tono de tinta, no gris azulado.
+     Los acentos se aclaran (no se invierten) para conservar el contraste. */
 
-  /* ??? Layout ??? */
-  --bg-body: #0f172a;
-  --bg-card: #1e293b;
+  /* ─── Sidebar ─────────────────────────────────────────────────────────── */
+  --sidebar-bg: #14110F;
+  --sidebar-hover: #292421;
+  --sidebar-active-bg: rgba(196, 104, 126, 0.18);
+  --sidebar-text: #A8A29E;
+  --sidebar-text-active: #FAFAF9;
+  --sidebar-section-title: #78716C;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
 
-  /* ??? Primary ??? */
-  --primary: #6366f1;
-  --primary-hover: #818cf8;
-  --primary-light: rgba(99, 102, 241, 0.15);
-  --primary-ring: rgba(99, 102, 241, 0.3);
+  /* ─── Layout ──────────────────────────────────────────────────────────── */
+  --bg-body: #14110F;
+  --bg-card: #1F1B18;
 
-  /* ??? Status Colors ??? */
-  --success: #22c55e;
-  --success-light: rgba(34, 197, 94, 0.12);
-  --success-text: #4ade80;
+  /* ─── Marca ───────────────────────────────────────────────────────────────
+     Burdeos aclarado: sobre fondo oscuro, el tono claro alcanza 5,9:1 como
+     texto e icono. El relleno de los botones lleva texto oscuro (ver más
+     abajo), porque el blanco sobre este tono no llegaría al mínimo. */
+  --primary: #C4687E;
+  --primary-hover: #D68296;
+  --primary-light: rgba(196, 104, 126, 0.16);
+  --primary-ring: rgba(196, 104, 126, 0.32);
+  --brand-gradient-end: #E2A2B2;
 
-  --warning: #f59e0b;
-  --warning-light: rgba(245, 158, 11, 0.12);
-  --warning-text: #fbbf24;
+  /* ─── Estado ──────────────────────────────────────────────────────────── */
+  --success: #22C55E;
+  --success-light: rgba(34, 197, 94, 0.14);
+  --success-text: #4ADE80;
 
-  --danger: #ef4444;
-  --danger-light: rgba(239, 68, 68, 0.12);
-  --danger-text: #f87171;
+  --warning: #F59E0B;
+  --warning-light: rgba(245, 158, 11, 0.14);
+  --warning-text: #FBBF24;
 
-  /* ??? Text ??? */
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-inverse: #0f172a;
+  --danger: #EF4444;
+  --danger-light: rgba(239, 68, 68, 0.14);
+  --danger-text: #F87171;
 
-  /* ??? Hover ??? */
-  --hover-color: #334155;
+  /* ─── Texto ───────────────────────────────────────────────────────────── */
+  --text-primary: #FAFAF9;
+  --text-secondary: #A8A29E;
+  --text-muted: #78716C;
+  --text-inverse: #1A1715;
 
-  /* ??? Borders ??? */
-  --border: #334155;
-  --border-light: rgba(255, 255, 255, 0.06);
+  /* ─── Hover ───────────────────────────────────────────────────────────── */
+  --hover-color: #2C2724;
 
-  /* ??? Shadows (m?s sutiles en dark) ??? */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.2);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  /* ─── Bordes ──────────────────────────────────────────────────────────── */
+  --border: #332E2A;
+  --border-light: rgba(255, 255, 255, 0.07);
 
-  /* ??? Login ??? */
-  --login-bg-start: #0f172a;
-  --login-bg-end: #020617;
+  /* ─── Sombras ─────────────────────────────────────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 12px 20px -4px rgba(0, 0, 0, 0.45), 0 4px 8px -4px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 24px 32px -8px rgba(0, 0, 0, 0.55), 0 8px 12px -6px rgba(0, 0, 0, 0.35);
 
-  /* ??? Public page ??? */
-  --public-bg-start: #0f172a;
-  --public-bg-end: #020617;
+  /* ─── Login ───────────────────────────────────────────────────────────── */
+  --login-bg-start: #1F1B18;
+  --login-bg-end: #100D0C;
+
+  /* ─── Página pública ──────────────────────────────────────────────────── */
+  --public-bg-start: #1F1B18;
+  --public-bg-end: #100D0C;
+}
+
+/* En oscuro el relleno burdeos es claro: el texto del botón pasa a tinta
+   para mantener el contraste del rótulo por encima del mínimo AA. */
+[data-theme="dark"] .btn-primary,
+[data-theme="dark"] .permission-denied-actions .btn-primary {
+  color: var(--text-inverse);
 }
 
 /* Transici?n suave para todos los elementos al cambiar de tema */
@@ -269,7 +297,7 @@ h1, h2, h3,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--login-bg-start, #0f172a) 0%, var(--login-bg-end, #1e293b) 100%);
+  background: linear-gradient(135deg, var(--login-bg-start, #211C19) 0%, var(--login-bg-end, #100D0C) 100%);
 }
 
 .login-card {
@@ -316,7 +344,7 @@ h1, h2, h3,
 .sidebar-brand-icon {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, var(--primary), #818cf8);
+  background: linear-gradient(135deg, var(--primary), var(--brand-gradient-end));
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
@@ -439,7 +467,7 @@ h1, h2, h3,
   width: 28px;
   height: 28px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--primary), #818cf8);
+  background: linear-gradient(135deg, var(--primary), var(--brand-gradient-end));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -591,7 +619,7 @@ h1, h2, h3,
   width: 30px;
   height: 30px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--primary), #818cf8);
+  background: linear-gradient(135deg, var(--primary), var(--brand-gradient-end));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1752,7 +1780,7 @@ a {
 .floor-plan-card.available::before { background: #22c55e; }
 .floor-plan-card.reserved::before { background: #f59e0b; }
 .floor-plan-card.occupied::before { background: #ef4444; }
-.floor-plan-card.maintenance::before { background: #94a3b8; }
+.floor-plan-card.maintenance::before { background: #A8A29E; }
 
 /* ??? Status indicator ??? */
 .floor-plan-card-status {
@@ -2129,7 +2157,7 @@ a {
 }
 
 .exec-section-header.operational svg {
-  color: var(--primary, #6366f1);
+  color: var(--primary);
 }
 
 .exec-section-header.historical svg {
@@ -3355,9 +3383,9 @@ a {
 .fp-card.available::before { background: #22c55e; }
 .fp-card.reserved::before { background: #f59e0b; }
 .fp-card.occupied::before { background: #ef4444; }
-.fp-card.maintenance::before { background: #94a3b8; }
+.fp-card.maintenance::before { background: #A8A29E; }
 
-.fp-card.maintenance { border-left-color: #94a3b8; }
+.fp-card.maintenance { border-left-color: #A8A29E; }
 
 /* ??? Card top status bar ??? */
 .fp-card-top {
@@ -3701,7 +3729,7 @@ a {
 
 .fp-zone-stat-maintenance {
   background: rgba(148, 163, 184, 0.15);
-  color: #94a3b8;
+  color: #A8A29E;
 }
 
 .fp-zone-content {
@@ -3770,7 +3798,7 @@ a {
 .fp-card-compact.available { border-left: 3px solid #22c55e; }
 .fp-card-compact.reserved { border-left: 3px solid #f59e0b; }
 .fp-card-compact.occupied { border-left: 3px solid #ef4444; }
-.fp-card-compact.maintenance { border-left: 3px solid #94a3b8; }
+.fp-card-compact.maintenance { border-left: 3px solid #A8A29E; }
 
 .fp-compact-indicator {
   width: 3px;
@@ -5890,7 +5918,7 @@ a {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--primary), #818cf8);
+  background: linear-gradient(135deg, var(--primary), var(--brand-gradient-end));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6105,7 +6133,7 @@ a {
   font-size: 0.9375rem;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(135deg, var(--primary), #818cf8);
+  background: linear-gradient(135deg, var(--primary), var(--brand-gradient-end));
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
