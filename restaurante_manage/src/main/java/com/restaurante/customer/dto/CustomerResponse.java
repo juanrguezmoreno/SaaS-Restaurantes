@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -25,4 +26,12 @@ public class CustomerResponse {
     private String notes;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    /**
+     * Reservas del cliente que cuentan como visita (ni canceladas ni borradas).
+     * El listado ya mostraba estas dos columnas, pero nadie las rellenaba: salían
+     * siempre "0" y "Sin reservas".
+     */
+    private long totalReservations;
+    private LocalDate lastReservationDate;
 }
