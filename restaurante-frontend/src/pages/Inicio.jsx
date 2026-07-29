@@ -256,13 +256,23 @@ const Inicio = () => {
         </div>
       )}
 
-      {/* ═══ LOADING ═══ */}
+      {/* ═══ CARGA ═══
+          Esqueleto con la forma de las tarjetas reales: reserva el espacio y
+          adelanta la estructura, en vez de un spinner que no dice nada. */}
       {(loading || tablesLoading) && (
-        <div className="exec-loading">
-          <div className="spinner-border mb-3" role="status" style={{ width: '2rem', height: '2rem' }}>
-            <span className="visually-hidden">Cargando...</span>
+        <div aria-busy="true" aria-live="polite">
+          <span className="visually-hidden">Cargando el resumen del día…</span>
+          <div className="exec-kpi-grid">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="exec-kpi" aria-hidden="true">
+                <span className="exec-kpi-icon skeleton" />
+                <span className="exec-kpi-body">
+                  <span className="skeleton skeleton-line skeleton-line-value" />
+                  <span className="skeleton skeleton-line skeleton-line-label" />
+                </span>
+              </div>
+            ))}
           </div>
-          <p className="mb-0" style={{ color: 'var(--text-secondary)' }}>Cargando datos de Inicio...</p>
         </div>
       )}
 

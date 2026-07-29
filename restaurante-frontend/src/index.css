@@ -987,6 +987,46 @@ button.exec-kpi:active {
   margin-top: 2px;
 }
 
+/* ─── Carga: esqueletos ───────────────────────────────────────────────────
+   Un esqueleto con la forma del contenido real reserva el espacio (así no hay
+   salto al llegar los datos) y adelanta qué va a aparecer. El spinner centrado
+   no hacía ninguna de las dos cosas. La animación se detiene sola cuando el
+   sistema pide reducir movimiento, por la regla global de más arriba. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--border-light) 25%,
+    var(--hover-color) 50%,
+    var(--border-light) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+  color: transparent;
+  user-select: none;
+}
+
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.skeleton-line {
+  display: block;
+  height: 0.7rem;
+  border-radius: var(--radius-xs);
+}
+
+.skeleton-line-value {
+  height: 1.5rem;
+  width: 3.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.skeleton-line-label {
+  width: 6.5rem;
+}
+
 /* Tercera línea opcional: solo la usan las tarjetas de Inicio. */
 .exec-kpi-trend {
   font-size: var(--text-2xs);
