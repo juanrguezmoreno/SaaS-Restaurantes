@@ -20,6 +20,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -225,6 +226,42 @@ public class AvailabilityService {
         return diningTableRepository.findByRestaurantIdAndDeletedFalse(restaurant.getId()).stream()
                 .filter(t -> isTableAvailable(t, date, time, partySize, excludeReservationId))
                 .findFirst();
+    }
+
+    /**
+     * Retiene una mesa compatible para la franja solicitada, con bloqueo.
+     *
+     * <p>A diferencia de {@link #assignFirstAvailableTable}, que solo escanea, este
+     * método deja la mesa efectivamente reservada dentro de la transacción del
+     * llamante: recorre las candidatas <strong>ordenadas por id</strong> y sobre cada
+     * una llama a {@link #assertNoOverlap}, que adquiere el bloqueo pesimista sobre
+     * la fila antes de comprobar el solape. El orden determinista es lo que evita
+     * interbloqueos: todas las transacciones piden los cerrojos en la misma
+     * secuencia. Si otra transacción se lleva una candidata, se prueba la siguiente
+     * en lugar de fallar.</p>
+     *
+     * <p>{@code assertNoOverlap} no abre transacción propia, así que capturar su
+     * excepción aquí no marca la transacción como rollback-only.</p>
+     *
+     * @return la mesa retenida, o vacío si ninguna admite la franja
+     */
+    public Optional<DiningTable> holdFirstAvailableTable(Restaurant restaurant, LocalDate date,
+                                                          LocalTime time, Integer partySize) {
+        List<DiningTable> candidatas = diningTableRepository
+                .findByRestaurantIdAndDeletedFalse(restaurant.getId()).stream()
+                .filter(mesa -> isTableAvailable(mesa, date, time, partySize, null))
+                .sorted(Comparator.comparing(DiningTable::getId))
+                .toList();
+
+        for (DiningTable candidata : candidatas) {
+            try {
+                assertNoOverlap(candidata, date, time, null);
+                return Optional.of(candidata);
+            } catch (ConflictException e) {
+                log.debug("Mesa {} tomada por otra transacción, probando la siguiente", candidata.getId());
+            }
+        }
+        return Optional.empty();
     }
 
     /**
