@@ -120,3 +120,23 @@ export const getReservationsByRestaurantAndDate = async (restaurantId, date) => 
     throw handleError(error);
   }
 };
+
+/**
+ * Franjas horarias del restaurante para una fecha y número de comensales.
+ * La disponibilidad la calcula el backend; aquí no se filtra ni se genera nada.
+ *
+ * @param {number} restaurantId
+ * @param {string} date - formato YYYY-MM-DD
+ * @param {number} partySize
+ * @returns {Promise<Array<{time: string, available: boolean}>>}
+ */
+export const getTimeSlots = async (restaurantId, date, partySize) => {
+  try {
+    const response = await api.get('/availability/time-slots', {
+      params: { restaurantId, date, partySize },
+    });
+    return extractData(response);
+  } catch (error) {
+    throw handleError(error);
+  }
+};
