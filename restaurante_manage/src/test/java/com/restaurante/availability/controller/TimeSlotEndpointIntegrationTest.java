@@ -91,4 +91,64 @@ class TimeSlotEndpointIntegrationTest {
                                 + ",\"date\":\"" + fecha + "\",\"time\":\"13:00:00\",\"partySize\":2}"))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void endpointPublico_noRequiereAutenticacion() throws Exception {
+        mockMvc.perform(get("/api/v1/public/restaurants/" + restauranteId + "/time-slots")
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].time").value("13:00:00"));
+    }
+
+    @Test
+    void endpointPublico_soloExponeHoraYDisponibilidad() throws Exception {
+        mockMvc.perform(get("/api/v1/public/restaurants/" + restauranteId + "/time-slots")
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andExpect(status().isOk())
+                // Exactamente dos claves por franja: nada de mesas ni de clientes.
+                .andExpect(jsonPath("$.data[0].length()").value(2))
+                .andExpect(jsonPath("$.data[0].tableId").doesNotExist())
+                .andExpect(jsonPath("$.data[0].tableNumber").doesNotExist())
+                .andExpect(jsonPath("$.data[0].capacity").doesNotExist())
+                .andExpect(jsonPath("$.data[0].customerName").doesNotExist());
+    }
+
+    @Test
+    @WithUserDetails("super.admin")
+    void publicoYPrivadoDevuelvenLaMismaRejilla() throws Exception {
+        String privado = mockMvc.perform(get("/api/v1/availability/time-slots")
+                        .param("restaurantId", String.valueOf(restauranteId))
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andReturn().getResponse().getContentAsString();
+
+        String publico = mockMvc.perform(get("/api/v1/public/restaurants/" + restauranteId + "/time-slots")
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andReturn().getResponse().getContentAsString();
+
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        org.junit.jupiter.api.Assertions.assertEquals(
+                om.readTree(privado).get("data"),
+                om.readTree(publico).get("data"),
+                "Ambos flujos deben aplicar exactamente las mismas reglas de disponibilidad");
+    }
+
+    @Test
+    void endpointPublico_rechazaRestauranteConReservasPublicasDesactivadas() throws Exception {
+        Restaurant cerrado = new Restaurant();
+        cerrado.setName("Sin reservas públicas");
+        cerrado.setOpeningTime(LocalTime.of(13, 0));
+        cerrado.setClosingTime(LocalTime.of(16, 0));
+        cerrado.setDefaultReservationDurationMinutes(90);
+        cerrado.setPublicBookingEnabled(false);
+        Long cerradoId = restaurantRepository.save(cerrado).getId();
+
+        mockMvc.perform(get("/api/v1/public/restaurants/" + cerradoId + "/time-slots")
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andExpect(status().isBadRequest());
+    }
 }

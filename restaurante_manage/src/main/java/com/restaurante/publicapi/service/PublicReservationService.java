@@ -1,5 +1,7 @@
 package com.restaurante.publicapi.service;
 
+import com.restaurante.availability.dto.TimeSlotResponse;
+import com.restaurante.availability.service.AvailabilityService;
 import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.ConflictException;
 import com.restaurante.common.exception.ResourceNotFoundException;
@@ -18,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -28,6 +31,7 @@ public class PublicReservationService {
     private final RestaurantRepository restaurantRepository;
     private final CustomerRepository customerRepository;
     private final ReservationRepository reservationRepository;
+    private final AvailabilityService availabilityService;
 
     /**
      * Obtiene info básica de un restaurante para la página pública.
@@ -47,6 +51,25 @@ public class PublicReservationService {
                 .closingTime(restaurant.getClosingTime())
                 .capacity(restaurant.getCapacity())
                 .build();
+    }
+
+    /**
+     * Rejilla de franjas horarias para el formulario público.
+     *
+     * <p>Delega en {@link AvailabilityService#getTimeSlots}, el mismo método que
+     * usa el panel privado: las reglas de disponibilidad no pueden divergir entre
+     * ambos flujos. Lo único que añade aquí es exigir que el restaurante acepte
+     * reservas públicas.</p>
+     */
+    public List<TimeSlotResponse> getPublicTimeSlots(Long restaurantId, LocalDate date, Integer partySize) {
+        Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
+
+        if (Boolean.FALSE.equals(restaurant.getPublicBookingEnabled())) {
+            throw new BadRequestException("Este restaurante no acepta reservas públicas en este momento");
+        }
+
+        return availabilityService.getTimeSlots(restaurantId, date, partySize);
     }
 
     /**

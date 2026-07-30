@@ -1,5 +1,6 @@
 package com.restaurante.publicapi.controller;
 
+import com.restaurante.availability.dto.TimeSlotResponse;
 import com.restaurante.common.dto.ApiResponse;
 import com.restaurante.common.util.Constants;
 import com.restaurante.common.exception.BadRequestException;
@@ -13,15 +14,23 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping(Constants.PUBLIC_PATH + "/restaurants/{restaurantId}")
 @RequiredArgsConstructor
+@Validated
 @Tag(name = "Público - Reservas", description = "Endpoints públicos para solicitar reservas sin autenticación")
 public class PublicReservationController {
 
@@ -36,6 +45,20 @@ public class PublicReservationController {
 
         PublicRestaurantResponse response = publicReservationService.getPublicRestaurant(restaurantId);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping(Constants.AVAILABILITY_TIME_SLOTS_SUBPATH)
+    @Operation(summary = "Franjas horarias disponibles",
+            description = "Devuelve las franjas horarias del restaurante para una fecha y número de "
+                    + "comensales, indicando cuáles admiten reserva. Solo expone hora y disponibilidad: "
+                    + "ningún dato de mesas ni de otras reservas.")
+    public ResponseEntity<ApiResponse<List<TimeSlotResponse>>> getPublicTimeSlots(
+            @PathVariable Long restaurantId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(defaultValue = "1") @Min(1) @Max(50) Integer partySize) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                publicReservationService.getPublicTimeSlots(restaurantId, date, partySize)));
     }
 
     @PostMapping(value = "/reservation-requests", consumes = MediaType.APPLICATION_JSON_VALUE)
