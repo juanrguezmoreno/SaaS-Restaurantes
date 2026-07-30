@@ -45,6 +45,7 @@ public final class Constants {
 
     // Availability
     public static final String AVAILABILITY_PATH = API_BASE_PATH + "/availability";
+    public static final String AVAILABILITY_TIME_SLOTS_SUBPATH = "/time-slots";
 
     // Roles
     public static final String ROLE_SUPER_ADMIN = "ROLE_SUPER_ADMIN";
