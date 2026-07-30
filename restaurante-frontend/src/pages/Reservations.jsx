@@ -1444,7 +1444,14 @@ const Reservations = () => {
                                       {r?.partySize ?? '—'}
                                     </span>
                                   </td>
-                                  <td>{renderStatusBadge(r?.status)}</td>
+                                  <td>
+                                    {renderStatusBadge(r?.status)}
+                                    {r.holdStatus === 'EXPIRED' && (
+                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
+                                        Pendiente sin bloqueo
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="col-actions">{renderRowActions(r)}</td>
                                 </tr>
                               ))}
@@ -1502,7 +1509,14 @@ const Reservations = () => {
                                       {r?.partySize ?? '—'}
                                     </span>
                                   </td>
-                                  <td>{renderStatusBadge(r?.status)}</td>
+                                  <td>
+                                    {renderStatusBadge(r?.status)}
+                                    {r.holdStatus === 'EXPIRED' && (
+                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
+                                        Pendiente sin bloqueo
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="col-actions">{renderRowActions(r)}</td>
                                 </tr>
                               ))}
@@ -1570,7 +1584,14 @@ const Reservations = () => {
                                       {r?.partySize ?? '—'}
                                     </span>
                                   </td>
-                                  <td>{renderStatusBadge(r?.status)}</td>
+                                  <td>
+                                    {renderStatusBadge(r?.status)}
+                                    {r.holdStatus === 'EXPIRED' && (
+                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
+                                        Pendiente sin bloqueo
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="col-actions">{renderRowActions(r)}</td>
                                 </tr>
                               ))}
@@ -1961,6 +1982,15 @@ const Reservations = () => {
                     </span>
                     <span className="res-detail-value">{detailReservation.partySize || '—'}</span>
                   </div>
+
+                  {detailReservation.holdStatus === 'ACTIVE' && (
+                    <div className="res-detail-item">
+                      <span className="res-detail-label">Bloqueo de mesa</span>
+                      <span className="res-detail-value">
+                        Activo hasta {new Date(detailReservation.holdExpiresAt).toLocaleString('es-ES')}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {detailReservation.notes && (

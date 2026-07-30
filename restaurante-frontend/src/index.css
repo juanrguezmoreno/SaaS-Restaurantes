@@ -7383,3 +7383,15 @@ a {
   background: var(--danger-light);
   color: var(--danger-text);
 }
+
+.res-hold-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--warning);
+  border-radius: 4px;
+  background: var(--warning-light);
+  color: var(--warning-text);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
