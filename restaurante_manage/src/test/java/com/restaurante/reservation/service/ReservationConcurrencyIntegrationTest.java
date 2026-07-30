@@ -1,9 +1,12 @@
 package com.restaurante.reservation.service;
 
+import com.restaurante.common.exception.ConflictException;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
 import com.restaurante.diningtable.entity.DiningTable;
 import com.restaurante.diningtable.repository.DiningTableRepository;
+import com.restaurante.publicapi.dto.PublicReservationRequest;
+import com.restaurante.publicapi.service.PublicReservationService;
 import com.restaurante.reservation.dto.ReservationRequest;
 import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.repository.ReservationRepository;
@@ -54,6 +57,7 @@ class ReservationConcurrencyIntegrationTest {
     @Autowired private CustomerRepository customerRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private PublicReservationService publicReservationService;
 
     private Restaurant restaurant;
     private DiningTable table;
@@ -171,5 +175,49 @@ class ReservationConcurrencyIntegrationTest {
 
         List<Reservation> reservasCreadas = reservationRepository.findByRestaurantIdAndDeletedFalse(restaurant.getId());
         assertEquals(1, reservasCreadas.size(), "Solo una de las dos peticiones concurrentes debe haber persistido una reserva");
+    }
+
+    @Test
+    void dosSolicitudesPublicasSimultaneas_soloUnaObtieneLaUltimaMesa() throws Exception {
+        // El restaurante de este test tiene una sola mesa: las dos solicitudes
+        // compiten por ella.
+        CountDownLatch listos = new CountDownLatch(2);
+        CountDownLatch salida = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        Callable<Boolean> solicitud = () -> {
+            listos.countDown();
+            salida.await(5, TimeUnit.SECONDS);
+            try {
+                publicReservationService.createReservationRequest(restaurant.getId(), peticionPublica());
+                return true;
+            } catch (ConflictException e) {
+                return false;
+            }
+        };
+
+        Future<Boolean> a = pool.submit(solicitud);
+        Future<Boolean> b = pool.submit(solicitud);
+        listos.await(5, TimeUnit.SECONDS);
+        salida.countDown();
+
+        int exitos = (a.get(15, TimeUnit.SECONDS) ? 1 : 0) + (b.get(15, TimeUnit.SECONDS) ? 1 : 0);
+        pool.shutdown();
+
+        assertEquals(1, exitos,
+                "Con una sola mesa, solo una de las dos solicitudes simultáneas puede retenerla");
+    }
+
+    private PublicReservationRequest peticionPublica() {
+        PublicReservationRequest request = new PublicReservationRequest();
+        // Emails distintos: si fueran iguales saltaría la validación de duplicado
+        // y el test no probaría la concurrencia por la mesa.
+        request.setCustomerName("Cliente " + Thread.currentThread().getId());
+        request.setPhone("600000000");
+        request.setEmail("cliente" + Thread.currentThread().getId() + "@test.com");
+        request.setReservationDate(LocalDate.now().plusDays(20));
+        request.setReservationTime(LocalTime.of(21, 0));
+        request.setPartySize(2);
+        return request;
     }
 }
