@@ -222,6 +222,105 @@ class AvailabilityServiceTest {
         assertTrue(resultado.isEmpty());
     }
 
+    // ─── holdFirstAvailableTable: retención con reintento tras conflicto ──
+
+    private DiningTable mesaConId(Long id) {
+        DiningTable mesa = new DiningTable();
+        mesa.setId(id);
+        mesa.setTableNumber(String.valueOf(id));
+        mesa.setCapacity(4);
+        mesa.setStatus(TableStatus.AVAILABLE);
+        mesa.setRestaurant(restaurant);
+        return mesa;
+    }
+
+    @Test
+    void holdFirstAvailableTable_reintentaConLaSiguienteMesaTrasConflictoDeBloqueoEnLaPrimera() {
+        // Dos candidatas libres en el escaneo inicial (mesa 10 y mesa 20), pero
+        // entre el escaneo y la adquisición del bloqueo pesimista otra transacción
+        // se lleva la mesa 10: assertNoOverlap debe lanzar ConflictException para
+        // ella y el método debe probar con la mesa 20.
+        DiningTable mesa20 = mesaConId(20L);
+
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(table, mesa20));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa20.getId()))
+                .thenReturn(Optional.of(mesa20));
+
+        // Mesa 10: libre en el escaneo (isTableAvailable), pero con solape al
+        // comprobarla de nuevo bajo bloqueo (assertNoOverlap).
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of())
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.CONFIRMED)));
+        // Mesa 20: libre siempre.
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa20.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+
+        Optional<DiningTable> resultado = service.holdFirstAvailableTable(restaurant, DATE, TIME, 2);
+
+        assertTrue(resultado.isPresent());
+        assertEquals(mesa20.getId(), resultado.get().getId(),
+                "Tras el conflicto de bloqueo en la mesa 10 debe retener la mesa 20, no fallar");
+        // Prueba que el conflicto de la mesa 10 se ejerció de verdad (no fue casualidad):
+        // assertNoOverlap intentó el bloqueo pesimista sobre ella antes de descartarla.
+        org.mockito.Mockito.verify(diningTableRepository).findByIdAndDeletedFalseForUpdate(TABLE_ID);
+    }
+
+    @Test
+    void holdFirstAvailableTable_devuelveVacioSiTodasLasCandidatasTienenConflictoDeBloqueo() {
+        // Las dos mesas están libres en el escaneo, pero ambas pierden la carrera
+        // por el bloqueo pesimista: ninguna debe quedar retenida.
+        DiningTable mesa20 = mesaConId(20L);
+
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(table, mesa20));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa20.getId()))
+                .thenReturn(Optional.of(mesa20));
+
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of())
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.CONFIRMED)));
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa20.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of())
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.CONFIRMED)));
+
+        Optional<DiningTable> resultado = service.holdFirstAvailableTable(restaurant, DATE, TIME, 2);
+
+        assertTrue(resultado.isEmpty(), "Si todas las candidatas pierden la carrera por el bloqueo, no debe retener ninguna");
+        // Ambas candidatas deben haber sido intentadas de verdad, no solo la primera.
+        org.mockito.Mockito.verify(diningTableRepository).findByIdAndDeletedFalseForUpdate(TABLE_ID);
+        org.mockito.Mockito.verify(diningTableRepository).findByIdAndDeletedFalseForUpdate(mesa20.getId());
+    }
+
+    @Test
+    void holdFirstAvailableTable_pruebaLasCandidatasEnOrdenAscendentePorId() {
+        // El repositorio devuelve las mesas en un orden de inserción sin ordenar
+        // (30, 10, 20); todas están libres. Si el método no ordenara por id y se
+        // limitara a tomar la primera de la lista, devolvería la mesa 30.
+        DiningTable mesa30 = mesaConId(30L);
+        DiningTable mesa20 = mesaConId(20L);
+
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(mesa30, table, mesa20));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa30.getId()))
+                .thenReturn(Optional.of(mesa30));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa20.getId()))
+                .thenReturn(Optional.of(mesa20));
+
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa30.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa20.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+
+        Optional<DiningTable> resultado = service.holdFirstAvailableTable(restaurant, DATE, TIME, 2);
+
+        assertTrue(resultado.isPresent());
+        assertEquals(TABLE_ID, resultado.get().getId(),
+                "Debe probar las candidatas ordenadas por id ascendente (10 antes que 20 y 30), no en el orden del repositorio");
+    }
+
     // ─── Bloqueo provisional (hold) de solicitudes públicas ──────────────
 
     private Reservation reservaConHold(LocalTime hora, LocalDateTime holdExpiresAt) {
