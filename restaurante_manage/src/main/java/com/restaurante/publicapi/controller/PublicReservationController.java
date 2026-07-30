@@ -64,7 +64,8 @@ public class PublicReservationController {
     @PostMapping(value = "/reservation-requests", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Solicitar reserva",
             description = "Permite a un cliente sin autenticación enviar una solicitud de reserva. " +
-                    "La reserva se crea en estado PENDING sin mesa asignada. " +
+                    "La reserva se crea en estado PENDING con una mesa retenida provisionalmente " +
+                    "(bloqueo temporal, sin exponerla al cliente). " +
                     "El restaurante revisará la solicitud y confirmará disponibilidad.")
     public ResponseEntity<ApiResponse<PublicReservationResponse>> createReservationRequest(
             @PathVariable Long restaurantId,
