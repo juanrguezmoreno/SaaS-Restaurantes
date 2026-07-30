@@ -89,6 +89,8 @@ app:
     # Minutos que una solicitud pública retiene provisionalmente su mesa. El
     # bloqueo nunca sobrevive a la hora de inicio de la propia reserva.
     hold-expiration-minutes: ${RESERVATION_HOLD_EXPIRATION_MINUTES:720}
+    # Frecuencia (ms) del job que suelta las mesas de bloqueos ya caducados.
+    hold-release-delay-ms: ${RESERVATION_HOLD_RELEASE_DELAY_MS:60000}
     # Horario usado cuando el restaurante no tiene apertura/cierre configurados.
     default-opening-time: "${RESERVATION_DEFAULT_OPENING_TIME:12:00}"
     default-closing-time: "${RESERVATION_DEFAULT_CLOSING_TIME:23:00}"

@@ -32,6 +32,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -602,5 +603,122 @@ class ReservationServiceTest {
         assertDoesNotThrow(() -> service.fixTableStatuses(RESTAURANT_ID));
         verify(currentUserService).validateRestaurantAccess(RESTAURANT_ID);
         verify(diningTableRepository, never()).findByStatusAndDeletedFalse(any());
+    }
+
+    // ─── Task 6: liberación de bloqueos provisionales ─────────────────────
+
+    @Test
+    void updateStatus_limpiaHoldExpiresAtAlConfirmar() {
+        Reservation reserva = reservaPendienteSinMesa(50L);
+        reserva.setHoldExpiresAt(LocalDateTime.now().plusHours(1));
+        when(reservationRepository.findByIdAndDeletedFalse(50L)).thenReturn(Optional.of(reserva));
+        when(availabilityService.assignFirstAvailableTable(restaurant, DATE, TIME, 2, 50L))
+                .thenReturn(Optional.of(table));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(50L, "CONFIRMED");
+
+        assertNull(reserva.getHoldExpiresAt());
+    }
+
+    @Test
+    void updateStatus_limpiaHoldExpiresAtAlCancelar() {
+        Reservation reserva = reservaPendienteSinMesa(51L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        reserva.setHoldExpiresAt(LocalDateTime.now().minusMinutes(5));
+        when(reservationRepository.findByIdAndDeletedFalse(51L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(51L, "CANCELLED");
+
+        assertNull(reserva.getHoldExpiresAt());
+    }
+
+    @Test
+    void updateStatus_limpiaHoldExpiresAtAlCancelarAunqueYaNoTengaMesa() {
+        // Solicitud pública cuyo bloqueo ya había caducado y perdido la mesa
+        // (p.ej. el scheduler ya la soltó); igualmente debe limpiarse el
+        // marcador de bloqueo al cancelar, aunque no haya mesa que liberar.
+        Reservation reserva = reservaPendienteSinMesa(52L);
+        reserva.setDiningTable(null);
+        reserva.setHoldExpiresAt(LocalDateTime.now().minusHours(2));
+        when(reservationRepository.findByIdAndDeletedFalse(52L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(52L, "CANCELLED");
+
+        assertNull(reserva.getHoldExpiresAt());
+    }
+
+    @Test
+    void updateStatus_limpiaHoldExpiresAtAlCompletar() {
+        Reservation reserva = reservaPendienteSinMesa(53L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        reserva.setHoldExpiresAt(LocalDateTime.now().minusMinutes(5));
+        when(reservationRepository.findByIdAndDeletedFalse(53L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(53L, "COMPLETED");
+
+        assertNull(reserva.getHoldExpiresAt());
+    }
+
+    @Test
+    void updateStatus_limpiaHoldExpiresAtAlMarcarNoShow() {
+        Reservation reserva = reservaPendienteSinMesa(54L);
+        reserva.setStatus(ReservationStatus.CONFIRMED);
+        reserva.setDiningTable(table);
+        reserva.setHoldExpiresAt(LocalDateTime.now().minusMinutes(5));
+        when(reservationRepository.findByIdAndDeletedFalse(54L)).thenReturn(Optional.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.updateStatus(54L, "NO_SHOW");
+
+        assertNull(reserva.getHoldExpiresAt());
+    }
+
+    // ─── Task 6: releaseExpiredHolds (scheduler de liberación) ────────────
+
+    @Test
+    void releaseExpiredHolds_liberaLaMesaYConservaElMarcadorDeCaducidad() {
+        Reservation reserva = reservaPendienteSinMesa(60L);
+        reserva.setDiningTable(table);
+        LocalDateTime caducado = LocalDateTime.now().minusMinutes(1);
+        reserva.setHoldExpiresAt(caducado);
+        when(reservationRepository.findExpiredHolds(any(LocalDateTime.class))).thenReturn(List.of(reserva));
+        when(reservationRepository.findActiveConfirmedByTableId(eq(TABLE_ID), any(LocalDate.class), any(LocalTime.class)))
+                .thenReturn(List.of());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        int liberados = service.releaseExpiredHolds();
+
+        assertEquals(1, liberados);
+        assertNull(reserva.getDiningTable());
+        assertEquals(caducado, reserva.getHoldExpiresAt());
+        assertEquals(ReservationStatus.PENDING, reserva.getStatus());
+        verify(diningTableRepository).save(argThat(t -> t.getStatus() == TableStatus.AVAILABLE));
+    }
+
+    @Test
+    void releaseExpiredHolds_sinBloqueosCaducadosNoHaceNada() {
+        when(reservationRepository.findExpiredHolds(any(LocalDateTime.class))).thenReturn(List.of());
+
+        int liberados = service.releaseExpiredHolds();
+
+        assertEquals(0, liberados);
+        verify(reservationRepository, never()).save(any(Reservation.class));
     }
 }

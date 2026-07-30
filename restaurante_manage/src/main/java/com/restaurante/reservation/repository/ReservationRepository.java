@@ -1,6 +1,7 @@
 package com.restaurante.reservation.repository;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -91,4 +92,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                        @Param("from") LocalDate from,
                                                        @Param("to") LocalDate to,
                                                        @Param("excludeId") Long excludeId);
+
+    /**
+     * Solicitudes PENDING cuyo bloqueo provisional ya venció pero que todavía
+     * retienen la mesa asignada. Las usa {@code ReservationHoldScheduler} para
+     * soltarla; el cálculo de disponibilidad ya las ignora desde el instante
+     * mismo de la caducidad, sin esperar al job.
+     */
+    @Query("SELECT r FROM Reservation r WHERE r.deleted = false " +
+           "AND r.status = 'PENDING' AND r.diningTable IS NOT NULL " +
+           "AND r.holdExpiresAt IS NOT NULL AND r.holdExpiresAt <= :now")
+    List<Reservation> findExpiredHolds(@Param("now") LocalDateTime now);
 }

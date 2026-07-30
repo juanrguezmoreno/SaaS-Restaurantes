@@ -5,12 +5,24 @@ import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.enums.ReservationStatus;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+
 @Component
 public class ReservationMapper {
 
     public ReservationResponse toResponse(Reservation reservation) {
         if (reservation == null) {
             return null;
+        }
+
+        LocalDateTime holdExpiresAt = reservation.getHoldExpiresAt();
+        String holdStatus;
+        if (holdExpiresAt == null) {
+            holdStatus = "NONE";
+        } else if (holdExpiresAt.isAfter(LocalDateTime.now())) {
+            holdStatus = "ACTIVE";
+        } else {
+            holdStatus = "EXPIRED";
         }
 
         return ReservationResponse.builder()
@@ -27,6 +39,8 @@ public class ReservationMapper {
                 .partySize(reservation.getPartySize())
                 .status(reservation.getStatus().name())
                 .notes(reservation.getNotes())
+                .holdExpiresAt(holdExpiresAt)
+                .holdStatus(holdStatus)
                 .createdAt(reservation.getCreatedAt())
                 .updatedAt(reservation.getUpdatedAt())
                 .build();

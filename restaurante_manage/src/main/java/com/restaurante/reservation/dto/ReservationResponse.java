@@ -28,6 +28,13 @@ public class ReservationResponse {
     private Integer partySize;
     private String status;
     private String notes;
+
+    /** Caducidad del bloqueo provisional; null si la reserva no tiene bloqueo. */
+    private LocalDateTime holdExpiresAt;
+
+    /** NONE (sin bloqueo) | ACTIVE (bloqueo vivo) | EXPIRED (bloqueo caducado). */
+    private String holdStatus;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
