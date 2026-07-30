@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import TimeSlotSelector from '../components/TimeSlotSelector';
+import useTimeSlots from '../hooks/useTimeSlots';
 import {
   fetchPublicRestaurant,
+  fetchPublicTimeSlots,
   createPublicReservation,
 } from '../services/publicReservationService';
 
@@ -108,6 +111,18 @@ const PublicReservation = () => {
   });
   const [formErrors, setFormErrors] = useState({});
 
+  const clearSelectedTime = useCallback(() => {
+    setFormData((prev) => (prev.reservationTime ? { ...prev, reservationTime: '' } : prev));
+  }, []);
+
+  const { slots, loading: loadingSlots, error: slotsError, retry: retrySlots } = useTimeSlots({
+    fetcher: fetchPublicTimeSlots,
+    restaurantId,
+    date: formData.reservationDate,
+    partySize: formData.partySize,
+    onReset: clearSelectedTime,
+  });
+
   // ─── Cargar datos del restaurante ──────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -192,6 +207,11 @@ const PublicReservation = () => {
         const status = err?.status;
         const msg = getSafeErrorMessage(err);
 
+        if (status === 409) {
+          setFormData((prev) => ({ ...prev, reservationTime: '' }));
+          retrySlots();
+        }
+
         if (import.meta.env.DEV) {
           console.error('[PublicReservation] Error al enviar la solicitud:', {
             status,
@@ -219,7 +239,7 @@ const PublicReservation = () => {
         setSubmitting(false);
       }
     },
-    [formData, restaurantId]
+    [formData, restaurantId, retrySlots]
   );
 
   // ─── Resetear formulario para nueva reserva ────────────────────────────────
@@ -414,7 +434,7 @@ const PublicReservation = () => {
             </div>
           )}
 
-          {/* Fila: Fecha + Hora */}
+          {/* Fila: Fecha + Personas */}
           <div className="public-form-row">
             <div className="public-form-group">
               <label htmlFor="res-date" className="public-label">
@@ -435,42 +455,48 @@ const PublicReservation = () => {
             </div>
 
             <div className="public-form-group">
-              <label htmlFor="res-time" className="public-label">
-                Hora <span className="text-danger">*</span>
+              <label htmlFor="res-party" className="public-label">
+                N&uacute;mero de personas <span className="text-danger">*</span>
               </label>
               <input
-                id="res-time"
-                type="time"
-                name="reservationTime"
-                className={`public-input ${formErrors.reservationTime ? 'public-input-error' : ''}`}
-                value={formData.reservationTime}
+                id="res-party"
+                type="number"
+                name="partySize"
+                className={`public-input ${formErrors.partySize ? 'public-input-error' : ''}`}
+                value={formData.partySize}
                 onChange={handleChange}
+                min="1"
+                max="50"
+                step="1"
+                placeholder="Ej: 2"
               />
-              {formErrors.reservationTime && (
-                <span className="public-field-error">{formErrors.reservationTime}</span>
+              {formErrors.partySize && (
+                <span className="public-field-error">{formErrors.partySize}</span>
               )}
             </div>
           </div>
 
-          {/* Personas */}
+          {/* Hora */}
           <div className="public-form-group">
-            <label htmlFor="res-party" className="public-label">
-              N&uacute;mero de personas <span className="text-danger">*</span>
-            </label>
-            <input
-              id="res-party"
-              type="number"
-              name="partySize"
-              className={`public-input ${formErrors.partySize ? 'public-input-error' : ''}`}
-              value={formData.partySize}
-              onChange={handleChange}
-              min="1"
-              max="50"
-              step="1"
-              placeholder="Ej: 2"
+            <label className="public-label" htmlFor="reservationTime">Hora</label>
+            <TimeSlotSelector
+              slots={slots}
+              value={formData.reservationTime}
+              onChange={(time) => {
+                setFormData((prev) => ({ ...prev, reservationTime: time }));
+                setFormErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.reservationTime;
+                  return next;
+                });
+              }}
+              loading={loadingSlots}
+              error={slotsError}
+              onRetry={retrySlots}
+              disabled={!formData.reservationDate}
             />
-            {formErrors.partySize && (
-              <span className="public-field-error">{formErrors.partySize}</span>
+            {formErrors.reservationTime && (
+              <span className="public-field-error">{formErrors.reservationTime}</span>
             )}
           </div>
 
