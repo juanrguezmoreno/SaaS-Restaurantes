@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -214,5 +215,40 @@ class AvailabilityServiceTest {
         Optional<DiningTable> resultado = service.assignFirstAvailableTable(restaurant, DATE, TIME, 2, null);
 
         assertTrue(resultado.isEmpty());
+    }
+
+    // ─── Bloqueo provisional (hold) de solicitudes públicas ──────────────
+
+    private Reservation reservaConHold(LocalTime hora, LocalDateTime holdExpiresAt) {
+        Reservation r = reservaActiva(DATE, hora, ReservationStatus.PENDING);
+        r.setHoldExpiresAt(holdExpiresAt);
+        return r;
+    }
+
+    @Test
+    void isTableAvailable_holdVivoOcupaLaMesa() {
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaConHold(TIME, LocalDateTime.now().plusHours(6))));
+
+        assertFalse(service.isTableAvailable(table, DATE, TIME, 2, null),
+                "Un bloqueo provisional vivo debe ocupar la mesa");
+    }
+
+    @Test
+    void isTableAvailable_holdCaducadoNoOcupaLaMesa() {
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaConHold(TIME, LocalDateTime.now().minusMinutes(1))));
+
+        assertTrue(service.isTableAvailable(table, DATE, TIME, 2, null),
+                "Un bloqueo provisional caducado debe liberar la mesa");
+    }
+
+    @Test
+    void isTableAvailable_reservaSinHoldSiempreOcupa() {
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.PENDING)));
+
+        assertFalse(service.isTableAvailable(table, DATE, TIME, 2, null),
+                "Una reserva sin bloqueo (creada desde el panel) ocupa sin límite de tiempo");
     }
 }

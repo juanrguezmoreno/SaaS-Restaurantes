@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
  * hora: cada reserva ocupa la mesa desde {@code reservationTime} durante
  * {@code Restaurant.defaultReservationDurationMinutes} minutos. Dos reservas
  * de la misma mesa solapan si sus intervalos [inicio, fin) se cruzan.
+ * Una reserva con bloqueo provisional caducado deja de ocupar su mesa de
+ * inmediato, sin depender de ningún job de limpieza.
  */
 @Service
 @RequiredArgsConstructor
@@ -128,7 +130,16 @@ public class AvailabilityService {
         List<Reservation> candidatas = reservationRepository.findActiveByTableAndDateBetween(
                 table.getId(), date.minusDays(1), date.plusDays(1), excludeReservationId);
 
+        LocalDateTime ahora = LocalDateTime.now();
         for (Reservation candidata : candidatas) {
+            // Un bloqueo provisional caducado ya no ocupa la mesa. Se filtra aquí
+            // y no en el JPQL para no cambiar la firma del repositorio: hasOverlap
+            // es el paso obligatorio de todo cálculo de ocupación (disponibilidad,
+            // creación, edición y confirmación), así que basta con este punto.
+            if (candidata.getHoldExpiresAt() != null
+                    && !candidata.getHoldExpiresAt().isAfter(ahora)) {
+                continue;
+            }
             LocalDateTime otroInicio = LocalDateTime.of(candidata.getReservationDate(), candidata.getReservationTime());
             LocalDateTime otroFin = otroInicio.plusMinutes(durationMinutes);
             if (start.isBefore(otroFin) && otroInicio.isBefore(end)) {
