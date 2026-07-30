@@ -2,6 +2,7 @@ package com.restaurante.availability.service;
 
 import com.restaurante.availability.dto.AvailabilityRequest;
 import com.restaurante.availability.dto.AvailableTableResponse;
+import com.restaurante.availability.dto.TimeSlotResponse;
 import com.restaurante.common.exception.ConflictException;
 import com.restaurante.diningtable.entity.DiningTable;
 import com.restaurante.diningtable.enums.TableStatus;
@@ -10,10 +11,10 @@ import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
+import com.restaurante.restaurant.repository.RestaurantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -41,8 +42,9 @@ class AvailabilityServiceTest {
 
     @Mock private DiningTableRepository diningTableRepository;
     @Mock private ReservationRepository reservationRepository;
+    @Mock private RestaurantRepository restaurantRepository;
 
-    @InjectMocks private AvailabilityService service;
+    private AvailabilityService service;
 
     private Restaurant restaurant;
     private DiningTable table;
@@ -65,6 +67,9 @@ class AvailabilityServiceTest {
                 .thenReturn(List.of(table));
         when(diningTableRepository.findByIdAndDeletedFalseForUpdate(TABLE_ID))
                 .thenReturn(Optional.of(table));
+
+        service = new AvailabilityService(diningTableRepository, reservationRepository,
+                restaurantRepository, 30, LocalTime.of(12, 0), LocalTime.of(23, 0));
     }
 
     private AvailabilityRequest request() {
@@ -250,5 +255,93 @@ class AvailabilityServiceTest {
 
         assertFalse(service.isTableAvailable(table, DATE, TIME, 2, null),
                 "Una reserva sin bloqueo (creada desde el panel) ocupa sin límite de tiempo");
+    }
+
+    // ─── getTimeSlots: generación de la rejilla ──────────────────────────
+
+    private void configurarHorario(LocalTime apertura, LocalTime cierre) {
+        restaurant.setOpeningTime(apertura);
+        restaurant.setClosingTime(cierre);
+        when(restaurantRepository.findByIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(Optional.of(restaurant));
+        when(reservationRepository.findActiveByTableAndDateBetween(any(), any(), any(), any()))
+                .thenReturn(List.of());
+    }
+
+    @Test
+    void getTimeSlots_generaFranjasCada30MinDesdeLaApertura() {
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        // 13:00-16:00 con 90 min: 14:30 aún cabe (termina justo a las 16:00), 15:00 no.
+        assertEquals(
+                List.of(LocalTime.of(13, 0), LocalTime.of(13, 30), LocalTime.of(14, 0), LocalTime.of(14, 30)),
+                slots.stream().map(TimeSlotResponse::getTime).toList());
+    }
+
+    @Test
+    void getTimeSlots_ultimaFranjaEsLaQueCabeEnteraAntesDelCierre() {
+        // 13:00-16:00 con 90 min de duración: 14:30 terminaría a las 16:00 (cabe,
+        // el límite es inclusivo), 15:00 se saldría del cierre.
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        assertEquals(LocalTime.of(14, 30), slots.get(slots.size() - 1).getTime());
+    }
+
+    @Test
+    void getTimeSlots_marcaComoNoDisponibleLaFranjaSinMesaValida() {
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+        // La única mesa tiene capacidad 4; se piden 6 comensales.
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 6);
+
+        assertFalse(slots.isEmpty(), "La rejilla se genera aunque no haya hueco");
+        assertTrue(slots.stream().noneMatch(TimeSlotResponse::isAvailable),
+                "Sin mesa con capacidad suficiente, ninguna franja está disponible");
+    }
+
+    @Test
+    void getTimeSlots_marcaComoNoDisponibleLaFranjaConSolape() {
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaActiva(DATE, LocalTime.of(13, 0), ReservationStatus.CONFIRMED)));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        // 13:00-14:30 ocupada → 13:00, 13:30 y 14:00 solapan; 14:30 ya no.
+        assertFalse(slots.get(0).isAvailable(), "13:00 solapa");
+        assertFalse(slots.get(2).isAvailable(), "14:00 solapa");
+        assertTrue(slots.get(3).isAvailable(), "14:30 arranca justo al terminar la anterior");
+    }
+
+    @Test
+    void getTimeSlots_usaHorarioPorDefectoSiElRestauranteNoLoTiene() {
+        configurarHorario(null, null);
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        assertEquals(LocalTime.of(12, 0), slots.get(0).getTime(),
+                "Sin horario configurado se usa el rango por defecto 12:00-23:00");
+    }
+
+    @Test
+    void getTimeSlots_omiteLasFranjasPasadasCuandoLaFechaEsHoy() {
+        configurarHorario(LocalTime.of(0, 0), LocalTime.of(23, 59));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, LocalDate.now(), 2);
+
+        LocalTime ahora = LocalTime.now();
+        assertTrue(slots.stream().allMatch(s -> s.getTime().isAfter(ahora)),
+                "Para hoy no se ofrece ninguna franja ya pasada");
+    }
+
+    @Test
+    void getTimeSlots_devuelveVacioSiElCierreEsAnteriorALaApertura() {
+        // Cierre pasada la medianoche: fuera de alcance en esta iteración.
+        configurarHorario(LocalTime.of(20, 0), LocalTime.of(2, 0));
+
+        assertTrue(service.getTimeSlots(RESTAURANT_ID, DATE, 2).isEmpty());
     }
 }
