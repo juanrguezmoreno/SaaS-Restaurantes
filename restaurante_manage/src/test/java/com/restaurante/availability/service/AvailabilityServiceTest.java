@@ -12,6 +12,8 @@ import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.serviceperiod.entity.ServicePeriod;
+import com.restaurante.serviceperiod.repository.ServicePeriodRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -43,6 +46,7 @@ class AvailabilityServiceTest {
     @Mock private DiningTableRepository diningTableRepository;
     @Mock private ReservationRepository reservationRepository;
     @Mock private RestaurantRepository restaurantRepository;
+    @Mock private ServicePeriodRepository servicePeriodRepository;
 
     private AvailabilityService service;
 
@@ -69,7 +73,13 @@ class AvailabilityServiceTest {
                 .thenReturn(Optional.of(table));
 
         service = new AvailabilityService(diningTableRepository, reservationRepository,
-                restaurantRepository, 30, LocalTime.of(12, 0), LocalTime.of(23, 0));
+                restaurantRepository, servicePeriodRepository,
+                30, LocalTime.of(12, 0), LocalTime.of(23, 0));
+
+        // Por defecto, restaurante sin periodos: se comporta con el horario
+        // general, que es lo que asumen los tests anteriores a esta tarea.
+        when(servicePeriodRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of());
     }
 
     private AvailabilityRequest request() {
@@ -442,5 +452,89 @@ class AvailabilityServiceTest {
         configurarHorario(LocalTime.of(20, 0), LocalTime.of(2, 0));
 
         assertTrue(service.getTimeSlots(RESTAURANT_ID, DATE, 2).isEmpty());
+    }
+
+    // ─── getTimeSlots: rejilla a partir de periodos de servicio ───────────
+
+    private ServicePeriod periodoDeServicio(DayOfWeek dia, String inicio, String fin) {
+        ServicePeriod periodo = new ServicePeriod();
+        periodo.setDayOfWeek(dia);
+        periodo.setStartTime(LocalTime.parse(inicio));
+        periodo.setEndTime(LocalTime.parse(fin));
+        return periodo;
+    }
+
+    @Test
+    void getTimeSlots_generaFranjasDentroDeCadaPeriodoDelDia() {
+        // La ventana general es casi el día entero: si aun así solo salen las
+        // horas de los dos servicios, los periodos han tenido prioridad.
+        configurarHorario(LocalTime.of(0, 0), LocalTime.of(23, 59));
+        restaurant.setDefaultReservationDurationMinutes(60);
+        when(servicePeriodRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(List.of(
+                periodoDeServicio(DayOfWeek.THURSDAY, "13:00", "16:00"),
+                periodoDeServicio(DayOfWeek.THURSDAY, "20:00", "23:00")));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        // Comidas: 13:00, 13:30, 14:00, 14:30, 15:00 (15:00+60=16:00, cabe justo).
+        // Cenas:   20:00, 20:30, 21:00, 21:30, 22:00.
+        assertEquals(List.of(
+                        LocalTime.of(13, 0), LocalTime.of(13, 30), LocalTime.of(14, 0),
+                        LocalTime.of(14, 30), LocalTime.of(15, 0),
+                        LocalTime.of(20, 0), LocalTime.of(20, 30), LocalTime.of(21, 0),
+                        LocalTime.of(21, 30), LocalTime.of(22, 0)),
+                slots.stream().map(TimeSlotResponse::getTime).toList());
+    }
+
+    @Test
+    void getTimeSlots_noOfreceHorasEnElHuecoEntreServicios() {
+        configurarHorario(LocalTime.of(0, 0), LocalTime.of(23, 59));
+        restaurant.setDefaultReservationDurationMinutes(60);
+        when(servicePeriodRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(List.of(
+                periodoDeServicio(DayOfWeek.THURSDAY, "13:00", "16:00"),
+                periodoDeServicio(DayOfWeek.THURSDAY, "20:00", "23:00")));
+
+        List<LocalTime> horas = service.getTimeSlots(RESTAURANT_ID, DATE, 2).stream()
+                .map(TimeSlotResponse::getTime).toList();
+
+        assertFalse(horas.contains(LocalTime.of(17, 0)), "17:00 cae entre servicios");
+        assertFalse(horas.contains(LocalTime.of(18, 30)), "18:30 cae entre servicios");
+        assertFalse(horas.contains(LocalTime.of(15, 30)),
+                "15:30 no cabe entera en el servicio de comidas (15:30+60 pasa de 16:00)");
+    }
+
+    @Test
+    void getTimeSlots_unDiaSinPeriodosEstaCerrado() {
+        configurarHorario(LocalTime.of(0, 0), LocalTime.of(23, 59));
+        // El restaurante tiene periodos, pero ninguno el jueves (DATE es jueves):
+        // ese día está cerrado y no cae al horario general.
+        when(servicePeriodRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(List.of(
+                periodoDeServicio(DayOfWeek.TUESDAY, "13:00", "16:00")));
+
+        assertTrue(service.getTimeSlots(RESTAURANT_ID, DATE, 2).isEmpty());
+    }
+
+    @Test
+    void getTimeSlots_sinNingunPeriodoUsaElHorarioGeneral() {
+        // Fallback: mismo resultado que antes de existir los periodos.
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+        when(servicePeriodRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(List.of());
+
+        List<LocalTime> horas = service.getTimeSlots(RESTAURANT_ID, DATE, 2).stream()
+                .map(TimeSlotResponse::getTime).toList();
+
+        // Con los 90 min por defecto: 14:30 cabe justo, 15:00 ya no.
+        assertEquals(List.of(LocalTime.of(13, 0), LocalTime.of(13, 30),
+                LocalTime.of(14, 0), LocalTime.of(14, 30)), horas);
+    }
+
+    @Test
+    void getTimeSlots_unPeriodoMasCortoQueLaReservaNoGeneraFranjas() {
+        configurarHorario(LocalTime.of(0, 0), LocalTime.of(23, 59));
+        when(servicePeriodRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID)).thenReturn(List.of(
+                periodoDeServicio(DayOfWeek.THURSDAY, "13:00", "14:00")));
+
+        assertTrue(service.getTimeSlots(RESTAURANT_ID, DATE, 2).isEmpty(),
+                "Una reserva de 90 min no cabe en un servicio de 60 min");
     }
 }
