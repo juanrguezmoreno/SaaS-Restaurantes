@@ -11,6 +11,7 @@ import Customers from './pages/Customers';
 import Employees from './pages/Employees';
 import Reservations from './pages/Reservations';
 import Restaurants from './pages/Restaurants';
+import RestaurantSettings from './pages/RestaurantSettings';
 import FloorPlan from './pages/FloorPlan';
 import PublicReservation from './pages/PublicReservation';
 import { PERMISSIONS } from './config/permissions';
@@ -44,6 +45,7 @@ function App() {
 
         {/* ── Administración ── */}
         <Route path="/restaurants" element={<PermissionRoute permission={PERMISSIONS.VIEW_RESTAURANTS}><Restaurants /></PermissionRoute>} />
+        <Route path="/restaurants/:restaurantId/configuracion" element={<PermissionRoute permission={PERMISSIONS.MANAGE_RESTAURANTS}><RestaurantSettings /></PermissionRoute>} />
         <Route path="/employees" element={<PermissionRoute permission={PERMISSIONS.VIEW_EMPLOYEES}><Employees /></PermissionRoute>} />
       </Route>
 

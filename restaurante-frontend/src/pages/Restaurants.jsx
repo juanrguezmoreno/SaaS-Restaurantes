@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   getRestaurants,
   createRestaurant,
-  updateRestaurant,
   deleteRestaurant,
 } from '../services/restaurantService';
 import QRModal from '../components/QRModal';
+import RestaurantInfoForm from '../components/RestaurantInfoForm';
 
 // ─── Estado inicial del formulario ───────────────────────────────────────
 const INITIAL_FORM = {
@@ -30,6 +31,8 @@ const getErrorMessage = (err) => {
 
 // ─── Componente principal ────────────────────────────────────────────────
 const Restaurants = () => {
+  const navigate = useNavigate();
+
   // Estados de datos y UI
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,6 @@ const Restaurants = () => {
 
   // Estados del modal
   const [showModal, setShowModal] = useState(false);
-  const [editingRestaurant, setEditingRestaurant] = useState(null);
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formErrors, setFormErrors] = useState({});
@@ -88,32 +90,7 @@ const Restaurants = () => {
 
   // ─── Abrir modal para crear ───────────────────────────────────────────
   const handleOpenCreate = () => {
-    setEditingRestaurant(null);
     setFormData({ ...INITIAL_FORM });
-    setFormErrors({});
-    setShowModal(true);
-  };
-
-  // ─── Abrir modal para editar ──────────────────────────────────────────
-  const handleOpenEdit = (restaurant) => {
-    if (!restaurant) return;
-
-    setEditingRestaurant(restaurant);
-    setFormData({
-      name: restaurant.name || '',
-      address: restaurant.address || '',
-      phone: restaurant.phone || '',
-      email: restaurant.email || '',
-      description: restaurant.description || '',
-      openingTime: restaurant.openingTime
-        ? String(restaurant.openingTime).substring(0, 5)
-        : '',
-      closingTime: restaurant.closingTime
-        ? String(restaurant.closingTime).substring(0, 5)
-        : '',
-      capacity: restaurant.capacity ?? '',
-      defaultReservationDurationMinutes: restaurant.defaultReservationDurationMinutes ?? '',
-    });
     setFormErrors({});
     setShowModal(true);
   };
@@ -121,7 +98,6 @@ const Restaurants = () => {
   // ─── Cerrar modal ─────────────────────────────────────────────────────
   const handleCloseModal = () => {
     setShowModal(false);
-    setEditingRestaurant(null);
     setFormData({ ...INITIAL_FORM });
     setFormErrors({});
   };
@@ -213,13 +189,8 @@ const Restaurants = () => {
             : null,
       };
 
-      if (editingRestaurant) {
-        await updateRestaurant(editingRestaurant.id, payload);
-        setSuccessMessage('Restaurante actualizado correctamente.');
-      } else {
-        await createRestaurant(payload);
-        setSuccessMessage('Restaurante creado correctamente.');
-      }
+      await createRestaurant(payload);
+      setSuccessMessage('Restaurante creado correctamente.');
 
       // Cerrar modal y refrescar lista
       handleCloseModal();
@@ -548,13 +519,13 @@ const Restaurants = () => {
                           </button>
                           <button
                             className="btn-icon btn-edit"
-                            onClick={() => handleOpenEdit(restaurant)}
-                            title="Editar restaurante"
+                            onClick={() => navigate(`/restaurants/${restaurant.id}/configuracion`)}
+                            title="Configurar restaurante"
                             type="button"
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                             </svg>
                           </button>
                           <button
@@ -719,9 +690,7 @@ const Restaurants = () => {
           <div className="modal-dialog modal-lg modal-dialog-scrollable">
             <div className="modal-content">
               <div className="modal-header">
-                <h5 className="modal-title">
-                  {editingRestaurant ? 'Editar Restaurante' : 'Nuevo Restaurante'}
-                </h5>
+                <h5 className="modal-title">Nuevo Restaurante</h5>
                 <button type="button" className="btn-close" onClick={handleCloseModal} aria-label="Cerrar" />
               </div>
 
@@ -734,149 +703,11 @@ const Restaurants = () => {
                     </div>
                   )}
 
-                  <div className="row g-3">
-                    {/* Nombre */}
-                    <div className="col-12 col-md-6">
-                      <label htmlFor="rest-name" className="form-label">
-                        Nombre <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        id="rest-name"
-                        type="text"
-                        className={`form-control ${formErrors.name ? 'is-invalid' : ''}`}
-                        name="name"
-                        value={formData.name || ''}
-                        onChange={handleFormChange}
-                        placeholder="Ej: Restaurante La Casa"
-                        required
-                      />
-                      {formErrors.name && <div className="invalid-feedback">{formErrors.name}</div>}
-                    </div>
-
-                    {/* Capacidad */}
-                    <div className="col-12 col-md-3">
-                      <label htmlFor="rest-capacity" className="form-label">Capacidad</label>
-                      <input
-                        id="rest-capacity"
-                        type="number"
-                        className={`form-control ${formErrors.capacity ? 'is-invalid' : ''}`}
-                        name="capacity"
-                        value={formData.capacity ?? ''}
-                        onChange={handleFormChange}
-                        placeholder="Ej: 80"
-                        min="0"
-                        step="1"
-                      />
-                      {formErrors.capacity && <div className="invalid-feedback">{formErrors.capacity}</div>}
-                    </div>
-
-                    {/* Teléfono */}
-                    <div className="col-12 col-md-3">
-                      <label htmlFor="rest-phone" className="form-label">Teléfono</label>
-                      <input
-                        id="rest-phone"
-                        type="text"
-                        className="form-control"
-                        name="phone"
-                        value={formData.phone || ''}
-                        onChange={handleFormChange}
-                        placeholder="Ej: 600123456"
-                      />
-                    </div>
-
-                    {/* Dirección */}
-                    <div className="col-12">
-                      <label htmlFor="rest-address" className="form-label">
-                        Dirección <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        id="rest-address"
-                        type="text"
-                        className={`form-control ${formErrors.address ? 'is-invalid' : ''}`}
-                        name="address"
-                        value={formData.address || ''}
-                        onChange={handleFormChange}
-                        placeholder="Ej: Calle Principal 123, Madrid"
-                        required
-                      />
-                      {formErrors.address && <div className="invalid-feedback">{formErrors.address}</div>}
-                    </div>
-
-                    {/* Email */}
-                    <div className="col-12 col-md-6">
-                      <label htmlFor="rest-email" className="form-label">Email</label>
-                      <input
-                        id="rest-email"
-                        type="email"
-                        className={`form-control ${formErrors.email ? 'is-invalid' : ''}`}
-                        name="email"
-                        value={formData.email || ''}
-                        onChange={handleFormChange}
-                        placeholder="Ej: contacto@restaurante.com"
-                      />
-                      {formErrors.email && <div className="invalid-feedback">{formErrors.email}</div>}
-                    </div>
-
-                    {/* Apertura */}
-                    <div className="col-6 col-md-3">
-                      <label htmlFor="rest-opening" className="form-label">Hora Apertura</label>
-                      <input
-                        id="rest-opening"
-                        type="time"
-                        className="form-control"
-                        name="openingTime"
-                        value={formData.openingTime || ''}
-                        onChange={handleFormChange}
-                      />
-                    </div>
-
-                    {/* Cierre */}
-                    <div className="col-6 col-md-3">
-                      <label htmlFor="rest-closing" className="form-label">Hora Cierre</label>
-                      <input
-                        id="rest-closing"
-                        type="time"
-                        className="form-control"
-                        name="closingTime"
-                        value={formData.closingTime || ''}
-                        onChange={handleFormChange}
-                      />
-                    </div>
-
-                    {/* Duración de reserva */}
-                    <div className="col-6 col-md-3">
-                      <label htmlFor="rest-duration" className="form-label">Duración de reserva (min)</label>
-                      <input
-                        id="rest-duration"
-                        type="number"
-                        className={`form-control ${formErrors.defaultReservationDurationMinutes ? 'is-invalid' : ''}`}
-                        name="defaultReservationDurationMinutes"
-                        value={formData.defaultReservationDurationMinutes ?? ''}
-                        onChange={handleFormChange}
-                        placeholder="Ej: 90"
-                        min="15"
-                        max="480"
-                        step="1"
-                      />
-                      {formErrors.defaultReservationDurationMinutes && (
-                        <div className="invalid-feedback">{formErrors.defaultReservationDurationMinutes}</div>
-                      )}
-                    </div>
-
-                    {/* Descripción */}
-                    <div className="col-12">
-                      <label htmlFor="rest-description" className="form-label">Descripción</label>
-                      <textarea
-                        id="rest-description"
-                        className="form-control"
-                        name="description"
-                        value={formData.description || ''}
-                        onChange={handleFormChange}
-                        rows={3}
-                        placeholder="Breve descripción del restaurante..."
-                      />
-                    </div>
-                  </div>
+                  <RestaurantInfoForm
+                    formData={formData}
+                    formErrors={formErrors}
+                    onChange={handleFormChange}
+                  />
                 </div>
 
                 <div className="modal-footer">
@@ -896,7 +727,7 @@ const Restaurants = () => {
                     {submitting && (
                       <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                     )}
-                    {editingRestaurant ? 'Actualizar' : 'Crear'} Restaurante
+                    Crear Restaurante
                   </button>
                 </div>
               </form>
