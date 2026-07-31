@@ -381,6 +381,12 @@ public class ReservationService {
                     reservation.getReservationTime(), reservation.getId());
         }
 
+        // Editar la solicitud desde el panel privado es gestionarla, igual que las
+        // ramas de updateStatus: se limpia el bloqueo provisional incondicionalmente
+        // para no dejar un holdExpiresAt caducado que la disponibilidad ignore pero
+        // el índice único de mesa activa siga considerando ocupado.
+        reservation.setHoldExpiresAt(null);
+
         Reservation saved = reservationRepository.save(reservation);
         return reservationMapper.toResponse(saved);
     }
@@ -460,11 +466,17 @@ public class ReservationService {
             diningTableRepository.save(table);
             log.info("Mesa {} marcada como RESERVED al confirmar reserva #{}", table.getId(), id);
 
+            // El bloqueo provisional deja de tener sentido: la mesa pasa a estar
+            // ocupada en firme.
+            reservation.setHoldExpiresAt(null);
+
             eventPublisher.publishEvent(new ReservationConfirmedEvent(ReservationEmailData.from(reservation)));
         }
 
         // ─── Transición a CANCELLED ────────────────────────────────
         if (newStatus == ReservationStatus.CANCELLED) {
+            reservation.setHoldExpiresAt(null);
+
             // Snapshot ANTES de desasignar la mesa: el listener corre
             // post-commit con la sesión de Hibernate cerrada.
             // Solo publicar si no estaba ya CANCELLED, para evitar un
@@ -485,6 +497,8 @@ public class ReservationService {
 
         // ─── Transición a COMPLETED o NO_SHOW ──────────────────────
         else if (newStatus == ReservationStatus.COMPLETED || newStatus == ReservationStatus.NO_SHOW) {
+            reservation.setHoldExpiresAt(null);
+
             // Cambiar estado ANTES de liberar para que la consulta
             // findActiveConfirmedByTableId NO encuentre esta reserva
             if (reservation.getDiningTable() != null) {
@@ -608,6 +622,33 @@ public class ReservationService {
         log.info("[MANTENIMIENTO] Revisión completada: {} mesas corregidas de {} revisadas",
                 fixedCount, reservedTables.size());
         return fixedCount;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  MANTENIMIENTO: Liberar bloqueos provisionales caducados
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Suelta la mesa de las solicitudes públicas cuyo bloqueo provisional ha
+     * caducado, conservando {@code holdExpiresAt} como marca de "pendiente sin
+     * bloqueo" y la solicitud en PENDING para que el restaurante pueda
+     * gestionarla. Solo es higiene de datos: la disponibilidad ya deja de
+     * contarlas en cuanto vence la caducidad.
+     *
+     * @return número de bloqueos liberados
+     */
+    @Transactional
+    public int releaseExpiredHolds() {
+        List<Reservation> caducadas = reservationRepository.findExpiredHolds(LocalDateTime.now());
+        for (Reservation reserva : caducadas) {
+            Long tableId = reserva.getDiningTable().getId();
+            reserva.setDiningTable(null);
+            reservationRepository.save(reserva);
+            releaseTableIfNoActiveConfirmedReservations(tableId);
+            log.info("Bloqueo provisional caducado en la reserva #{}: mesa {} liberada",
+                    reserva.getId(), tableId);
+        }
+        return caducadas.size();
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -8,11 +8,14 @@ import {
   updateReservation,
   deleteReservation,
   updateReservationStatus,
+  getTimeSlots,
 } from '../services/reservationService';
 import { getRestaurants } from '../services/restaurantService';
 import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
 import QuickCustomerForm from '../components/QuickCustomerForm';
+import TimeSlotSelector from '../components/TimeSlotSelector';
+import useTimeSlots from '../hooks/useTimeSlots';
 import { canAccess, PERMISSIONS } from '../config/permissions';
 import { filterPendingReservations, getLocalTodayString, isFutureReservation } from '../lib/reservationHelpers';
 
@@ -95,10 +98,9 @@ const Reservations = () => {
   // ─── Wizard de Nueva Reserva ──────────────────────────────────────────
   const WIZARD_STEPS = [
     { id: 1, title: 'Restaurante', subtitle: 'Elige el restaurante' },
-    { id: 2, title: 'Fecha y Hora', subtitle: 'Cuándo reservar' },
-    { id: 3, title: 'Personas', subtitle: 'Número de comensales' },
-    { id: 4, title: 'Mesa', subtitle: 'Selecciona la mesa disponible' },
-    { id: 5, title: 'Confirmar', subtitle: 'Cliente y resumen final' },
+    { id: 2, title: 'Fecha y hora', subtitle: 'Cuándo y para cuántos' },
+    { id: 3, title: 'Mesa', subtitle: 'Selecciona la mesa disponible' },
+    { id: 4, title: 'Confirmar', subtitle: 'Cliente y resumen final' },
   ];
 
   const INITIAL_WIZARD = {
@@ -123,6 +125,26 @@ const Reservations = () => {
   const [wizardSuccess, setWizardSuccess] = useState(false);
   const [showQuickCustomer, setShowQuickCustomer] = useState(false);
   const [quickCustomerSuccess, setQuickCustomerSuccess] = useState(false);
+
+  // ─── Franjas horarias del wizard ────────────────────────────────────────
+  const clearWizardTime = useCallback(() => {
+    setWizardData((prev) => (prev.reservationTime ? { ...prev, reservationTime: '' } : prev));
+    setAvailableTables([]);
+    setAvailabilityChecked(false);
+  }, []);
+
+  const {
+    slots: wizardSlots,
+    loading: loadingWizardSlots,
+    error: wizardSlotsError,
+    retry: retryWizardSlots,
+  } = useTimeSlots({
+    fetcher: getTimeSlots,
+    restaurantId: wizardData.restaurantId,
+    date: wizardData.reservationDate,
+    partySize: wizardData.partySize,
+    onReset: clearWizardTime,
+  });
 
   // ─── Estados del calendario diario ──────────────────────────────────────
   const [viewMode, setViewMode] = useState('table');
@@ -560,20 +582,20 @@ const Reservations = () => {
   const canGoNext = (step) => {
     switch (step) {
       case 0: return !!wizardData.restaurantId;
-      case 1: return !!wizardData.reservationDate && !!wizardData.reservationTime;
-      case 2: {
+      case 1: {
         const ps = Number(wizardData.partySize);
-        return !!wizardData.partySize && ps >= 1 && Number.isInteger(ps);
+        return !!wizardData.reservationDate
+          && !!wizardData.reservationTime
+          && ps >= 1 && Number.isInteger(ps);
       }
-      case 3: return !!wizardData.selectedTable;
-      case 4: return !!wizardData.customerId;
+      case 2: return !!wizardData.selectedTable;
+      case 3: return !!wizardData.customerId;
       default: return false;
     }
   };
 
   const handleNextStep = () => {
-    if (wizardStep === 2 && !availabilityChecked) {
-      // Check availability before moving to step 4
+    if (wizardStep === 1 && !availabilityChecked) {
       checkAvailability();
       return;
     }
@@ -624,7 +646,7 @@ const Reservations = () => {
 
       setAvailableTables(normalizedTables);
       setAvailabilityChecked(true);
-      setWizardStep(3);
+      setWizardStep(2);
 
       if (tables.length === 0) {
         setWizardError('No hay mesas disponibles para los criterios seleccionados.');
@@ -1422,7 +1444,14 @@ const Reservations = () => {
                                       {r?.partySize ?? '—'}
                                     </span>
                                   </td>
-                                  <td>{renderStatusBadge(r?.status)}</td>
+                                  <td>
+                                    {renderStatusBadge(r?.status)}
+                                    {r.holdStatus === 'EXPIRED' && (
+                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
+                                        Pendiente sin bloqueo
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="col-actions">{renderRowActions(r)}</td>
                                 </tr>
                               ))}
@@ -1480,7 +1509,14 @@ const Reservations = () => {
                                       {r?.partySize ?? '—'}
                                     </span>
                                   </td>
-                                  <td>{renderStatusBadge(r?.status)}</td>
+                                  <td>
+                                    {renderStatusBadge(r?.status)}
+                                    {r.holdStatus === 'EXPIRED' && (
+                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
+                                        Pendiente sin bloqueo
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="col-actions">{renderRowActions(r)}</td>
                                 </tr>
                               ))}
@@ -1548,7 +1584,14 @@ const Reservations = () => {
                                       {r?.partySize ?? '—'}
                                     </span>
                                   </td>
-                                  <td>{renderStatusBadge(r?.status)}</td>
+                                  <td>
+                                    {renderStatusBadge(r?.status)}
+                                    {r.holdStatus === 'EXPIRED' && (
+                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
+                                        Pendiente sin bloqueo
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="col-actions">{renderRowActions(r)}</td>
                                 </tr>
                               ))}
@@ -1939,6 +1982,15 @@ const Reservations = () => {
                     </span>
                     <span className="res-detail-value">{detailReservation.partySize || '—'}</span>
                   </div>
+
+                  {detailReservation.holdStatus === 'ACTIVE' && (
+                    <div className="res-detail-item">
+                      <span className="res-detail-label">Bloqueo de mesa</span>
+                      <span className="res-detail-value">
+                        Activo hasta {new Date(detailReservation.holdExpiresAt).toLocaleString('es-ES')}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {detailReservation.notes && (
@@ -2223,7 +2275,7 @@ const Reservations = () => {
                 {!wizardSuccess && (
                   <>
                     <h5 className="modal-title fw-bold" style={{ fontSize: '1.25rem' }}>
-                      {wizardStep === 4 ? 'Confirmar Reserva' : 'Nueva Reserva'}
+                      {wizardStep === 3 ? 'Confirmar Reserva' : 'Nueva Reserva'}
                     </h5>
                     <button type="button" className="btn-close" onClick={handleCloseWizard} aria-label="Cerrar" disabled={wizardSubmitting} />
                   </>
@@ -2359,22 +2411,14 @@ const Reservations = () => {
                           <h6 className="fw-semibold mb-3">¿Cuándo será la reserva?</h6>
                           <div className="row g-4">
                             <div className="col-md-6">
-                              <label className="form-label fw-medium">Fecha</label>
+                              <label className="form-label fw-medium" htmlFor="wizardDate">Fecha</label>
                               <input
+                                id="wizardDate"
                                 type="date"
                                 className="form-control form-control-lg"
                                 value={wizardData.reservationDate}
                                 min={getLocalTodayString()}
                                 onChange={(e) => handleWizardChange('reservationDate', e.target.value)}
-                              />
-                            </div>
-                            <div className="col-md-6">
-                              <label className="form-label fw-medium">Hora</label>
-                              <input
-                                type="time"
-                                className="form-control form-control-lg"
-                                value={wizardData.reservationTime}
-                                onChange={(e) => handleWizardChange('reservationTime', e.target.value)}
                               />
                             </div>
                           </div>
@@ -2383,13 +2427,8 @@ const Reservations = () => {
                               {new Date(wizardData.reservationDate + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                             </p>
                           )}
-                        </div>
-                      )}
 
-                      {/* Step 2: Comensales */}
-                      {wizardStep === 2 && (
-                        <div>
-                          <h6 className="fw-semibold mb-3">Número de comensales</h6>
+                          <h6 className="fw-semibold mb-3 mt-4">Número de comensales</h6>
                           <div className="d-flex align-items-center gap-3 mb-4" style={{ maxWidth: '320px' }}>
                             <button
                               type="button"
@@ -2423,11 +2462,24 @@ const Reservations = () => {
                             {Number(wizardData.partySize) === 1 ? '1 persona' : `${wizardData.partySize} personas`}
                             {Number(wizardData.partySize) > 8 && ' — Recomendamos contactar al restaurante para grupos grandes.'}
                           </div>
+
+                          <div className="mb-3">
+                            <label className="form-label" htmlFor="wizardTime">Hora</label>
+                            <TimeSlotSelector
+                              slots={wizardSlots}
+                              value={wizardData.reservationTime}
+                              onChange={(time) => handleWizardChange('reservationTime', time)}
+                              loading={loadingWizardSlots}
+                              error={wizardSlotsError}
+                              onRetry={retryWizardSlots}
+                              disabled={!wizardData.reservationDate}
+                            />
+                          </div>
                         </div>
                       )}
 
-                      {/* Step 3: Seleccionar Mesa */}
-                      {wizardStep === 3 && (
+                      {/* Step 2: Seleccionar Mesa */}
+                      {wizardStep === 2 && (
                         <div>
                           <h6 className="fw-semibold mb-3">
                             {checkingAvailability ? 'Verificando disponibilidad...' : 'Selecciona una mesa disponible'}
@@ -2506,8 +2558,8 @@ const Reservations = () => {
                         </div>
                       )}
 
-                      {/* Step 4: Confirmar */}
-                      {wizardStep === 4 && (
+                      {/* Step 3: Confirmar */}
+                      {wizardStep === 3 && (
                         <div>
                           <h6 className="fw-semibold mb-3">Cliente y resumen</h6>
 
@@ -2629,7 +2681,7 @@ const Reservations = () => {
                             type="button"
                             className="btn btn-primary"
                             onClick={handleConfirmReservation}
-                            disabled={!canGoNext(4) || wizardSubmitting}
+                            disabled={!canGoNext(3) || wizardSubmitting}
                           >
                             {wizardSubmitting ? (
                               <>
@@ -2650,7 +2702,7 @@ const Reservations = () => {
                                 <span className="spinner-border spinner-border-sm me-1" role="status" />
                                 Verificando...
                               </>
-                            ) : wizardStep === 2 ? 'Buscar Mesas' : 'Continuar'}
+                            ) : wizardStep === 1 ? 'Buscar Mesas' : 'Continuar'}
                           </button>
                         )}
                         {!wizardSubmitting && (

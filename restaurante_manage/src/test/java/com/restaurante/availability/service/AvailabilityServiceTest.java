@@ -2,6 +2,7 @@ package com.restaurante.availability.service;
 
 import com.restaurante.availability.dto.AvailabilityRequest;
 import com.restaurante.availability.dto.AvailableTableResponse;
+import com.restaurante.availability.dto.TimeSlotResponse;
 import com.restaurante.common.exception.ConflictException;
 import com.restaurante.diningtable.entity.DiningTable;
 import com.restaurante.diningtable.enums.TableStatus;
@@ -10,16 +11,17 @@ import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
+import com.restaurante.restaurant.repository.RestaurantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -40,8 +42,9 @@ class AvailabilityServiceTest {
 
     @Mock private DiningTableRepository diningTableRepository;
     @Mock private ReservationRepository reservationRepository;
+    @Mock private RestaurantRepository restaurantRepository;
 
-    @InjectMocks private AvailabilityService service;
+    private AvailabilityService service;
 
     private Restaurant restaurant;
     private DiningTable table;
@@ -64,6 +67,9 @@ class AvailabilityServiceTest {
                 .thenReturn(List.of(table));
         when(diningTableRepository.findByIdAndDeletedFalseForUpdate(TABLE_ID))
                 .thenReturn(Optional.of(table));
+
+        service = new AvailabilityService(diningTableRepository, reservationRepository,
+                restaurantRepository, 30, LocalTime.of(12, 0), LocalTime.of(23, 0));
     }
 
     private AvailabilityRequest request() {
@@ -214,5 +220,227 @@ class AvailabilityServiceTest {
         Optional<DiningTable> resultado = service.assignFirstAvailableTable(restaurant, DATE, TIME, 2, null);
 
         assertTrue(resultado.isEmpty());
+    }
+
+    // ─── holdFirstAvailableTable: retención con reintento tras conflicto ──
+
+    private DiningTable mesaConId(Long id) {
+        DiningTable mesa = new DiningTable();
+        mesa.setId(id);
+        mesa.setTableNumber(String.valueOf(id));
+        mesa.setCapacity(4);
+        mesa.setStatus(TableStatus.AVAILABLE);
+        mesa.setRestaurant(restaurant);
+        return mesa;
+    }
+
+    @Test
+    void holdFirstAvailableTable_reintentaConLaSiguienteMesaTrasConflictoDeBloqueoEnLaPrimera() {
+        // Dos candidatas libres en el escaneo inicial (mesa 10 y mesa 20), pero
+        // entre el escaneo y la adquisición del bloqueo pesimista otra transacción
+        // se lleva la mesa 10: assertNoOverlap debe lanzar ConflictException para
+        // ella y el método debe probar con la mesa 20.
+        DiningTable mesa20 = mesaConId(20L);
+
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(table, mesa20));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa20.getId()))
+                .thenReturn(Optional.of(mesa20));
+
+        // Mesa 10: libre en el escaneo (isTableAvailable), pero con solape al
+        // comprobarla de nuevo bajo bloqueo (assertNoOverlap).
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of())
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.CONFIRMED)));
+        // Mesa 20: libre siempre.
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa20.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+
+        Optional<DiningTable> resultado = service.holdFirstAvailableTable(restaurant, DATE, TIME, 2);
+
+        assertTrue(resultado.isPresent());
+        assertEquals(mesa20.getId(), resultado.get().getId(),
+                "Tras el conflicto de bloqueo en la mesa 10 debe retener la mesa 20, no fallar");
+        // Prueba que el conflicto de la mesa 10 se ejerció de verdad (no fue casualidad):
+        // assertNoOverlap intentó el bloqueo pesimista sobre ella antes de descartarla.
+        org.mockito.Mockito.verify(diningTableRepository).findByIdAndDeletedFalseForUpdate(TABLE_ID);
+    }
+
+    @Test
+    void holdFirstAvailableTable_devuelveVacioSiTodasLasCandidatasTienenConflictoDeBloqueo() {
+        // Las dos mesas están libres en el escaneo, pero ambas pierden la carrera
+        // por el bloqueo pesimista: ninguna debe quedar retenida.
+        DiningTable mesa20 = mesaConId(20L);
+
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(table, mesa20));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa20.getId()))
+                .thenReturn(Optional.of(mesa20));
+
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of())
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.CONFIRMED)));
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa20.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of())
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.CONFIRMED)));
+
+        Optional<DiningTable> resultado = service.holdFirstAvailableTable(restaurant, DATE, TIME, 2);
+
+        assertTrue(resultado.isEmpty(), "Si todas las candidatas pierden la carrera por el bloqueo, no debe retener ninguna");
+        // Ambas candidatas deben haber sido intentadas de verdad, no solo la primera.
+        org.mockito.Mockito.verify(diningTableRepository).findByIdAndDeletedFalseForUpdate(TABLE_ID);
+        org.mockito.Mockito.verify(diningTableRepository).findByIdAndDeletedFalseForUpdate(mesa20.getId());
+    }
+
+    @Test
+    void holdFirstAvailableTable_pruebaLasCandidatasEnOrdenAscendentePorId() {
+        // El repositorio devuelve las mesas en un orden de inserción sin ordenar
+        // (30, 10, 20); todas están libres. Si el método no ordenara por id y se
+        // limitara a tomar la primera de la lista, devolvería la mesa 30.
+        DiningTable mesa30 = mesaConId(30L);
+        DiningTable mesa20 = mesaConId(20L);
+
+        when(diningTableRepository.findByRestaurantIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(List.of(mesa30, table, mesa20));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa30.getId()))
+                .thenReturn(Optional.of(mesa30));
+        when(diningTableRepository.findByIdAndDeletedFalseForUpdate(mesa20.getId()))
+                .thenReturn(Optional.of(mesa20));
+
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa30.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+        when(reservationRepository.findActiveByTableAndDateBetween(mesa20.getId(), DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of());
+
+        Optional<DiningTable> resultado = service.holdFirstAvailableTable(restaurant, DATE, TIME, 2);
+
+        assertTrue(resultado.isPresent());
+        assertEquals(TABLE_ID, resultado.get().getId(),
+                "Debe probar las candidatas ordenadas por id ascendente (10 antes que 20 y 30), no en el orden del repositorio");
+    }
+
+    // ─── Bloqueo provisional (hold) de solicitudes públicas ──────────────
+
+    private Reservation reservaConHold(LocalTime hora, LocalDateTime holdExpiresAt) {
+        Reservation r = reservaActiva(DATE, hora, ReservationStatus.PENDING);
+        r.setHoldExpiresAt(holdExpiresAt);
+        return r;
+    }
+
+    @Test
+    void isTableAvailable_holdVivoOcupaLaMesa() {
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaConHold(TIME, LocalDateTime.now().plusHours(6))));
+
+        assertFalse(service.isTableAvailable(table, DATE, TIME, 2, null),
+                "Un bloqueo provisional vivo debe ocupar la mesa");
+    }
+
+    @Test
+    void isTableAvailable_holdCaducadoNoOcupaLaMesa() {
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaConHold(TIME, LocalDateTime.now().minusMinutes(1))));
+
+        assertTrue(service.isTableAvailable(table, DATE, TIME, 2, null),
+                "Un bloqueo provisional caducado debe liberar la mesa");
+    }
+
+    @Test
+    void isTableAvailable_reservaSinHoldSiempreOcupa() {
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaActiva(DATE, TIME, ReservationStatus.PENDING)));
+
+        assertFalse(service.isTableAvailable(table, DATE, TIME, 2, null),
+                "Una reserva sin bloqueo (creada desde el panel) ocupa sin límite de tiempo");
+    }
+
+    // ─── getTimeSlots: generación de la rejilla ──────────────────────────
+
+    private void configurarHorario(LocalTime apertura, LocalTime cierre) {
+        restaurant.setOpeningTime(apertura);
+        restaurant.setClosingTime(cierre);
+        when(restaurantRepository.findByIdAndDeletedFalse(RESTAURANT_ID))
+                .thenReturn(Optional.of(restaurant));
+        when(reservationRepository.findActiveByTableAndDateBetween(any(), any(), any(), any()))
+                .thenReturn(List.of());
+    }
+
+    @Test
+    void getTimeSlots_generaFranjasCada30MinDesdeLaApertura() {
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        // 13:00-16:00 con 90 min: 14:30 aún cabe (termina justo a las 16:00), 15:00 no.
+        assertEquals(
+                List.of(LocalTime.of(13, 0), LocalTime.of(13, 30), LocalTime.of(14, 0), LocalTime.of(14, 30)),
+                slots.stream().map(TimeSlotResponse::getTime).toList());
+    }
+
+    @Test
+    void getTimeSlots_ultimaFranjaEsLaQueCabeEnteraAntesDelCierre() {
+        // 13:00-16:00 con 90 min de duración: 14:30 terminaría a las 16:00 (cabe,
+        // el límite es inclusivo), 15:00 se saldría del cierre.
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        assertEquals(LocalTime.of(14, 30), slots.get(slots.size() - 1).getTime());
+    }
+
+    @Test
+    void getTimeSlots_marcaComoNoDisponibleLaFranjaSinMesaValida() {
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+        // La única mesa tiene capacidad 4; se piden 6 comensales.
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 6);
+
+        assertFalse(slots.isEmpty(), "La rejilla se genera aunque no haya hueco");
+        assertTrue(slots.stream().noneMatch(TimeSlotResponse::isAvailable),
+                "Sin mesa con capacidad suficiente, ninguna franja está disponible");
+    }
+
+    @Test
+    void getTimeSlots_marcaComoNoDisponibleLaFranjaConSolape() {
+        configurarHorario(LocalTime.of(13, 0), LocalTime.of(16, 0));
+        when(reservationRepository.findActiveByTableAndDateBetween(TABLE_ID, DATE.minusDays(1), DATE.plusDays(1), null))
+                .thenReturn(List.of(reservaActiva(DATE, LocalTime.of(13, 0), ReservationStatus.CONFIRMED)));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        // 13:00-14:30 ocupada → 13:00, 13:30 y 14:00 solapan; 14:30 ya no.
+        assertFalse(slots.get(0).isAvailable(), "13:00 solapa");
+        assertFalse(slots.get(2).isAvailable(), "14:00 solapa");
+        assertTrue(slots.get(3).isAvailable(), "14:30 arranca justo al terminar la anterior");
+    }
+
+    @Test
+    void getTimeSlots_usaHorarioPorDefectoSiElRestauranteNoLoTiene() {
+        configurarHorario(null, null);
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, DATE, 2);
+
+        assertEquals(LocalTime.of(12, 0), slots.get(0).getTime(),
+                "Sin horario configurado se usa el rango por defecto 12:00-23:00");
+    }
+
+    @Test
+    void getTimeSlots_omiteLasFranjasPasadasCuandoLaFechaEsHoy() {
+        configurarHorario(LocalTime.of(0, 0), LocalTime.of(23, 59));
+
+        List<TimeSlotResponse> slots = service.getTimeSlots(RESTAURANT_ID, LocalDate.now(), 2);
+
+        LocalTime ahora = LocalTime.now();
+        assertTrue(slots.stream().allMatch(s -> s.getTime().isAfter(ahora)),
+                "Para hoy no se ofrece ninguna franja ya pasada");
+    }
+
+    @Test
+    void getTimeSlots_devuelveVacioSiElCierreEsAnteriorALaApertura() {
+        // Cierre pasada la medianoche: fuera de alcance en esta iteración.
+        configurarHorario(LocalTime.of(20, 0), LocalTime.of(2, 0));
+
+        assertTrue(service.getTimeSlots(RESTAURANT_ID, DATE, 2).isEmpty());
     }
 }

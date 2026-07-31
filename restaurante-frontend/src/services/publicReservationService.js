@@ -112,3 +112,27 @@ export const createPublicReservation = async (data) => {
     throw handleError(error);
   }
 };
+
+/**
+ * Franjas horarias del restaurante para el formulario público.
+ * Solo devuelve hora y disponibilidad: el endpoint no expone datos de mesas
+ * ni de otras reservas.
+ *
+ * @param {number} restaurantId
+ * @param {string} date - formato YYYY-MM-DD
+ * @param {number} partySize
+ * @returns {Promise<Array<{time: string, available: boolean}>>}
+ */
+export const fetchPublicTimeSlots = async (restaurantId, date, partySize) => {
+  try {
+    const response = await publicApi.get(`/public/restaurants/${Number(restaurantId)}/time-slots`, {
+      params: { date, partySize },
+    });
+    const body = response?.data;
+    if (Array.isArray(body)) return body;
+    if (Array.isArray(body?.data)) return body.data;
+    return [];
+  } catch (error) {
+    throw handleError(error);
+  }
+};

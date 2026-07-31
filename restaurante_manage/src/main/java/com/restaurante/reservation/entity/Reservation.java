@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 @Getter
@@ -53,4 +54,17 @@ public class Reservation extends BaseEntity {
 
     @Column(columnDefinition = "TEXT")
     private String notes;
+
+    /**
+     * Caducidad del bloqueo provisional de mesa de una solicitud pública.
+     *
+     * <p>{@code null} = reserva normal, ocupa su mesa sin límite de tiempo.
+     * Fecha futura = bloqueo vivo, ocupa. Fecha pasada = bloqueo caducado: la
+     * mesa queda libre para otros, pero la solicitud sigue en PENDING para que
+     * el restaurante pueda gestionarla. La fecha caducada se conserva a
+     * propósito: es lo que distingue una solicitud pública vencida de una
+     * reserva privada que nunca tuvo bloqueo.</p>
+     */
+    @Column(name = "hold_expires_at")
+    private LocalDateTime holdExpiresAt;
 }

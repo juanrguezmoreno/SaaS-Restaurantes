@@ -1,10 +1,13 @@
 package com.restaurante.publicapi.service;
 
+import com.restaurante.availability.dto.TimeSlotResponse;
+import com.restaurante.availability.service.AvailabilityService;
 import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.ConflictException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
+import com.restaurante.diningtable.entity.DiningTable;
 import com.restaurante.publicapi.dto.PublicReservationRequest;
 import com.restaurante.publicapi.dto.PublicReservationResponse;
 import com.restaurante.publicapi.dto.PublicRestaurantResponse;
@@ -15,9 +18,13 @@ import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -28,6 +35,10 @@ public class PublicReservationService {
     private final RestaurantRepository restaurantRepository;
     private final CustomerRepository customerRepository;
     private final ReservationRepository reservationRepository;
+    private final AvailabilityService availabilityService;
+
+    @Value("${app.reservations.hold-expiration-minutes:720}")
+    private int holdExpirationMinutes;
 
     /**
      * Obtiene info básica de un restaurante para la página pública.
@@ -50,12 +61,32 @@ public class PublicReservationService {
     }
 
     /**
-     * Crea una solicitud de reserva pública (sin autenticación).
-     * - Valida que el restaurante exista.
-     * - Busca o crea el cliente por email dentro del restaurante.
-     * - Crea una reserva con estado PENDING sin mesa asignada.
+     * Rejilla de franjas horarias para el formulario público.
+     *
+     * <p>Delega en {@link AvailabilityService#getTimeSlots}, el mismo método que
+     * usa el panel privado: las reglas de disponibilidad no pueden divergir entre
+     * ambos flujos. Lo único que añade aquí es exigir que el restaurante acepte
+     * reservas públicas.</p>
      */
-    @Transactional
+    public List<TimeSlotResponse> getPublicTimeSlots(Long restaurantId, LocalDate date, Integer partySize) {
+        Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
+
+        if (Boolean.FALSE.equals(restaurant.getPublicBookingEnabled())) {
+            throw new BadRequestException("Este restaurante no acepta reservas públicas en este momento");
+        }
+
+        return availabilityService.getTimeSlots(restaurantId, date, partySize);
+    }
+
+    /**
+     * Crea una solicitud de reserva pública (sin autenticación).
+     * - Valida restaurante, reservas públicas habilitadas y que la franja no haya pasado.
+     * - Busca o crea el cliente por email dentro del restaurante.
+     * - Retiene provisionalmente una mesa compatible y crea la reserva en PENDING.
+     * - Devuelve 409 si ninguna mesa admite la franja solicitada.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PublicReservationResponse createReservationRequest(
             Long restaurantId,
             PublicReservationRequest request) {
@@ -84,16 +115,27 @@ public class PublicReservationService {
                     "Ya existe una solicitud de reserva activa para ese email, fecha y hora.");
         }
 
-        // 3. Crear reserva PENDING sin mesa
+        // 3. Validar que la reserva no es para un momento ya pasado. La anotación
+        //    @FutureOrPresent del request solo valida el día, no la hora.
+        LocalDateTime inicio = LocalDateTime.of(request.getReservationDate(), request.getReservationTime());
+        if (inicio.isBefore(LocalDateTime.now())) {
+            throw new BadRequestException("La hora de la reserva ya ha pasado.");
+        }
+
+        // 4. Retener provisionalmente una mesa compatible.
+        DiningTable mesa = retenerMesa(restaurant, request);
+
+        // 5. Crear la reserva PENDING con la mesa retenida.
         Reservation reservation = new Reservation();
         reservation.setCustomer(customer);
         reservation.setRestaurant(restaurant);
-        reservation.setDiningTable(null); // explícitamente sin mesa
+        reservation.setDiningTable(mesa);
         reservation.setReservationDate(request.getReservationDate());
         reservation.setReservationTime(request.getReservationTime());
         reservation.setPartySize(request.getPartySize());
         reservation.setNotes(request.getNotes());
         reservation.setStatus(ReservationStatus.PENDING);
+        reservation.setHoldExpiresAt(calcularCaducidadBloqueo(restaurant, inicio));
 
         Reservation saved = reservationRepository.save(reservation);
 
@@ -112,6 +154,31 @@ public class PublicReservationService {
                 .status(saved.getStatus().name())
                 .message("Solicitud de reserva recibida correctamente. El restaurante revisará tu solicitud y confirmará la disponibilidad.")
                 .build();
+    }
+
+    private DiningTable retenerMesa(Restaurant restaurant, PublicReservationRequest request) {
+        return availabilityService.holdFirstAvailableTable(restaurant, request.getReservationDate(),
+                        request.getReservationTime(), request.getPartySize())
+                .orElseThrow(() -> new ConflictException("Esa franja acaba de ocuparse. Elige otra hora."));
+    }
+
+    /**
+     * Caducidad del bloqueo: lo que ocurra antes entre la ventana configurada y
+     * la hora de inicio de la propia reserva. Un bloqueo nunca sobrevive al
+     * comienzo del servicio que retiene.
+     */
+    private LocalDateTime calcularCaducidadBloqueo(Restaurant restaurant, LocalDateTime inicioReserva) {
+        LocalDateTime porVentana = LocalDateTime.now().plusMinutes(resolveHoldMinutes(restaurant));
+        return porVentana.isBefore(inicioReserva) ? porVentana : inicioReserva;
+    }
+
+    /**
+     * Minutos de bloqueo aplicables a un restaurante. Hoy siempre el valor global.
+     * Punto único de cambio para hacerlo configurable por restaurante: bastará con
+     * añadir la columna y devolverla aquí cuando no sea nula.
+     */
+    private int resolveHoldMinutes(Restaurant restaurant) {
+        return holdExpirationMinutes;
     }
 
     /**

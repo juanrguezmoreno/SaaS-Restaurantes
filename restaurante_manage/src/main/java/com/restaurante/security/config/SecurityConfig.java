@@ -63,8 +63,6 @@ public class SecurityConfig {
                         // Público: listar restaurantes y ver detalle (con tenant filtering)
                         .requestMatchers(HttpMethod.GET, Constants.RESTAURANTS_PATH).permitAll()
                         .requestMatchers(HttpMethod.GET, Constants.RESTAURANTS_PATH + "/*").permitAll()
-                        // Público: consultar disponibilidad
-                        .requestMatchers(HttpMethod.POST, Constants.AVAILABILITY_PATH + "/**").permitAll()
                         // Público: solicitudes de reserva pública (no requiere JWT)
                         .requestMatchers(Constants.PUBLIC_PATH + "/**").permitAll()
                         .anyRequest().authenticated()
