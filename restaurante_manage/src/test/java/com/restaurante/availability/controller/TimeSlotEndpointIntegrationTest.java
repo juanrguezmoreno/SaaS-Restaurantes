@@ -82,6 +82,18 @@ class TimeSlotEndpointIntegrationTest {
     }
 
     @Test
+    @WithUserDetails("juan.admin")
+    void endpointPrivado_rechazaRestauranteDeOtroTenant() throws Exception {
+        // "Franjas Test" (creado en setUp) no tiene tenant asignado; juan.admin
+        // es ADMIN del tenant "Demo Gourmet" — debe denegarse por cross-tenant.
+        mockMvc.perform(get("/api/v1/availability/time-slots")
+                        .param("restaurantId", String.valueOf(restauranteId))
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void endpointDeMesas_yaNoEsPublico() throws Exception {
         // POST /availability/tables expone número, capacidad y ubicación de las
         // mesas: deja de ser accesible sin autenticación.

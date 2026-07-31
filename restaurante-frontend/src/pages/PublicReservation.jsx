@@ -341,7 +341,7 @@ const PublicReservation = () => {
             </div>
             <div className="public-success-detail-row">
               <span className="public-success-detail-label">Hora</span>
-              <span className="public-success-detail-value">{formData.reservationTime}</span>
+              <span className="public-success-detail-value">{formatTimeShort(formData.reservationTime)}</span>
             </div>
             <div className="public-success-detail-row">
               <span className="public-success-detail-label">Personas</span>

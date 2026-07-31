@@ -381,6 +381,12 @@ public class ReservationService {
                     reservation.getReservationTime(), reservation.getId());
         }
 
+        // Editar la solicitud desde el panel privado es gestionarla, igual que las
+        // ramas de updateStatus: se limpia el bloqueo provisional incondicionalmente
+        // para no dejar un holdExpiresAt caducado que la disponibilidad ignore pero
+        // el índice único de mesa activa siga considerando ocupado.
+        reservation.setHoldExpiresAt(null);
+
         Reservation saved = reservationRepository.save(reservation);
         return reservationMapper.toResponse(saved);
     }

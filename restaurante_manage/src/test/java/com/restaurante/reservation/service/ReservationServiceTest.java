@@ -227,6 +227,25 @@ class ReservationServiceTest {
         verify(reservationRepository, never()).save(any(Reservation.class));
     }
 
+    @Test
+    void update_limpiaHoldExpiresAtCaducadoAlAsignarMesaManualmente() {
+        // Solicitud PENDING cuyo bloqueo provisional ya caducó (p.ej. el scheduler
+        // ya lo dejó en el pasado) y sin mesa; el personal edita la reserva desde
+        // el panel privado y le asigna mesa manualmente. Editar la solicitud es
+        // gestionarla, así que debe limpiarse holdExpiresAt igual que en updateStatus.
+        Reservation reservaExistente = reservaPendienteSinMesa(70L);
+        reservaExistente.setHoldExpiresAt(LocalDateTime.now().minusHours(1));
+        when(reservationRepository.findByIdAndDeletedFalse(70L)).thenReturn(Optional.of(reservaExistente));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(reservationMapper.toResponse(any())).thenReturn(new ReservationResponse());
+
+        service.update(70L, request());
+
+        ArgumentCaptor<Reservation> captor = ArgumentCaptor.forClass(Reservation.class);
+        verify(reservationRepository).save(captor.capture());
+        assertNull(captor.getValue().getHoldExpiresAt());
+    }
+
     // ─── RES-03: confirmar una reserva tampoco puede pisar un hueco ocupado ───
 
     /** Reserva PENDING sin mesa asignada, lista para confirmar. */
