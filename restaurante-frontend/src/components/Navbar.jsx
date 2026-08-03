@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -23,10 +24,22 @@ const Navbar = ({ onToggleSidebar }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const handleLogout = () => {
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  const handleConfirmLogout = () => {
+    setShowLogoutModal(false);
     logout();
     navigate('/login');
   };
+
+  useEffect(() => {
+    if (!showLogoutModal) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setShowLogoutModal(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [showLogoutModal]);
 
   // Determinar breadcrumb
   const routeKey = location.pathname;
@@ -109,7 +122,7 @@ const Navbar = ({ onToggleSidebar }) => {
 
         <button
           className="header-logout-btn"
-          onClick={handleLogout}
+          onClick={() => setShowLogoutModal(true)}
           type="button"
           title="Cerrar sesión"
         >
@@ -121,6 +134,60 @@ const Navbar = ({ onToggleSidebar }) => {
           <span className="d-none d-sm-inline">Salir</span>
         </button>
       </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          MODAL: CONFIRMAR CIERRE DE SESIÓN
+          ══════════════════════════════════════════════════════════════════════ */}
+      {showLogoutModal && (
+        <div className="modal d-block" tabIndex="-1" role="dialog" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header border-0">
+                <h5 className="modal-title">Cerrar sesión</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowLogoutModal(false)}
+                  aria-label="Cerrar"
+                />
+              </div>
+
+              <div className="modal-body text-center py-4">
+                <div className="mb-3">
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                </div>
+
+                <h6 className="mb-2">¿Estás seguro de que quieres salir?</h6>
+
+                <p className="text-muted small mb-0">
+                  Se cerrará tu sesión y volverás a la pantalla de acceso.
+                </p>
+              </div>
+
+              <div className="modal-footer border-0 justify-content-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary px-4"
+                  onClick={() => setShowLogoutModal(false)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger px-4"
+                  onClick={handleConfirmLogout}
+                >
+                  Salir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };
