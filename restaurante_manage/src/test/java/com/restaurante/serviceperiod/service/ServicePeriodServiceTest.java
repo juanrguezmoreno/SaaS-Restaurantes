@@ -143,6 +143,19 @@ class ServicePeriodServiceTest {
     }
 
     @Test
+    void rechazaUnIdRepetidoEnElMismoPayload() {
+        ServicePeriodRequest primero = peticion(DayOfWeek.MONDAY, "13:00", "16:00");
+        primero.setId(5L);
+        ServicePeriodRequest segundo = peticion(DayOfWeek.TUESDAY, "13:00", "16:00");
+        segundo.setId(5L);
+
+        assertThrows(BadRequestException.class,
+                () -> service.replacePeriods(RESTAURANT_ID, List.of(primero, segundo)));
+
+        verify(servicePeriodRepository, never()).saveAll(any());
+    }
+
+    @Test
     void borraLogicamenteLosPeriodosNoIncluidos() {
         ServicePeriod existente = new ServicePeriod();
         existente.setId(7L);

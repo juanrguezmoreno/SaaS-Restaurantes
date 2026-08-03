@@ -138,6 +138,19 @@ public class ServicePeriodService {
      * base de datos: un payload inválido no debe dejar la semana a medias.
      */
     private void validar(List<ServicePeriodRequest> peticiones) {
+        List<Long> idsRepetidos = peticiones.stream()
+                .map(ServicePeriodRequest::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.groupingBy(id -> id, Collectors.counting()))
+                .entrySet().stream()
+                .filter(entrada -> entrada.getValue() > 1)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+        if (!idsRepetidos.isEmpty()) {
+            throw new BadRequestException(
+                    "El payload repite el id de periodo " + idsRepetidos + " más de una vez.");
+        }
+
         for (int i = 0; i < peticiones.size(); i++) {
             ServicePeriodRequest req = peticiones.get(i);
 

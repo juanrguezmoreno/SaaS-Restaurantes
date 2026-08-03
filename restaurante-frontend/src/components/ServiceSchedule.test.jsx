@@ -70,6 +70,12 @@ describe('ServiceSchedule', () => {
     expect(miercoles.every((p) => p.id === null)).toBe(true);
   });
 
+  it('en fallback no muestra "Cerrado" en los días vacíos', () => {
+    setup({ periods: [], enFallback: true });
+
+    expect(screen.queryByText('Cerrado')).not.toBeInTheDocument();
+  });
+
   it('editar la hora de inicio propaga el cambio en el formato del backend', () => {
     // fireEvent y no userEvent.type: el componente es controlado y aquí el padre
     // es un vi.fn() que no re-renderiza, así que escribir carácter a carácter no

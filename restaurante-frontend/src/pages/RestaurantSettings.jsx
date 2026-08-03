@@ -344,6 +344,7 @@ const RestaurantSettings = () => {
             periods={periodos}
             onChange={handleCambioPeriodos}
             disabled={guardandoPeriodos}
+            enFallback={periodos.length === 0}
           />
 
           <div className="d-flex justify-content-end mt-3">

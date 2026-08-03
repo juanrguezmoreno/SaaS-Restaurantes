@@ -25,7 +25,7 @@ const DIAS = [
 const aHoraCorta = (hora) => (hora ? String(hora).substring(0, 5) : '');
 
 /** '13:00' → '13:00:00', que es lo que espera el backend. */
-const aHoraLarga = (hora) => (hora ? `${String(hora).substring(0, 5)}:00` : '');
+const aHoraLarga = (hora) => (hora ? `${String(hora).substring(0, 5)}:00` : null);
 
 let contadorClaves = 0;
 /** Clave estable de React para periodos que aún no tienen id de base de datos. */
@@ -34,7 +34,7 @@ const nuevaClave = () => {
   return `nuevo-${contadorClaves}`;
 };
 
-const ServiceSchedule = ({ periods = [], onChange, disabled = false }) => {
+const ServiceSchedule = ({ periods = [], onChange, disabled = false, enFallback = false }) => {
   const [copiandoDesde, setCopiandoDesde] = useState(null);
   const [destinosCopia, setDestinosCopia] = useState([]);
 
@@ -142,7 +142,7 @@ const ServiceSchedule = ({ periods = [], onChange, disabled = false }) => {
             </div>
 
             {delDia.length === 0 ? (
-              <p className="service-day-closed">Cerrado</p>
+              enFallback ? null : <p className="service-day-closed">Cerrado</p>
             ) : (
               <ul className="service-period-list">
                 {delDia.map((periodo) => (
@@ -208,7 +208,7 @@ const ServiceSchedule = ({ periods = [], onChange, disabled = false }) => {
                     type="button"
                     className="btn btn-sm btn-primary"
                     onClick={confirmarCopia}
-                    disabled={destinosCopia.length === 0}
+                    disabled={disabled || destinosCopia.length === 0}
                   >
                     Copiar
                   </button>
@@ -216,6 +216,7 @@ const ServiceSchedule = ({ periods = [], onChange, disabled = false }) => {
                     type="button"
                     className="btn btn-sm btn-light"
                     onClick={() => setCopiandoDesde(null)}
+                    disabled={disabled}
                   >
                     Cancelar
                   </button>
