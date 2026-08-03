@@ -21,6 +21,7 @@ import org.springframework.http.MediaType;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -146,6 +147,43 @@ class TimeSlotEndpointIntegrationTest {
                 om.readTree(privado).get("data"),
                 om.readTree(publico).get("data"),
                 "Ambos flujos deben aplicar exactamente las mismas reglas de disponibilidad");
+    }
+
+    @Test
+    @WithUserDetails("super.admin")
+    void publicoYPrivadoAplicanLosMismosPeriodosDeServicio() throws Exception {
+        // Configura un único servicio el día de la consulta a través del endpoint
+        // real, no escribiendo en la base de datos por debajo.
+        String dia = LocalDate.parse(fecha).getDayOfWeek().name();
+        mockMvc.perform(put("/api/v1/restaurants/" + restauranteId + "/service-periods")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"dayOfWeek\":\"" + dia
+                                + "\",\"startTime\":\"14:00:00\",\"endTime\":\"16:00:00\"}]"))
+                .andExpect(status().isOk());
+
+        String privado = mockMvc.perform(get("/api/v1/availability/time-slots")
+                        .param("restaurantId", String.valueOf(restauranteId))
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andReturn().getResponse().getContentAsString();
+
+        String publico = mockMvc.perform(get("/api/v1/public/restaurants/" + restauranteId + "/time-slots")
+                        .param("date", fecha)
+                        .param("partySize", "2"))
+                .andReturn().getResponse().getContentAsString();
+
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode franjasPrivadas = om.readTree(privado).get("data");
+
+        org.junit.jupiter.api.Assertions.assertEquals(franjasPrivadas, om.readTree(publico).get("data"),
+                "Ambos flujos deben aplicar los mismos periodos de servicio");
+        // El servicio configurado (14:00-16:00) es una ventana distinta a la
+        // general del setUp (13:00-16:00), para demostrar que de verdad se está
+        // aplicando el periodo y no el horario general del restaurante: con
+        // reservas de 90 min caben 14:00 y 14:30 (14:30+90=16:00, cabe justo);
+        // 15:00 no cabe (15:00+90=16:30>16:00).
+        org.junit.jupiter.api.Assertions.assertEquals(2, franjasPrivadas.size(),
+                "Con un servicio de 14:00 a 16:00 y reservas de 90 min caben dos franjas");
     }
 
     @Test

@@ -28,6 +28,9 @@ public final class Constants {
     // Floor plan (elementos decorativos del plano de sala)
     public static final String FLOOR_PLAN_ELEMENTS_SUBPATH = "/floor-plan/elements";
 
+    /** Subruta de los periodos de servicio de un restaurante. */
+    public static final String SERVICE_PERIODS_SUBPATH = "/service-periods";
+
     // Reservas de un restaurante (plano de sala)
     public static final String RESTAURANT_RESERVATIONS_SUBPATH = "/reservations";
 

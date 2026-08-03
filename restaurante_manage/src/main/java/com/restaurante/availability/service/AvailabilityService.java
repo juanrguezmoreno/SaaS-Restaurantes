@@ -12,6 +12,8 @@ import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.serviceperiod.entity.ServicePeriod;
+import com.restaurante.serviceperiod.repository.ServicePeriodRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -45,6 +47,7 @@ public class AvailabilityService {
     private final DiningTableRepository diningTableRepository;
     private final ReservationRepository reservationRepository;
     private final RestaurantRepository restaurantRepository;
+    private final ServicePeriodRepository servicePeriodRepository;
     private final int slotIntervalMinutes;
     private final LocalTime defaultOpeningTime;
     private final LocalTime defaultClosingTime;
@@ -53,12 +56,14 @@ public class AvailabilityService {
             DiningTableRepository diningTableRepository,
             ReservationRepository reservationRepository,
             RestaurantRepository restaurantRepository,
+            ServicePeriodRepository servicePeriodRepository,
             @Value("${app.reservations.slot-interval-minutes:30}") int slotIntervalMinutes,
             @Value("${app.reservations.default-opening-time:12:00}") LocalTime defaultOpeningTime,
             @Value("${app.reservations.default-closing-time:23:00}") LocalTime defaultClosingTime) {
         this.diningTableRepository = diningTableRepository;
         this.reservationRepository = reservationRepository;
         this.restaurantRepository = restaurantRepository;
+        this.servicePeriodRepository = servicePeriodRepository;
         this.slotIntervalMinutes = slotIntervalMinutes;
         this.defaultOpeningTime = defaultOpeningTime;
         this.defaultClosingTime = defaultClosingTime;
@@ -129,24 +134,57 @@ public class AvailabilityService {
     }
 
     /**
-     * Horas candidatas de la rejilla. La última es la que cabe entera: su hora
-     * más la duración de la reserva no puede pasar del cierre (límite inclusivo,
-     * una reserva puede terminar justo a la hora de cierre).
+     * Horas candidatas de la rejilla para una fecha.
      *
-     * <p>Si el cierre no es posterior a la apertura, el restaurante cierra pasada
-     * la medianoche: no se generan franjas, porque una hora de madrugada
-     * pertenecería al día siguiente y contradiría la fecha elegida en el
-     * formulario. Queda documentado como fuera de alcance en el diseño.</p>
+     * <p>Si el restaurante tiene periodos de servicio configurados, las franjas
+     * salen de los periodos de ese día de la semana. Un día sin periodos está
+     * cerrado y no ofrece ninguna hora.</p>
      *
-     * <p>El bucle trabaja en minutos desde medianoche (enteros), no sumando
-     * directamente sobre {@link LocalTime}: {@code LocalTime.plusMinutes} da la
-     * vuelta a medianoche sin avisar, y con una apertura/cierre que ocupan casi
-     * todo el día (p. ej. 00:00-23:59) esa vuelta hace que "hora + duración"
-     * nunca quede después del cierre, así que la condición de parada del bucle
-     * no se alcanza jamás. Comparando en minutos, sin ese ciclo de 24h, la
-     * condición de parada siempre se alcanza porque el cierre está acotado.</p>
+     * <p>Si no tiene ninguno en toda la semana, se mantiene el comportamiento
+     * anterior: una única ventana apertura–cierre. Es el fallback que permite
+     * que los restaurantes que aún no han configurado horarios sigan aceptando
+     * reservas exactamente igual que antes.</p>
      */
     private List<LocalTime> generarFranjas(Restaurant restaurant, LocalDate date) {
+        List<ServicePeriod> periodos =
+                servicePeriodRepository.findByRestaurantIdAndDeletedFalse(restaurant.getId());
+
+        if (periodos.isEmpty()) {
+            return generarFranjasHorarioGeneral(restaurant, date);
+        }
+
+        List<ServicePeriod> delDia = periodos.stream()
+                .filter(periodo -> periodo.getDayOfWeek() == date.getDayOfWeek())
+                .sorted(Comparator.comparing(ServicePeriod::getStartTime))
+                .toList();
+
+        if (delDia.isEmpty()) {
+            log.debug("Restaurante {} cerrado el {}: ese día no tiene periodos de servicio",
+                    restaurant.getId(), date);
+            return List.of();
+        }
+
+        int duracion = restaurant.getDefaultReservationDurationMinutes();
+        boolean esHoy = date.equals(LocalDate.now());
+        LocalTime ahora = LocalTime.now();
+
+        List<LocalTime> horas = new ArrayList<>();
+        for (ServicePeriod periodo : delDia) {
+            acumularFranjas(horas, periodo.getStartTime(), periodo.getEndTime(), duracion, esHoy, ahora);
+        }
+        return horas;
+    }
+
+    /**
+     * Fallback para restaurantes sin ningún periodo configurado: la ventana
+     * única apertura–cierre de toda la vida.
+     *
+     * <p>Si el cierre no es posterior a la apertura, el restaurante cerraría
+     * pasada la medianoche: no se generan franjas, porque una hora de madrugada
+     * pertenecería al día siguiente y contradiría la fecha elegida en el
+     * formulario. Queda documentado como fuera de alcance en el diseño.</p>
+     */
+    private List<LocalTime> generarFranjasHorarioGeneral(Restaurant restaurant, LocalDate date) {
         LocalTime apertura = restaurant.getOpeningTime() != null
                 ? restaurant.getOpeningTime() : defaultOpeningTime;
         LocalTime cierre = restaurant.getClosingTime() != null
@@ -158,24 +196,41 @@ public class AvailabilityService {
             return List.of();
         }
 
-        int duracion = restaurant.getDefaultReservationDurationMinutes();
-        boolean esHoy = date.equals(LocalDate.now());
-        LocalTime ahora = LocalTime.now();
-
-        int minutoApertura = apertura.toSecondOfDay() / 60;
-        int minutoCierre = cierre.toSecondOfDay() / 60;
-
         List<LocalTime> horas = new ArrayList<>();
-        for (int minuto = minutoApertura;
-             minuto + duracion <= minutoCierre;
-             minuto += slotIntervalMinutes) {
+        acumularFranjas(horas, apertura, cierre, restaurant.getDefaultReservationDurationMinutes(),
+                date.equals(LocalDate.now()), LocalTime.now());
+        return horas;
+    }
+
+    /**
+     * Añade a {@code destino} las franjas que caben enteras dentro de la ventana
+     * [inicio, fin]: la última es aquella cuya hora más la duración de la
+     * reserva no pasa del fin (límite inclusivo, una reserva puede terminar
+     * justo al cerrar el servicio). Una reserva nunca se reparte entre dos
+     * periodos.
+     *
+     * <p>Si la fecha es hoy, las franjas ya pasadas se omiten aquí: el frontend
+     * nunca decide qué horas mostrar.</p>
+     *
+     * <p>El bucle trabaja en minutos desde medianoche (enteros), no sumando
+     * directamente sobre {@link LocalTime}: {@code LocalTime.plusMinutes} da la
+     * vuelta a medianoche sin avisar, y con una ventana que ocupe casi todo el
+     * día esa vuelta hace que "hora + duración" nunca quede después del fin, así
+     * que la condición de parada no se alcanzaría jamás. Comparando en minutos,
+     * sin ese ciclo de 24 h, siempre se alcanza.</p>
+     */
+    private void acumularFranjas(List<LocalTime> destino, LocalTime inicio, LocalTime fin,
+                                 int duracion, boolean esHoy, LocalTime ahora) {
+        int minutoInicio = inicio.toSecondOfDay() / 60;
+        int minutoFin = fin.toSecondOfDay() / 60;
+
+        for (int minuto = minutoInicio; minuto + duracion <= minutoFin; minuto += slotIntervalMinutes) {
             LocalTime hora = LocalTime.MIDNIGHT.plusMinutes(minuto);
             if (esHoy && !hora.isAfter(ahora)) {
                 continue;
             }
-            horas.add(hora);
+            destino.add(hora);
         }
-        return horas;
     }
 
     /**
