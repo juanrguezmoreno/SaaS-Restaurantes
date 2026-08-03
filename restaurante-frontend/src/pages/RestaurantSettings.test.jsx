@@ -19,7 +19,13 @@ vi.mock('../services/restaurantService', () => ({
   updateRestaurant: vi.fn().mockResolvedValue({ id: 1 }),
 }));
 
+vi.mock('../services/servicePeriodService', () => ({
+  getServicePeriods: vi.fn().mockResolvedValue([]),
+  saveServicePeriods: vi.fn().mockResolvedValue([]),
+}));
+
 import { updateRestaurant } from '../services/restaurantService';
+import { getServicePeriods, saveServicePeriods } from '../services/servicePeriodService';
 import RestaurantSettings from './RestaurantSettings';
 
 const renderPage = () =>
@@ -59,5 +65,38 @@ describe('RestaurantSettings', () => {
     await waitFor(() => expect(updateRestaurant).toHaveBeenCalled());
     expect(updateRestaurant.mock.calls[0][0]).toBe('1');
     expect(updateRestaurant.mock.calls[0][1].phone).toBe('600123456789');
+  });
+
+  it('avisa de que usa el horario general cuando no hay periodos', async () => {
+    renderPage();
+    await screen.findByText('La Buena Mesa');
+
+    expect(
+      await screen.findByText(/utiliza el horario general/i)
+    ).toBeInTheDocument();
+  });
+
+  it('guarda los periodos configurados', async () => {
+    renderPage();
+    await screen.findByText('La Buena Mesa');
+    await waitFor(() => expect(getServicePeriods).toHaveBeenCalledWith('1'));
+
+    await userEvent.click(screen.getByRole('button', { name: /añadir servicio en lunes/i }));
+    await userEvent.click(screen.getByRole('button', { name: /guardar horarios/i }));
+
+    await waitFor(() => expect(saveServicePeriods).toHaveBeenCalled());
+    const [id, periodos] = saveServicePeriods.mock.calls[0];
+    expect(id).toBe('1');
+    expect(periodos).toHaveLength(1);
+    expect(periodos[0].dayOfWeek).toBe('MONDAY');
+    // El campo interno de React no debe viajar al backend.
+    expect(periodos[0]._key).toBeUndefined();
+  });
+
+  it('deshabilita Guardar horarios mientras no haya cambios', async () => {
+    renderPage();
+    await screen.findByText('La Buena Mesa');
+
+    expect(await screen.findByRole('button', { name: /guardar horarios/i })).toBeDisabled();
   });
 });

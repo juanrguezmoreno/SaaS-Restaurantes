@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getRestaurantById, updateRestaurant } from '../services/restaurantService';
+import { getServicePeriods, saveServicePeriods } from '../services/servicePeriodService';
 import RestaurantInfoForm from '../components/RestaurantInfoForm';
+import ServiceSchedule from '../components/ServiceSchedule';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -58,6 +60,21 @@ const validarInformacion = (formData) => {
   return errors;
 };
 
+let contadorClavesPeriodo = 0;
+/** Clave estable de React; el backend no la conoce ni la necesita. */
+const conClave = (periodo) => {
+  contadorClavesPeriodo += 1;
+  return { ...periodo, _key: `guardado-${periodo.id ?? contadorClavesPeriodo}` };
+};
+
+/** Quita el campo interno _key antes de enviar al backend. */
+const aPayloadPeriodos = (periodos) =>
+  periodos.map((periodo) => {
+    const resto = { ...periodo };
+    delete resto._key;
+    return { ...resto, name: resto.name?.trim() || null };
+  });
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 const RestaurantSettings = () => {
@@ -74,6 +91,12 @@ const RestaurantSettings = () => {
   const [guardandoInfo, setGuardandoInfo] = useState(false);
   const [infoExito, setInfoExito] = useState('');
 
+  const [periodos, setPeriodos] = useState([]);
+  const [periodosGuardados, setPeriodosGuardados] = useState([]);
+  const [guardandoPeriodos, setGuardandoPeriodos] = useState(false);
+  const [periodosError, setPeriodosError] = useState('');
+  const [periodosExito, setPeriodosExito] = useState('');
+
   // ─── Carga inicial ─────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelado = false;
@@ -82,7 +105,10 @@ const RestaurantSettings = () => {
       setLoading(true);
       setLoadError(null);
       try {
-        const datos = await getRestaurantById(restaurantId);
+        const [datos, periodosCargados] = await Promise.all([
+          getRestaurantById(restaurantId),
+          getServicePeriods(restaurantId),
+        ]);
         if (cancelado) return;
         if (!datos) {
           setLoadError('Restaurante no encontrado.');
@@ -91,6 +117,9 @@ const RestaurantSettings = () => {
         setRestaurante(datos);
         setInfoForm(aFormulario(datos));
         setInfoGuardada(aFormulario(datos));
+        const conClaves = periodosCargados.map(conClave);
+        setPeriodos(conClaves);
+        setPeriodosGuardados(conClaves);
       } catch (err) {
         if (!cancelado) setLoadError(getErrorMessage(err));
       } finally {
@@ -108,17 +137,24 @@ const RestaurantSettings = () => {
     [infoForm, infoGuardada]
   );
 
+  const periodosSucios = useMemo(
+    () => JSON.stringify(aPayloadPeriodos(periodos)) !== JSON.stringify(aPayloadPeriodos(periodosGuardados)),
+    [periodos, periodosGuardados]
+  );
+
+  const haySinGuardar = infoSucia || periodosSucios;
+
   // Avisa al cerrar la pestaña o recargar. Navegar por el menú lateral no queda
   // cubierto: useBlocker exige un data router y la app monta BrowserRouter.
   useEffect(() => {
-    if (!infoSucia) return undefined;
+    if (!haySinGuardar) return undefined;
     const avisar = (e) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', avisar);
     return () => window.removeEventListener('beforeunload', avisar);
-  }, [infoSucia]);
+  }, [haySinGuardar]);
 
   const handleInfoChange = useCallback((e) => {
     const { name, value } = e.target;
@@ -172,8 +208,32 @@ const RestaurantSettings = () => {
     }
   };
 
+  const handleCambioPeriodos = useCallback((siguientes) => {
+    setPeriodos(siguientes);
+    setPeriodosExito('');
+    setPeriodosError('');
+  }, []);
+
+  const handleGuardarPeriodos = async () => {
+    setGuardandoPeriodos(true);
+    setPeriodosError('');
+    setPeriodosExito('');
+
+    try {
+      const guardados = await saveServicePeriods(restaurantId, aPayloadPeriodos(periodos));
+      const conClaves = guardados.map(conClave);
+      setPeriodos(conClaves);
+      setPeriodosGuardados(conClaves);
+      setPeriodosExito('Horarios de servicio guardados correctamente.');
+    } catch (err) {
+      setPeriodosError(getErrorMessage(err));
+    } finally {
+      setGuardandoPeriodos(false);
+    }
+  };
+
   const handleVolver = () => {
-    if (infoSucia && !window.confirm('Hay cambios sin guardar. ¿Seguro que quieres salir?')) {
+    if (haySinGuardar && !window.confirm('Hay cambios sin guardar. ¿Seguro que quieres salir?')) {
       return;
     }
     navigate('/restaurants');
@@ -256,6 +316,49 @@ const RestaurantSettings = () => {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+
+      {/* ═══ Horarios de servicio ═══════════════════════════════════════════ */}
+      <div className="app-card">
+        <div className="app-card-body">
+          <h2 className="h5 fw-semibold mb-3">Horarios de servicio</h2>
+
+          {periodos.length === 0 && (
+            <div className="alert alert-info py-2" role="alert">
+              Este restaurante utiliza el horario general ({aHoraCorta(restaurante?.openingTime) || '—'}
+              {' – '}{aHoraCorta(restaurante?.closingTime) || '—'}) para todos los días.
+              Al añadir el primer servicio, esta configuración pasará a regir la semana completa y los
+              días que queden vacíos se considerarán cerrados.
+            </div>
+          )}
+
+          {periodosError && (
+            <div className="alert alert-danger py-2" role="alert">{periodosError}</div>
+          )}
+          {periodosExito && (
+            <div className="alert alert-success py-2" role="alert">{periodosExito}</div>
+          )}
+
+          <ServiceSchedule
+            periods={periodos}
+            onChange={handleCambioPeriodos}
+            disabled={guardandoPeriodos}
+          />
+
+          <div className="d-flex justify-content-end mt-3">
+            <button
+              type="button"
+              className="btn btn-primary d-flex align-items-center gap-2"
+              onClick={handleGuardarPeriodos}
+              disabled={!periodosSucios || guardandoPeriodos}
+            >
+              {guardandoPeriodos && (
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+              )}
+              Guardar horarios
+            </button>
+          </div>
         </div>
       </div>
     </div>
