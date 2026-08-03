@@ -7395,3 +7395,119 @@ a {
   font-size: 0.7rem;
   white-space: nowrap;
 }
+
+/* ─── Editor de horarios de servicio (ServiceSchedule) ──────────────────── */
+
+.service-day {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.service-day:last-child {
+  border-bottom: none;
+}
+
+.service-day-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.service-day-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.service-day-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.service-day-closed {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.service-period-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.service-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-period input[type='time'] {
+  max-width: 130px;
+}
+
+.service-period input[type='text'] {
+  max-width: 220px;
+}
+
+.service-period-separator {
+  color: var(--text-secondary);
+}
+
+.service-copy-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.service-copy-title {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.service-copy-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.service-copy-day {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.service-copy-actions {
+  display: flex;
+  gap: 6px;
+}
+
+@media (max-width: 576px) {
+  .service-period {
+    /* En móvil cada control ocupa su propia línea para no quedar aplastado. */
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .service-period input[type='time'],
+  .service-period input[type='text'] {
+    max-width: none;
+  }
+
+  .service-period-separator {
+    display: none;
+  }
+}
