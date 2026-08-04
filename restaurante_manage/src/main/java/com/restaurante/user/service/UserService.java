@@ -11,9 +11,11 @@ import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
+import com.restaurante.user.dto.AdminUserListItem;
 import com.restaurante.user.dto.UserMapper;
 import com.restaurante.user.dto.UserRequest;
 import com.restaurante.user.dto.UserResponse;
+import com.restaurante.user.dto.UserStats;
 import com.restaurante.user.dto.UserUpdateRequest;
 import com.restaurante.user.entity.User;
 import com.restaurante.user.repository.UserRepository;
@@ -26,8 +28,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -43,47 +49,197 @@ public class UserService {
     private final UserMapper userMapper;
     private final CurrentUserService currentUserService;
 
-    public Page<UserResponse> findAll(Pageable pageable) {
-        // SUPER_ADMIN: ve todos los usuarios
+    /**
+     * Página de empleados visibles, con búsqueda y filtros opcionales.
+     *
+     * <p>Antes, para ADMIN y MANAGER, este método traía todos los usuarios,
+     * filtraba en memoria y paginaba con {@code subList}: el coste crecía con el
+     * total del sistema aunque se pidieran diez. Ahora el alcance, la búsqueda,
+     * los filtros y la ordenación se resuelven en la base de datos, y los roles
+     * y restaurantes de la página se completan con dos consultas por lotes.</p>
+     *
+     * @param search texto libre sobre usuario, email, teléfono y nombre completo.
+     * @param role   rol exigido, o {@code null} para no filtrar.
+     * @param active {@code true}/{@code false} para filtrar por estado de la
+     *               cuenta, o {@code null} para no filtrar.
+     */
+    @Transactional(readOnly = true)
+    public Page<AdminUserListItem> findAll(Pageable pageable, String search, RoleName role, Boolean active) {
+        UserScope scope = resolveScope();
+        if (scope.denied()) {
+            return Page.empty(pageable);
+        }
+
+        Page<AdminUserListItem> page = userRepository.searchForAdmin(
+                scope.unrestricted(),
+                scope.tenantId(),
+                scope.filterByRestaurants(),
+                scope.restaurantIds(),
+                role != null,
+                role,
+                active != null,
+                active != null && active,
+                normalizeSearch(search),
+                pageable);
+
+        return enrichWithRolesAndRestaurants(page);
+    }
+
+    /** Métricas del listado, en el mismo alcance y con una consulta agregada. */
+    @Transactional(readOnly = true)
+    public UserStats stats() {
+        UserScope scope = resolveScope();
+        if (scope.denied()) {
+            return UserStats.builder().build();
+        }
+
+        List<Object[]> rows = userRepository.statsForAdmin(
+                scope.unrestricted(),
+                scope.tenantId(),
+                scope.filterByRestaurants(),
+                scope.restaurantIds());
+
+        if (rows == null || rows.isEmpty() || rows.get(0) == null) {
+            return UserStats.builder().build();
+        }
+
+        Object[] row = rows.get(0);
+        long total = row[0] != null ? ((Number) row[0]).longValue() : 0L;
+        long active = row.length > 1 && row[1] != null ? ((Number) row[1]).longValue() : 0L;
+
+        return UserStats.builder()
+                .total(total)
+                .active(active)
+                .inactive(total - active)
+                .build();
+    }
+
+    /**
+     * Rellena roles y restaurantes de la página con DOS consultas, en lugar de
+     * dos por fila como hacía el mapper al recorrer las colecciones.
+     *
+     * <p>Los restaurantes que se muestran son los asignados explícitamente; si
+     * el usuario no tiene ninguno, se cae al principal, que es lo que hacía la
+     * tabla antes de este cambio.</p>
+     */
+    private Page<AdminUserListItem> enrichWithRolesAndRestaurants(Page<AdminUserListItem> page) {
+        Set<Long> ids = page.getContent().stream()
+                .map(AdminUserListItem::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (ids.isEmpty()) {
+            return page;
+        }
+
+        Map<Long, List<String>> rolesByUser = groupNamesByUserId(
+                userRepository.findRoleNamesByUserIds(ids));
+        Map<Long, List<String>> restaurantsByUser = groupNamesByUserId(
+                userRepository.findAssignedRestaurantNamesByUserIds(ids));
+
+        page.getContent().forEach(item -> {
+            item.setRoles(rolesByUser.getOrDefault(item.getId(), List.of()));
+
+            List<String> assigned = restaurantsByUser.getOrDefault(item.getId(), List.of());
+            if (!assigned.isEmpty()) {
+                item.setRestaurantNames(assigned);
+            } else if (item.getPrimaryRestaurantName() != null) {
+                item.setRestaurantNames(List.of(item.getPrimaryRestaurantName()));
+            } else {
+                item.setRestaurantNames(List.of());
+            }
+        });
+
+        return page;
+    }
+
+    /** Agrupa filas {@code [userId, nombre]} por usuario, con nombres ordenados. */
+    private Map<Long, List<String>> groupNamesByUserId(List<Object[]> rows) {
+        Map<Long, List<String>> grouped = new HashMap<>();
+        if (rows == null) {
+            return grouped;
+        }
+        for (Object[] row : rows) {
+            if (row == null || row.length < 2 || row[0] == null) {
+                continue;
+            }
+            Long userId = ((Number) row[0]).longValue();
+            String name = row[1] != null ? String.valueOf(row[1]) : null;
+            if (name != null) {
+                grouped.computeIfAbsent(userId, key -> new ArrayList<>()).add(name);
+            }
+        }
+        grouped.values().forEach(java.util.Collections::sort);
+        return grouped;
+    }
+
+    /**
+     * Normaliza el texto de búsqueda como el resto del proyecto: minúsculas y
+     * comodines escapados, para que un '%' escrito por el usuario se busque
+     * literalmente en vez de convertir la consulta en "todo".
+     */
+    private String normalizeSearch(String search) {
+        if (search == null || search.isBlank()) {
+            return null;
+        }
+        String escaped = search.trim().toLowerCase()
+                .replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_");
+        return "%" + escaped + "%";
+    }
+
+    /**
+     * Traduce las reglas de visibilidad a los parámetros de la consulta.
+     *
+     * <p>Mantiene exactamente las mismas reglas que tenía el filtrado en
+     * memoria: SUPER_ADMIN lo ve todo, ADMIN su cuenta completa, y MANAGER su
+     * cuenta acotada a los restaurantes visibles cuando tiene asignaciones.</p>
+     */
+    private UserScope resolveScope() {
         if (currentUserService.isSuperAdmin()) {
-            return userRepository.findAllByDeletedFalse(pageable)
-                    .map(userMapper::toResponse);
+            return new UserScope(true, null, false, PLACEHOLDER_IDS, false);
         }
 
         Long tenantId = currentUserService.getCurrentTenantId();
         if (tenantId == null) {
-            return Page.empty();
+            return new UserScope(false, null, false, PLACEHOLDER_IDS, true);
         }
 
-        List<User> allUsers = userRepository.findAllByDeletedFalse();
-        List<User> tenantUsers = allUsers.stream()
-                .filter(u -> u.getTenant() != null && u.getTenant().getId().equals(tenantId))
-                .collect(Collectors.toList());
-
-        List<User> visibleUsers;
         if (currentUserService.isAdmin()) {
-            // ADMIN: todos los usuarios del tenant
-            visibleUsers = tenantUsers;
-        } else {
-            // MANAGER (u otro rol no-admin con acceso de lectura): solo usuarios
-            // cuyo restaurante principal o asignado esté dentro de sus restaurantes visibles.
-            List<Long> visibleRestaurantIds = currentUserService.getVisibleRestaurantIds();
-            visibleUsers = tenantUsers.stream()
-                    .filter(u -> userMatchesVisibleRestaurants(u, visibleRestaurantIds))
-                    .collect(Collectors.toList());
+            return new UserScope(false, tenantId, false, PLACEHOLDER_IDS, false);
         }
 
-        List<UserResponse> filtered = visibleUsers.stream()
-                .map(userMapper::toResponse)
-                .collect(Collectors.toList());
+        List<Long> visibleRestaurantIds = currentUserService.getVisibleRestaurantIds();
+        if (visibleRestaurantIds.isEmpty()) {
+            // Sin filtro de restaurante: toda la cuenta.
+            return new UserScope(false, tenantId, false, PLACEHOLDER_IDS, false);
+        }
 
-        int start = (int) pageable.getOffset();
-        int end = Math.min(start + pageable.getPageSize(), filtered.size());
-        return new PageImpl<>(
-                filtered.subList(Math.min(start, filtered.size()), end),
-                pageable,
-                filtered.size()
-        );
+        return new UserScope(false, tenantId, true, Set.copyOf(visibleRestaurantIds), false);
+    }
+
+    /**
+     * Los parámetros de colección de JPQL no admiten nulo ni vacío: cuando no se
+     * filtra por restaurante se manda este conjunto inerte, que la consulta
+     * ignora por la bandera {@code filterByRestaurants}.
+     */
+    private static final Set<Long> PLACEHOLDER_IDS = Set.of(-1L);
+
+    /**
+     * Alcance resuelto del listado de empleados.
+     *
+     * @param unrestricted        sin restricción de cuenta (solo SUPER_ADMIN).
+     * @param tenantId            cuenta a la que se acota, o nulo.
+     * @param filterByRestaurants exigir coincidencia con {@code restaurantIds}.
+     * @param restaurantIds       restaurantes visibles; nunca nulo ni vacío.
+     * @param denied              el usuario no ve ningún empleado.
+     */
+    private record UserScope(boolean unrestricted,
+                             Long tenantId,
+                             boolean filterByRestaurants,
+                             Set<Long> restaurantIds,
+                             boolean denied) {
     }
 
     private boolean userMatchesVisibleRestaurants(User user, List<Long> visibleRestaurantIds) {
