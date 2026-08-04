@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 /**
  * Proyección ligera de restaurante para el listado de administración.
@@ -31,6 +32,8 @@ public class AdminRestaurantListItem {
     private String phone;
     private String email;
     private Integer capacity;
+    private LocalTime openingTime;
+    private LocalTime closingTime;
     private Boolean publicBookingEnabled;
     private Long tenantId;
     private String tenantName;

@@ -66,7 +66,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query(value = """
             SELECT new com.restaurante.restaurant.dto.AdminRestaurantListItem(
                        r.id, r.name, r.address, r.phone, r.email, r.capacity,
-                       r.publicBookingEnabled, t.id, t.name, r.createdAt)
+                       r.openingTime, r.closingTime, r.publicBookingEnabled,
+                       t.id, t.name, r.createdAt)
             FROM Restaurant r
             LEFT JOIN r.tenant t
             WHERE r.deleted = false
