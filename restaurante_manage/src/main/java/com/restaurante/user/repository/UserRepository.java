@@ -72,7 +72,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query(value = """
             SELECT new com.restaurante.user.dto.AdminUserListItem(
                        u.id, u.username, u.email, u.firstName, u.lastName, u.phone,
-                       u.enabled, t.name, pr.name, u.createdAt)
+                       u.enabled, t.name, pr.id, pr.name, u.createdAt)
             FROM User u
             LEFT JOIN u.tenant t
             LEFT JOIN u.restaurant pr
@@ -150,7 +150,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u.id, r.name FROM User u JOIN u.roles r WHERE u.id IN :userIds")
     List<Object[]> findRoleNamesByUserIds(@Param("userIds") Set<Long> userIds);
 
-    /** Restaurantes asignados de los usuarios de una página, en una sola consulta. */
-    @Query("SELECT u.id, ar.name FROM User u JOIN u.assignedRestaurants ar WHERE u.id IN :userIds")
-    List<Object[]> findAssignedRestaurantNamesByUserIds(@Param("userIds") Set<Long> userIds);
+    /**
+     * Restaurantes asignados de los usuarios de una página, en una sola consulta.
+     * Devuelve {@code [userId, restaurantId, restaurantName]}: el nombre lo pinta
+     * la tabla y el identificador lo necesita el formulario de edición para
+     * marcar las casillas.
+     */
+    @Query("SELECT u.id, ar.id, ar.name FROM User u JOIN u.assignedRestaurants ar WHERE u.id IN :userIds")
+    List<Object[]> findAssignedRestaurantsByUserIds(@Param("userIds") Set<Long> userIds);
 }

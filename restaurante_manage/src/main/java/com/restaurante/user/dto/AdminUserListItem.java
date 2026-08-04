@@ -37,6 +37,7 @@ public class AdminUserListItem {
     private String tenantName;
 
     /** Restaurante principal ({@code User.restaurant}), si tiene. */
+    private Long primaryRestaurantId;
     private String primaryRestaurantName;
 
     private LocalDateTime createdAt;
@@ -51,6 +52,13 @@ public class AdminUserListItem {
     private List<String> restaurantNames = new ArrayList<>();
 
     /**
+     * Identificadores de los restaurantes asignados. Los necesita el formulario
+     * de edición para marcar las casillas correctas, así que salen de la misma
+     * consulta por lotes que los nombres.
+     */
+    private List<Long> assignedRestaurantIds = new ArrayList<>();
+
+    /**
      * Constructor que usa la consulta de listado. Deja fuera las colecciones a
      * propósito.
      */
@@ -62,6 +70,7 @@ public class AdminUserListItem {
                              String phone,
                              boolean enabled,
                              String tenantName,
+                             Long primaryRestaurantId,
                              String primaryRestaurantName,
                              LocalDateTime createdAt) {
         this.id = id;
@@ -72,9 +81,11 @@ public class AdminUserListItem {
         this.phone = phone;
         this.enabled = enabled;
         this.tenantName = tenantName;
+        this.primaryRestaurantId = primaryRestaurantId;
         this.primaryRestaurantName = primaryRestaurantName;
         this.createdAt = createdAt;
         this.roles = new ArrayList<>();
         this.restaurantNames = new ArrayList<>();
+        this.assignedRestaurantIds = new ArrayList<>();
     }
 }

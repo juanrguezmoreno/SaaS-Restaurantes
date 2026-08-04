@@ -134,16 +134,38 @@ public class UserService {
 
         Map<Long, List<String>> rolesByUser = groupNamesByUserId(
                 userRepository.findRoleNamesByUserIds(ids));
-        Map<Long, List<String>> restaurantsByUser = groupNamesByUserId(
-                userRepository.findAssignedRestaurantNamesByUserIds(ids));
+
+        List<Object[]> restaurantRows = userRepository.findAssignedRestaurantsByUserIds(ids);
+        Map<Long, List<Long>> assignedIdsByUser = new HashMap<>();
+        Map<Long, List<String>> assignedNamesByUser = new HashMap<>();
+        if (restaurantRows != null) {
+            for (Object[] row : restaurantRows) {
+                if (row == null || row.length < 3 || row[0] == null) {
+                    continue;
+                }
+                Long userId = ((Number) row[0]).longValue();
+                if (row[1] != null) {
+                    assignedIdsByUser.computeIfAbsent(userId, key -> new ArrayList<>())
+                            .add(((Number) row[1]).longValue());
+                }
+                if (row[2] != null) {
+                    assignedNamesByUser.computeIfAbsent(userId, key -> new ArrayList<>())
+                            .add(String.valueOf(row[2]));
+                }
+            }
+        }
+        assignedNamesByUser.values().forEach(java.util.Collections::sort);
 
         page.getContent().forEach(item -> {
             item.setRoles(rolesByUser.getOrDefault(item.getId(), List.of()));
+            item.setAssignedRestaurantIds(assignedIdsByUser.getOrDefault(item.getId(), List.of()));
 
-            List<String> assigned = restaurantsByUser.getOrDefault(item.getId(), List.of());
+            List<String> assigned = assignedNamesByUser.getOrDefault(item.getId(), List.of());
             if (!assigned.isEmpty()) {
                 item.setRestaurantNames(assigned);
             } else if (item.getPrimaryRestaurantName() != null) {
+                // Sin asignaciones explícitas se cae al restaurante principal, que
+                // es lo que mostraba la tabla antes de este cambio.
                 item.setRestaurantNames(List.of(item.getPrimaryRestaurantName()));
             } else {
                 item.setRestaurantNames(List.of());
