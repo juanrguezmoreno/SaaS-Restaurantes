@@ -1,13 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getReservations } from '../services/reservationService';
+import { getReservations, getReservationStats } from '../services/reservationService';
 import { useAllTables } from '../hooks/useAllTables';
-import {
-  filterPendingReservations,
-  filterTodayConfirmedReservations,
-  filterReservationsWithoutTable,
-  getLocalTodayString,
-} from '../lib/reservationHelpers';
+import { filterReservationsWithoutTable } from '../lib/reservationHelpers';
+
+/**
+ * Tope de reservas de hoy que se traen para pintar la agenda. Los contadores no
+ * dependen de este número: salen de /reservations/stats.
+ */
+const TOPE_HOY = 100;
+
+/** Tope de solicitudes pendientes que se traen para el bloque de atención. */
+const TOPE_SOLICITUDES = 25;
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  HELPERS COMPARTIDOS
@@ -54,14 +58,18 @@ const Inicio = () => {
   const navigate = useNavigate();
 
   const { tables, loading: tablesLoading, error: tablesError, refetch: refetchTables } = useAllTables({ auto: false });
-  const [reservations, setReservations] = useState([]);
+  // Antes esto era una sola lista con TODAS las reservas (size=9999), repetida
+  // cada 60 segundos. Ahora son tres consultas acotadas: las cifras, las de hoy
+  // y las solicitudes pendientes.
+  const [stats, setStats] = useState(null);
+  const [todayRows, setTodayRows] = useState([]);
+  const [pendingRows, setPendingRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [partialError, setPartialError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const todayStr = getLocalTodayString();
 
   // ─── Carga de reservas (las mesas las gestiona useAllTables) ────────────
   const fetchData = useCallback(async () => {
@@ -69,17 +77,21 @@ const Inicio = () => {
     setError(null);
 
     try {
-      const [reservationsRes] = await Promise.allSettled([getReservations()]);
+      const [statsRes, hoyRes, solicitudesRes] = await Promise.allSettled([
+        getReservationStats(),
+        getReservations({ view: 'hoy', size: TOPE_HOY, sort: 'date', direction: 'asc' }),
+        getReservations({ view: 'solicitudes', size: TOPE_SOLICITUDES, sort: 'date', direction: 'asc' }),
+      ]);
 
-      const fetchedReservations =
-        reservationsRes.status === 'fulfilled' && Array.isArray(reservationsRes.value)
-          ? reservationsRes.value
-          : [];
+      setStats(statsRes.status === 'fulfilled' ? statsRes.value : null);
+      setTodayRows(hoyRes.status === 'fulfilled' ? (hoyRes.value.content ?? []) : []);
+      setPendingRows(solicitudesRes.status === 'fulfilled' ? (solicitudesRes.value.content ?? []) : []);
 
-      setReservations(fetchedReservations);
       await refetchTables();
 
-      if (reservationsRes.status !== 'fulfilled') {
+      const algunaFallo = [statsRes, hoyRes, solicitudesRes]
+        .some((r) => r.status !== 'fulfilled');
+      if (algunaFallo) {
         setPartialError('Algunas fuentes de datos no respondieron. Los datos pueden estar incompletos.');
       } else {
         setPartialError(null);
@@ -128,16 +140,21 @@ const Inicio = () => {
   }, [fetchData]);
 
   const safeTables = useMemo(() => (Array.isArray(tables) ? tables : []), [tables]);
-  const safeReservations = useMemo(() => (Array.isArray(reservations) ? reservations : []), [reservations]);
 
   // ═══════════════════════════════════════════════════════════════════════
   //  SECCIÓN OPERATIVA (KPIs, agenda, requiere atención)
   // ═══════════════════════════════════════════════════════════════════════
 
-  const pendingReservations = useMemo(
-    () => filterPendingReservations(safeReservations),
-    [safeReservations]
-  );
+  // Los criterios de «pendiente» y «confirmada de hoy» los aplica ahora el
+  // servidor con las vistas `solicitudes` y `hoy`, con las mismas reglas que
+  // antes usaban filterPendingReservations y filterTodayConfirmedReservations.
+  const pendingReservations = pendingRows;
+  const todayConfirmedReservations = todayRows;
+
+  // Los contadores salen de la consulta agregada, no del largo de las listas:
+  // así no dependen del tope con el que se piden.
+  const pendingCount = stats ? stats.pendientes : pendingRows.length;
+  const todayConfirmedCount = stats ? stats.hoyConfirmadas : todayRows.length;
 
   const occupiedCount = safeTables.filter((t) => t.status === 'OCCUPIED').length;
   const reservedTablesCount = safeTables.filter((t) => t.status === 'RESERVED').length;
@@ -150,14 +167,8 @@ const Inicio = () => {
   const highOccupancy = totalTables > 0 && occupiedPercent > 80;
   const noTablesAvailable = totalTables > 0 && availableTablesCount === 0;
 
-  const todayConfirmedReservations = useMemo(
-    () => filterTodayConfirmedReservations(safeReservations),
-    [safeReservations]
-  );
-
   const nextReservation = useMemo(() => {
     const sorted = [...todayConfirmedReservations]
-      .filter((r) => r.status === 'CONFIRMED')
       .sort((a, b) => (a.reservationTime || '').localeCompare(b.reservationTime || ''));
     return sorted[0] || null;
   }, [todayConfirmedReservations]);
@@ -165,22 +176,23 @@ const Inicio = () => {
   const urgentReservations = useMemo(() => {
     const now = new Date();
     const currentMin = now.getHours() * 60 + now.getMinutes();
-    return safeReservations.filter((r) => {
-      if (r.status !== 'CONFIRMED') return false;
-      const rd = r.reservationDate ? String(r.reservationDate).substring(0, 10) : '';
-      if (rd !== todayStr) return false;
+    // La vista `hoy` ya devuelve solo CONFIRMED del día; aquí solo queda
+    // quedarse con las que entran dentro de la próxima hora.
+    return todayConfirmedReservations.filter((r) => {
       const time = r.reservationTime || '';
       const [h, m] = time.split(':').map(Number);
       if (isNaN(h) || isNaN(m)) return false;
-      const totalMin = h * 60 + m;
-      const diff = totalMin - currentMin;
+      const diff = (h * 60 + m) - currentMin;
       return diff > 0 && diff <= 60;
     });
-  }, [safeReservations, todayStr]);
+  }, [todayConfirmedReservations]);
 
+  // Antes se calculaba sobre todas las reservas activas, incluidas las de
+  // semanas próximas. Ahora se acota a lo que Inicio muestra —el día de hoy y
+  // las solicitudes pendientes—, que es sobre lo que se actúa desde aquí.
   const unassignedTableReservations = useMemo(
-    () => filterReservationsWithoutTable(safeReservations),
-    [safeReservations]
+    () => filterReservationsWithoutTable([...todayConfirmedReservations, ...pendingReservations]),
+    [todayConfirmedReservations, pendingReservations]
   );
 
   const renderStatusBadge = (status) => {
@@ -190,7 +202,7 @@ const Inicio = () => {
   };
 
   const noAttentionItems =
-    pendingReservations.length === 0 &&
+    pendingCount === 0 &&
     outOfServiceCount === 0 &&
     urgentReservations.length === 0 &&
     unassignedTableReservations.length === 0 &&
@@ -287,7 +299,7 @@ const Inicio = () => {
                 </svg>
               </span>
               <span className="exec-kpi-body">
-                <span className="exec-kpi-value">{todayConfirmedReservations.length}</span>
+                <span className="exec-kpi-value">{todayConfirmedCount}</span>
                 <span className="exec-kpi-label">Reservas hoy</span>
                 <span className="exec-kpi-trend">Confirmadas</span>
               </span>
@@ -300,9 +312,9 @@ const Inicio = () => {
                 </svg>
               </span>
               <span className="exec-kpi-body">
-                <span className="exec-kpi-value">{pendingReservations.length}</span>
+                <span className="exec-kpi-value">{pendingCount}</span>
                 <span className="exec-kpi-label">Solicitudes pendientes</span>
-                <span className="exec-kpi-trend">{pendingReservations.length === 1 ? 'Requiere atención' : 'Requieren atención'}</span>
+                <span className="exec-kpi-trend">{pendingCount === 1 ? 'Requiere atención' : 'Requieren atención'}</span>
               </span>
             </button>
 
@@ -338,7 +350,7 @@ const Inicio = () => {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
                   Agenda de hoy
                 </h3>
-                {todayConfirmedReservations.length > 5 && (
+                {todayConfirmedCount > 5 && (
                   <button className="exec-card-action" onClick={() => navigate('/reservations')} type="button">
                     Ver todas
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
@@ -374,9 +386,9 @@ const Inicio = () => {
                       ))}
                   </div>
                 )}
-                {todayConfirmedReservations.length > 5 && (
+                {todayConfirmedCount > 5 && (
                   <button type="button" className="exec-card-footer-link" onClick={() => navigate('/reservations')}>
-                    Ver todas las {todayConfirmedReservations.length} reservas de hoy
+                    Ver todas las {todayConfirmedCount} reservas de hoy
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
                   </button>
                 )}
@@ -401,13 +413,13 @@ const Inicio = () => {
                   </div>
                 ) : (
                   <div className="d-flex flex-column gap-2">
-                    {pendingReservations.length > 0 && (
+                    {pendingCount > 0 && (
                       <button type="button" className="exec-attention-item" onClick={() => navigate('/reservations')}>
                         <span className="exec-attention-icon" style={{ background: 'var(--warning-light)', color: 'var(--warning)' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                         </span>
-                        <span className="flex-grow-1"><span className="exec-attention-text">{pendingReservations.length} {pendingReservations.length === 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}</span></span>
-                        <span className="exec-attention-badge">{pendingReservations.length}</span>
+                        <span className="flex-grow-1"><span className="exec-attention-text">{pendingCount} {pendingCount === 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}</span></span>
+                        <span className="exec-attention-badge">{pendingCount}</span>
                       </button>
                     )}
                     {unassignedTableReservations.length > 0 && (
@@ -456,7 +468,7 @@ const Inicio = () => {
                       </button>
                     ))}
                     <div className="exec-attention-actions">
-                      {(pendingReservations.length > 0 || unassignedTableReservations.length > 0) && (
+                      {(pendingCount > 0 || unassignedTableReservations.length > 0) && (
                         <button className="exec-attention-btn" onClick={() => navigate('/reservations')} type="button">Gestionar solicitudes</button>
                       )}
                       {(outOfServiceCount > 0 || highOccupancy || noTablesAvailable) && (

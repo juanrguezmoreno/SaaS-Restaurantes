@@ -13,9 +13,12 @@ import com.restaurante.diningtable.repository.DiningTableRepository;
 import com.restaurante.notification.event.ReservationCancelledEvent;
 import com.restaurante.notification.event.ReservationConfirmedEvent;
 import com.restaurante.notification.event.ReservationEmailData;
+import com.restaurante.reservation.dto.ReservationListItem;
 import com.restaurante.reservation.dto.ReservationMapper;
 import com.restaurante.reservation.dto.ReservationRequest;
 import com.restaurante.reservation.dto.ReservationResponse;
+import com.restaurante.reservation.dto.ReservationStats;
+import com.restaurante.reservation.dto.ReservationView;
 import com.restaurante.reservation.entity.Reservation;
 import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
@@ -129,6 +132,199 @@ public class ReservationService {
 
         log.debug("findAll() sin tenant ni restaurant — página vacía");
         return Page.empty();
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  LISTADO DEL PANEL
+    // ════════════════════════════════════════════════════════════════
+
+    /** Criterios de una vista, ya resueltos contra la fecha de hoy. */
+    private record ViewPredicate(boolean filterStatuses,
+                                 Set<ReservationStatus> statuses,
+                                 LocalDate dateFrom,
+                                 LocalDate dateTo,
+                                 boolean historyMode) {
+    }
+
+    /**
+     * Marcador para el parámetro de colección cuando no se filtra por estado:
+     * JPQL no admite colecciones nulas ni vacías, y con {@code filterStatuses}
+     * en false su contenido da igual.
+     */
+    private static final Set<ReservationStatus> ANY_STATUS = Set.of(ReservationStatus.PENDING);
+
+    /**
+     * Traduce la vista a criterios. Son los mismos que antes aplicaba el
+     * navegador en {@code lib/reservationHelpers.js} y en los {@code useMemo}
+     * de la pantalla.
+     */
+    private ViewPredicate predicateFor(ReservationView view, LocalDate today) {
+        return switch (view) {
+            case SOLICITUDES -> new ViewPredicate(true, Set.of(ReservationStatus.PENDING), today, null, false);
+            case HOY -> new ViewPredicate(true, Set.of(ReservationStatus.CONFIRMED), today, today, false);
+            case PROXIMAS -> new ViewPredicate(true, Set.of(ReservationStatus.CONFIRMED), today.plusDays(1), null, false);
+            case HISTORIAL -> new ViewPredicate(false, ANY_STATUS, null, null, true);
+            case TODAS -> new ViewPredicate(false, ANY_STATUS, null, null, false);
+        };
+    }
+
+    /**
+     * Página del panel: la vista fija unos criterios y los filtros del usuario
+     * se suman a ellos, nunca los sustituyen. Pedir un estado que la vista no
+     * admite, o una fecha fuera de su rango, devuelve página vacía, que es la
+     * respuesta correcta.
+     */
+    @Transactional(readOnly = true)
+    public Page<ReservationListItem> findAllForList(Pageable pageable,
+                                                    ReservationView view,
+                                                    String search,
+                                                    Long restaurantId,
+                                                    ReservationStatus status,
+                                                    LocalDate date) {
+        Set<Long> scope = resolveVisibleRestaurantIds();
+        boolean unrestricted = scope == null;
+
+        // Alcance vacío: el usuario no ve ningún restaurante.
+        if (!unrestricted && scope.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        LocalDate today = LocalDate.now();
+        ViewPredicate predicate = predicateFor(view != null ? view : ReservationView.TODAS, today);
+
+        boolean filterStatuses = predicate.filterStatuses();
+        Set<ReservationStatus> statuses = predicate.statuses();
+        if (status != null) {
+            if (filterStatuses && !statuses.contains(status)) {
+                return Page.empty(pageable);
+            }
+            filterStatuses = true;
+            statuses = Set.of(status);
+        }
+
+        LocalDate dateFrom = predicate.dateFrom();
+        LocalDate dateTo = predicate.dateTo();
+        if (date != null) {
+            // La fecha exacta acota el rango de la vista, nunca lo amplía.
+            if ((dateFrom != null && date.isBefore(dateFrom)) || (dateTo != null && date.isAfter(dateTo))) {
+                return Page.empty(pageable);
+            }
+            dateFrom = date;
+            dateTo = date;
+        }
+
+        return reservationRepository.searchForList(
+                unrestricted,
+                unrestricted ? Set.of(-1L) : scope,
+                restaurantId,
+                normalizeSearch(search),
+                filterStatuses,
+                statuses,
+                dateFrom,
+                dateTo,
+                predicate.historyMode(),
+                today,
+                pageable);
+    }
+
+    /**
+     * Las seis cifras del panel, con una sola consulta agregada y en el mismo
+     * alcance que el listado. No dependen de la vista ni de los filtros: los
+     * números no deben bailar al filtrar.
+     */
+    @Transactional(readOnly = true)
+    public ReservationStats stats(Long restaurantId) {
+        Set<Long> scope = resolveVisibleRestaurantIds();
+        boolean unrestricted = scope == null;
+
+        if (!unrestricted && scope.isEmpty()) {
+            return ReservationStats.builder().build();
+        }
+
+        List<Object[]> rows = reservationRepository.statsForList(
+                unrestricted,
+                unrestricted ? Set.of(-1L) : scope,
+                restaurantId,
+                LocalDate.now());
+
+        if (rows == null || rows.isEmpty() || rows.get(0) == null) {
+            return ReservationStats.builder().build();
+        }
+
+        Object[] row = rows.get(0);
+        return ReservationStats.builder()
+                .total(toLong(row, 0))
+                .pendientes(toLong(row, 1))
+                .hoyConfirmadas(toLong(row, 2))
+                .proximasConfirmadas(toLong(row, 3))
+                .canceladasFuturas(toLong(row, 4))
+                .historial(toLong(row, 5))
+                .build();
+    }
+
+    private long toLong(Object[] row, int index) {
+        if (row.length <= index || row[index] == null) {
+            return 0L;
+        }
+        return ((Number) row[index]).longValue();
+    }
+
+    /**
+     * Convierte el texto de búsqueda en un patrón LIKE en minúsculas.
+     * Devuelve {@code null} cuando no hay nada que buscar, que es como la
+     * consulta entiende "sin filtro".
+     */
+    private String normalizeSearch(String search) {
+        if (search == null || search.isBlank()) {
+            return null;
+        }
+        // Se escapan los comodines para que un '%' escrito por el usuario se
+        // busque literalmente en vez de convertir la consulta en "todo".
+        String escaped = search.trim().toLowerCase()
+                .replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_");
+        return "%" + escaped + "%";
+    }
+
+    /**
+     * Restaurantes visibles para el usuario actual.
+     *
+     * @return {@code null} si no hay restricción (SUPER_ADMIN ve todo); en caso
+     *         contrario el conjunto de IDs visibles, que puede venir vacío
+     *         cuando el usuario no tiene acceso a ninguno.
+     */
+    private Set<Long> resolveVisibleRestaurantIds() {
+        List<Long> visibleIds = currentUserService.getVisibleRestaurantIds();
+
+        // [-1] es el convenio de CurrentUserService para "no ve nada".
+        if (visibleIds.size() == 1 && visibleIds.get(0) == -1L) {
+            return Set.of();
+        }
+
+        // Asignaciones explícitas.
+        if (!visibleIds.isEmpty()) {
+            return Set.copyOf(visibleIds);
+        }
+
+        if (currentUserService.isSuperAdmin()) {
+            return null;
+        }
+
+        // ADMIN/MANAGER sin asignaciones: todos los restaurantes de su tenant.
+        Long tenantId = currentUserService.getCurrentTenantId();
+        if (tenantId != null) {
+            return restaurantRepository.findByTenantIdAndDeletedFalse(tenantId)
+                    .stream().map(Restaurant::getId).collect(Collectors.toSet());
+        }
+
+        // Último recurso: el restaurante asignado directamente al usuario.
+        Long ownRestaurantId = currentUserService.getCurrentRestaurantId();
+        if (ownRestaurantId != null) {
+            return Set.of(ownRestaurantId);
+        }
+
+        return Set.of();
     }
 
     public ReservationResponse findById(Long id) {

@@ -24,18 +24,128 @@ const handleError = (error) => {
 
 // ─── Funciones CRUD ─────────────────────────────────────────────────────────
 
+/** Tamaños de página que ofrece la pantalla de reservas. */
+export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+/** Tamaño de página por defecto, alineado con el del backend. */
+export const DEFAULT_PAGE_SIZE = 25;
+
+/** Página vacía, para no devolver nunca undefined a la pantalla. */
+const emptyPage = (size = DEFAULT_PAGE_SIZE) => ({
+  content: [],
+  page: 0,
+  size,
+  totalElements: 0,
+  totalPages: 0,
+  first: true,
+  last: true,
+  empty: true,
+});
+
 /**
- * Obtiene todas las reservas.
- * Se solicita un tamaño grande para evitar paginación que oculte registros.
- * El orden se aplica por defecto en backend (reservationDate DESC, reservationTime DESC).
+ * Obtiene una página de reservas visibles para el usuario actual.
+ *
+ * El backend pagina, aplica la vista, busca, filtra y ordena. Antes se pedía
+ * `size=9999` y de esa única lista salían siete vistas distintas calculadas en
+ * el navegador. No se usa `extractData` porque devuelve solo el array y descarta
+ * los metadatos de paginación, que son justo lo que la pantalla necesita.
+ *
+ * @param {object} [params]
+ * @param {number} [params.page=0]
+ * @param {number} [params.size=25]
+ * @param {string} [params.view]         - solicitudes | hoy | proximas | historial | todas
+ * @param {string} [params.search]       - Cliente, email o número de mesa
+ * @param {number} [params.restaurantId]
+ * @param {string} [params.status]       - PENDING | CONFIRMED | CANCELLED | COMPLETED | NO_SHOW
+ * @param {string} [params.date]         - formato YYYY-MM-DD
+ * @param {string} [params.sort='date']
+ * @param {'asc'|'desc'} [params.direction='desc']
  */
-export const getReservations = async () => {
+export const getReservations = async (params = {}) => {
+  const size = params.size ?? DEFAULT_PAGE_SIZE;
   try {
-    const response = await api.get(`${RESOURCE}?size=9999`);
-    return extractData(response);
+    const query = {
+      page: params.page ?? 0,
+      size,
+      sort: params.sort || 'date',
+      direction: params.direction === 'asc' ? 'asc' : 'desc',
+    };
+    const search = (params.search || '').trim();
+    if (search) query.search = search;
+    if (params.view) query.view = params.view;
+    if (params.restaurantId) query.restaurantId = params.restaurantId;
+    if (params.status) query.status = params.status;
+    if (params.date) query.date = params.date;
+
+    const response = await api.get(RESOURCE, { params: query });
+    const body = response?.data;
+    if (!body || !Array.isArray(body.content)) {
+      return emptyPage(size);
+    }
+
+    return {
+      content: body.content,
+      page: Number(body.page) || 0,
+      size: Number(body.size) || size,
+      totalElements: Number(body.totalElements) || 0,
+      totalPages: Number(body.totalPages) || 0,
+      first: Boolean(body.first),
+      last: Boolean(body.last),
+      empty: Boolean(body.empty),
+    };
   } catch (error) {
     throw handleError(error);
   }
+};
+
+/**
+ * Cifras del panel: total, pendientes, confirmadas de hoy, próximas, canceladas
+ * futuras e historial. Las calcula el backend con una consulta agregada, así que
+ * no se derivan de la página cargada y no cambian al filtrar.
+ *
+ * @param {object} [params]
+ * @param {number} [params.restaurantId] - Acota las cifras a un restaurante.
+ */
+export const getReservationStats = async (params = {}) => {
+  try {
+    const response = await api.get(`${RESOURCE}/stats`, {
+      params: params.restaurantId ? { restaurantId: params.restaurantId } : undefined,
+    });
+    const body = response?.data;
+    const data = body?.data ?? body ?? {};
+    return {
+      total: Number(data.total) || 0,
+      pendientes: Number(data.pendientes) || 0,
+      hoyConfirmadas: Number(data.hoyConfirmadas) || 0,
+      proximasConfirmadas: Number(data.proximasConfirmadas) || 0,
+      canceladasFuturas: Number(data.canceladasFuturas) || 0,
+      historial: Number(data.historial) || 0,
+    };
+  } catch (error) {
+    throw handleError(error);
+  }
+};
+
+/**
+ * Reservas de un día concreto, para el calendario. Sin paginar: un día es un
+ * volumen acotado por naturaleza. Antes el calendario filtraba en el navegador
+ * la lista completa.
+ *
+ * @param {object} params
+ * @param {string} params.date           - formato YYYY-MM-DD
+ * @param {number} [params.restaurantId]
+ */
+export const getReservationsByDate = async ({ date, restaurantId } = {}) => {
+  if (!date) return [];
+  const page = await getReservations({
+    page: 0,
+    size: 100,
+    date,
+    restaurantId,
+    sort: 'date',
+    direction: 'asc',
+  });
+  return page.content;
 };
 
 /**
