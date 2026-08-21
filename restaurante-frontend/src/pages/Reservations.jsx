@@ -4,20 +4,26 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import {
   getReservations,
+  getReservationStats,
+  getReservationsByDate,
   createReservation,
   updateReservation,
   deleteReservation,
   updateReservationStatus,
   getTimeSlots,
+  PAGE_SIZE_OPTIONS,
+  DEFAULT_PAGE_SIZE,
 } from '../services/reservationService';
 import { getRestaurants } from '../services/restaurantService';
 import { getTablesByRestaurant } from '../services/tableService';
 import { getCustomers } from '../services/customerService';
 import QuickCustomerForm from '../components/QuickCustomerForm';
 import TimeSlotSelector from '../components/TimeSlotSelector';
+import Pagination from '../components/Pagination';
+import ActionMenu from '../components/ActionMenu';
 import useTimeSlots from '../hooks/useTimeSlots';
 import { canAccess, PERMISSIONS } from '../config/permissions';
-import { filterPendingReservations, getLocalTodayString, isFutureReservation } from '../lib/reservationHelpers';
+import { getLocalTodayString } from '../lib/reservationHelpers';
 
 // ─── Estados posibles ─────────────────────────────────────────────────────
 const RESERVATION_STATUSES = [
@@ -31,6 +37,24 @@ const RESERVATION_STATUSES = [
 const STATUS_MAP = Object.fromEntries(
   RESERVATION_STATUSES.map((s) => [s.value, s])
 );
+
+/**
+ * Las cinco vistas del panel. Cada una es una consulta al servidor, no un
+ * filtro en memoria: antes de esto la pantalla descargaba la lista completa y
+ * derivaba de ella siete vistas distintas.
+ *
+ * `countKey` es el campo de /reservations/stats que alimenta su contador.
+ */
+const VIEWS = [
+  { value: 'solicitudes', label: 'Solicitudes', countKey: 'pendientes' },
+  { value: 'hoy', label: 'Hoy', countKey: 'hoyConfirmadas' },
+  { value: 'proximas', label: 'Próximas', countKey: 'proximasConfirmadas' },
+  { value: 'historial', label: 'Historial', countKey: 'historial' },
+  { value: 'todas', label: 'Todas', countKey: 'total' },
+];
+
+/** Vistas donde tiene sentido ofrecer estado y fecha: en las demás los fija la vista. */
+const VIEWS_WITH_FILTERS = ['todas', 'historial'];
 
 // ─── Estado inicial del formulario ─────────────────────────────────────────
 const INITIAL_FORM = {
@@ -56,8 +80,20 @@ const getErrorMessage = (err) => {
 const Reservations = () => {
   const { user } = useAuth();
 
-  // ─── Estados de datos ──────────────────────────────────────────────────
-  const [reservations, setReservations] = useState([]);
+  // ─── Estados del listado ───────────────────────────────────────────────
+  // La página, la vista, los filtros y el orden viajan al servidor; aquí solo
+  // se guarda lo que se ha pedido y lo que ha devuelto.
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(DEFAULT_PAGE_SIZE);
+  const [searchQuery, setSearchQuery] = useState('');  // lo que se teclea
+  const [search, setSearch] = useState('');            // lo que se consulta
+  const [sortField, setSortField] = useState('date');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [pageData, setPageData] = useState(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
@@ -80,8 +116,8 @@ const Reservations = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterDate, setFilterDate] = useState('');
 
-  // ─── Estado de tabs ───────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState('active');
+  // ─── Vista activa ─────────────────────────────────────────────────────
+  const [view, setView] = useState('solicitudes');
 
   // ─── Estados del modal de formulario ───────────────────────────────────
   const [showModal, setShowModal] = useState(false);
@@ -159,22 +195,11 @@ const Reservations = () => {
   const [detailReservation, setDetailReservation] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // ─── Safe access ───────────────────────────────────────────────────────
-  const safeReservations = useMemo(() => Array.isArray(reservations) ? reservations : [], [reservations]);
+  // ─── Filas de la página actual ─────────────────────────────────────────
+  const rows = useMemo(() => pageData?.content ?? [], [pageData]);
 
-  // ─── Cargar datos iniciales ────────────────────────────────────────────
-  const fetchReservations = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getReservations();
-      setReservations(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /** Fuerza una recarga del listado y de las cifras tras crear, editar o borrar. */
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   const fetchRestaurantsList = useCallback(async () => {
     setLoadingRestaurants(true);
@@ -194,8 +219,12 @@ const Reservations = () => {
     setLoadingCustomers(true);
     setCustomersLoadError(null);
     try {
-      const data = await getCustomers();
-      setCustomers(Array.isArray(data) ? data : []);
+      // getCustomers devuelve un sobre paginado desde que el listado de clientes
+      // pasó a paginar en servidor. Aquí solo alimenta el desplegable del
+      // formulario, así que se pide el tamaño máximo que admite el backend; si
+      // el cliente no aparece, el asistente tiene alta rápida.
+      const data = await getCustomers({ size: 100, sort: 'name', direction: 'asc' });
+      setCustomers(Array.isArray(data?.content) ? data.content : []);
     } catch (err) {
       setCustomers([]);
       setCustomersLoadError(getErrorMessage(err));
@@ -204,13 +233,88 @@ const Reservations = () => {
     }
   }, []);
 
-  // Inicialización
+  // Inicialización de los selectores (restaurantes y clientes del formulario).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchReservations();
     fetchRestaurantsList();
     fetchCustomers();
-  }, [fetchReservations, fetchRestaurantsList, fetchCustomers]);
+  }, [fetchRestaurantsList, fetchCustomers]);
+
+  // ─── Retardo del buscador ──────────────────────────────────────────────
+  // Búsqueda y página se actualizan en el mismo render para que salga una sola
+  // petición, no dos.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchQuery.trim());
+      setPage(0);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // ─── Carga de la página ────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getReservations({
+          page,
+          size,
+          view,
+          search,
+          restaurantId: filterRestaurantId || undefined,
+          status: filterStatus || undefined,
+          date: filterDate || undefined,
+          sort: sortField,
+          direction: sortDirection,
+        });
+        if (cancelled) return;
+
+        // Si la página actual se ha quedado vacía tras borrar, se retrocede.
+        if (data.content.length === 0 && data.totalElements > 0 && page > 0) {
+          setPage((p) => Math.max(0, Math.min(p - 1, data.totalPages - 1)));
+          return;
+        }
+        setPageData(data);
+      } catch (err) {
+        if (!cancelled) setError(getErrorMessage(err));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setIsInitialLoad(false);
+        }
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [page, size, view, search, filterRestaurantId, filterStatus, filterDate,
+      sortField, sortDirection, refreshKey]);
+
+  // ─── Cifras del panel ──────────────────────────────────────────────────
+  // No dependen de la vista ni de los filtros: si dependieran, los números
+  // cambiarían al pulsar una pestaña y dejarían de servir de referencia.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadStats = async () => {
+      setStatsLoading(true);
+      try {
+        const data = await getReservationStats({ restaurantId: filterRestaurantId || undefined });
+        if (!cancelled) setStats(data);
+      } catch {
+        // Las cifras son informativas: si fallan, la tabla sigue sirviendo.
+        if (!cancelled) setStats(null);
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    };
+
+    loadStats();
+    return () => { cancelled = true; };
+  }, [filterRestaurantId, refreshKey]);
 
   // ─── Cargar mesas cuando cambia restaurantId en el FORMULARIO ──────────
   useEffect(() => {
@@ -244,86 +348,63 @@ const Reservations = () => {
     }
   }, [successMessage]);
 
-  // ─── Filtrado local ────────────────────────────────────────────────────
-  const filteredReservations = safeReservations.filter((r) => {
-    if (filterRestaurantId && String(r.restaurantId) !== filterRestaurantId) {
-      // También intentar con r.restaurant?.id
-      if (!r.restaurant || String(r.restaurant.id) !== filterRestaurantId) {
-        return false;
-      }
+  const [changingStatus, setChangingStatus] = useState(null); // id de la reserva sobre la que se actúa
+
+  // Aquí vivían el filtrado local, las cuatro cifras y las listas de cada
+  // pestaña, todas derivadas de la lista completa. Ahora las calcula el
+  // servidor: al paginar, derivarlas del navegador habría pasado a contar y
+  // filtrar solo la página visible.
+
+  /** Cambia de vista volviendo a la primera página y soltando filtros que ya no aplican. */
+  const handleViewChange = (nextView) => {
+    if (nextView === view) return;
+    setView(nextView);
+    setPage(0);
+    if (!VIEWS_WITH_FILTERS.includes(nextView)) {
+      // En las vistas que ya fijan el estado, arrastrar estos filtros dejaría
+      // la tabla vacía sin que se vea por qué.
+      setFilterStatus('');
+      setFilterDate('');
     }
-    if (filterStatus && r.status !== filterStatus) return false;
-    if (filterDate) {
-      const resDate = r.reservationDate
-        ? String(r.reservationDate).substring(0, 10)
-        : '';
-      if (resDate !== filterDate) return false;
-    }
-    return true;
-  });
-
-  // ─── Pending reservations (for solicitudes section) ──────────────────────
-  // Mismo criterio que el KPI de Inicio: PENDING con fecha hoy o futura.
-  const pendingReservations = useMemo(
-    () => filterPendingReservations(safeReservations),
-    [safeReservations]
-  );
-
-  const [changingStatus, setChangingStatus] = useState(null); // id of reservation being acted upon
-  const [showAllPending, setShowAllPending] = useState(false); // toggle para ver todas las pendientes
-
-  // ─── Stats ─────────────────────────────────────────────────────────────
-  const stats = {
-    total: safeReservations.length,
-    confirmed: safeReservations.filter((r) => r.status === 'CONFIRMED' && isFutureReservation(r)).length,
-    pending: pendingReservations.length,
-    cancelled: safeReservations.filter((r) => r.status === 'CANCELLED' && isFutureReservation(r)).length,
   };
 
-  // ─── Today string (stable reference) ────────────────────────────────────
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }, []);
+  /** Ordena por un campo; repetir el mismo campo invierte el sentido. */
+  const handleSort = (field) => {
+    if (field === sortField) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setPage(0);
+  };
 
-  // ─── Tab-based computed lists ──────────────────────────────────────────
-  const todayReservations = useMemo(
-    () => safeReservations.filter(
-      (r) =>
-        r.status === 'CONFIRMED' &&
-        r.reservationDate &&
-        String(r.reservationDate).substring(0, 10) === todayStr
-    ),
-    [safeReservations, todayStr]
-  );
+  /** Hay algún filtro puesto: distingue «no hay nada» de «no hay resultados». */
+  const hasFilters = Boolean(filterRestaurantId || filterStatus || filterDate || search);
 
-  const upcomingReservations = useMemo(
-    () =>
-      safeReservations.filter(
-        (r) =>
-          r.status === 'CONFIRMED' &&
-          r.reservationDate &&
-          String(r.reservationDate).substring(0, 10) > todayStr
-      ),
-    [safeReservations, todayStr]
-  );
+  /** Qué decir cuando la vista está vacía sin filtros de por medio. */
+  const emptyViewMessage = {
+    solicitudes: 'No hay solicitudes pendientes por gestionar.',
+    hoy: 'No hay reservas confirmadas para hoy.',
+    proximas: 'No hay reservas confirmadas próximas.',
+    historial: 'Todavía no hay reservas en el historial.',
+    todas: 'No hay reservas registradas.',
+  }[view];
 
-  const HISTORY_STATUSES = useMemo(() => ['CANCELLED', 'COMPLETED', 'NO_SHOW'], []);
-
-  const historyReservations = useMemo(
-    () =>
-      safeReservations.filter(
-        (r) =>
-          HISTORY_STATUSES.includes(r.status) ||
-          (r.reservationDate &&
-            String(r.reservationDate).substring(0, 10) < todayStr &&
-            r.status !== 'PENDING')
-      ),
-    [safeReservations, todayStr, HISTORY_STATUSES]
-  );
+  /** Cabecera pulsable con indicador de sentido. */
+  const sortableHeader = (field, label, extraClass = '') => {
+    const isActive = sortField === field;
+    return (
+      <th className={`is-sortable ${extraClass}`.trim()} aria-sort={isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        <button type="button" className="sort-button" onClick={() => handleSort(field)}>
+          {label}
+          <span className="sort-indicator" aria-hidden="true">
+            {isActive ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
+          </span>
+        </button>
+      </th>
+    );
+  };
 
   // ─── Helpers de formato ────────────────────────────────────────────────
   const formatDate = (dateStr) => {
@@ -396,106 +477,63 @@ const Reservations = () => {
   };
 
   // ─── Render acciones de fila ───────────────────────────────────────────
-  const renderRowActions = (reservation) => {
-    const r = reservation;
-    if (!r) return null;
-    return (
-      <div className="d-flex justify-content-end gap-1">
-        {/* Menú de cambio de estado */}
-        {r?.status && r.status !== 'CANCELLED' && r.status !== 'COMPLETED' && r.status !== 'NO_SHOW' && (
-          <div className="dropdown d-inline-block">
-            <button
-              className="btn-icon"
-              type="button"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-              title="Cambiar estado"
-              disabled={changingStatus === r.id}
-              onClick={(e) => {
-                if (changingStatus === r.id) return;
-                const next = e.currentTarget.nextElementSibling;
-                if (next) next.classList.toggle('show');
-              }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 6v6l4 2" />
-              </svg>
-            </button>
-            <ul
-              className="dropdown-menu dropdown-menu-end"
-              style={{
-                position: 'absolute',
-                inset: '0px 0px auto auto',
-                margin: 0,
-                transform: 'translate(0px, 30px)',
-                minWidth: '150px',
-                fontSize: '0.8125rem',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-lg)',
-                zIndex: 1050,
-                background: 'var(--bg-card)',
-                padding: '0.25rem 0',
-                display: 'none',
-              }}
-            >
-              {RESERVATION_STATUSES.filter((s) => s.value !== r.status).map((s) => (
-                <li key={s.value}>
-                  <button
-                    className="dropdown-item"
-                    type="button"
-                    style={{
-                      padding: '0.375rem 0.75rem',
-                      fontSize: '0.8125rem',
-                      border: 'none',
-                      background: 'none',
-                      cursor: 'pointer',
-                      width: '100%',
-                      textAlign: 'left',
-                    }}
-                    onClick={() => {
-                      handleStatusChange(r, s.value);
-                      const menu = document.querySelector('.dropdown-menu.show');
-                      if (menu) menu.classList.remove('show');
-                    }}
-                  >
-                    {s.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+  /**
+   * Acciones de una fila, para el menú de tres puntos.
+   *
+   * Recoge lo que antes estaba repartido en una hilera de iconos sin etiqueta y
+   * un desplegable de Bootstrap manipulado a mano por el DOM. Los cambios de
+   * estado respetan la misma matriz de transiciones que valida el backend: los
+   * estados finales no admiten salida.
+   */
+  const buildActions = (r) => {
+    if (!r) return [];
 
-        {canAccess(user, PERMISSIONS.MANAGE_RESERVATIONS) && (
-          <>
-            <button
-              className="btn-icon btn-edit"
-              onClick={() => handleOpenEdit(r)}
-              title="Editar reserva"
-              type="button"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-            </button>
-            <button
-              className="btn-icon btn-delete"
-              onClick={() => handleOpenDelete(r)}
-              title="Eliminar reserva"
-              type="button"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
-          </>
-        )}
-      </div>
-    );
+    const items = [
+      {
+        key: 'detalle',
+        label: 'Ver detalles',
+        onSelect: () => handleOpenDetail(r),
+      },
+    ];
+
+    const esFinal = ['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(r.status);
+
+    if (canAccess(user, PERMISSIONS.MANAGE_RESERVATIONS)) {
+      items.push({
+        key: 'editar',
+        label: 'Editar reserva',
+        onSelect: () => handleOpenEdit(r),
+      });
+    }
+
+    if (!esFinal) {
+      // Transiciones permitidas por el backend desde cada estado.
+      const permitidas = r.status === 'PENDING'
+        ? ['CONFIRMED', 'CANCELLED']
+        : ['CANCELLED', 'COMPLETED', 'NO_SHOW'];
+
+      permitidas.forEach((estado, indice) => {
+        items.push({
+          key: `estado-${estado}`,
+          label: `Marcar como ${STATUS_MAP[estado]?.label?.toLowerCase() || estado}`,
+          separatorBefore: indice === 0,
+          disabled: changingStatus === r.id,
+          onSelect: () => handleStatusChange(r, estado),
+        });
+      });
+    }
+
+    if (canAccess(user, PERMISSIONS.MANAGE_RESERVATIONS)) {
+      items.push({
+        key: 'eliminar',
+        label: 'Eliminar reserva',
+        danger: true,
+        separatorBefore: true,
+        onSelect: () => handleOpenDelete(r),
+      });
+    }
+
+    return items;
   };
 
   // ─── Handlers del modal de formulario ──────────────────────────────────
@@ -711,7 +749,7 @@ const Reservations = () => {
 
       await createReservation(payload);
       setWizardSuccess(true);
-      await fetchReservations();
+      refresh();
     } catch (err) {
       const msg = err?.message || 'Error al crear la reserva.';
       setWizardError(msg);
@@ -731,23 +769,38 @@ const Reservations = () => {
     setShowDetailModal(false);
   };
 
-  // ─── Cálculos para calendario ──────────────────────────────────────────
-  const calendarReservations = useMemo(() => {
-    return safeReservations.filter((r) => {
-      const rd = r.reservationDate ? String(r.reservationDate).substring(0, 10) : '';
-      const dateMatch = rd === calendarDate;
-      if (!dateMatch) return false;
-      if (calendarRestaurantId) {
-        const rid = r.restaurantId ? String(r.restaurantId) : r.restaurant?.id ? String(r.restaurant.id) : '';
-        if (rid !== calendarRestaurantId) return false;
+  // ─── Calendario: consulta propia por día ───────────────────────────────
+  // Antes filtraba en el navegador la lista completa. Un día es un volumen
+  // acotado por naturaleza, así que se pide sin paginar.
+  const [calendarData, setCalendarData] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+
+  useEffect(() => {
+    if (viewMode !== 'calendar' || !calendarDate) return undefined;
+    let cancelled = false;
+
+    const loadDay = async () => {
+      setCalendarLoading(true);
+      try {
+        const data = await getReservationsByDate({
+          date: calendarDate,
+          restaurantId: calendarRestaurantId || undefined,
+        });
+        if (!cancelled) setCalendarData(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setCalendarData([]);
+      } finally {
+        if (!cancelled) setCalendarLoading(false);
       }
-      return true;
-    });
-  }, [safeReservations, calendarDate, calendarRestaurantId]);
+    };
+
+    loadDay();
+    return () => { cancelled = true; };
+  }, [viewMode, calendarDate, calendarRestaurantId, refreshKey]);
 
   const groupedByHour = useMemo(() => {
     const groups = {};
-    calendarReservations.forEach((r) => {
+    calendarData.forEach((r) => {
       const hour = r.reservationTime ? String(r.reservationTime).substring(0, 5) : '00:00';
       if (!groups[hour]) groups[hour] = [];
       groups[hour].push(r);
@@ -762,7 +815,7 @@ const Reservations = () => {
         return tA.localeCompare(tB);
       }),
     }));
-  }, [calendarReservations]);
+  }, [calendarData]);
 
   // ─── Validar formulario ────────────────────────────────────────────────
   const validateForm = () => {
@@ -821,7 +874,7 @@ const Reservations = () => {
       }
 
       handleCloseModal();
-      await fetchReservations();
+      refresh();
     } catch (err) {
       const msg = getErrorMessage(err);
       if (showModal) {
@@ -851,7 +904,7 @@ const Reservations = () => {
       setSuccessMessage('Reserva eliminada correctamente.');
       setShowDeleteModal(false);
       setDeletingReservation(null);
-      await fetchReservations();
+      refresh();
     } catch (err) {
       setError(getErrorMessage(err));
       setShowDeleteModal(false);
@@ -900,7 +953,7 @@ const Reservations = () => {
         setSuccessMessage(`Estado actualizado a "${STATUS_MAP[newStatus]?.label || newStatus}".`);
       }
 
-      await fetchReservations();
+      refresh();
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -1006,75 +1059,52 @@ const Reservations = () => {
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span className="flex-grow-1">{error}</span>
-          <button className="btn btn-outline-danger btn-sm ms-2" onClick={fetchReservations} type="button">
+          <button className="btn btn-outline-danger btn-sm ms-2" onClick={refresh} type="button">
             Reintentar
           </button>
         </div>
       )}
 
-      {/* ═══ Tabs: Activas / Historial / Todas ═════════════════════════════ */}
-      {!loading && !error && safeReservations.length > 0 && (
-        <div className="reservations-tabs" role="tablist" aria-label="Filtrar vista de reservas">
-          <button
-            className={`reservations-tab ${activeTab === 'active' ? 'active' : ''}`}
-            onClick={() => setActiveTab('active')}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'active'}
-            aria-controls="reservations-panel"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            Activas
-            {(pendingReservations.length + todayReservations.length + upcomingReservations.length) > 0 && (
-              <span className="reservations-tab-badge">
-                {pendingReservations.length + todayReservations.length + upcomingReservations.length}
-              </span>
-            )}
-          </button>
-          <button
-            className={`reservations-tab ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveTab('history')}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'history'}
-            aria-controls="reservations-panel"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            Historial
-            {historyReservations.length > 0 && (
-              <span className="reservations-tab-badge">{historyReservations.length}</span>
-            )}
-          </button>
-          <button
-            className={`reservations-tab ${activeTab === 'all' ? 'active' : ''}`}
-            onClick={() => setActiveTab('all')}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'all'}
-            aria-controls="reservations-panel"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-            Todas
-            <span className="reservations-tab-badge">{safeReservations.length}</span>
-          </button>
-        </div>
-      )}
+      {/* ═══ Pestañas: cada una es una consulta al servidor ════════════════ */}
+      <div className="reservations-tabs" role="tablist" aria-label="Cambiar vista de reservas">
+        {VIEWS.map((v) => {
+          const count = stats ? stats[v.countKey] : null;
+          return (
+            <button
+              key={v.value}
+              className={`reservations-tab ${view === v.value ? 'active' : ''}`}
+              onClick={() => handleViewChange(v.value)}
+              type="button"
+              role="tab"
+              aria-selected={view === v.value}
+              aria-controls="reservations-panel"
+            >
+              {v.label}
+              {!statsLoading && count > 0 && (
+                <span className="reservations-tab-badge">{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* ═══ Filtros ═══════════════════════════════════════════════════════ */}
-      {!loading && !error && safeReservations.length > 0 && (
-        <div className="d-flex flex-wrap align-items-center gap-3 mb-3">
-          {/* Filtro restaurante */}
+      {/* ═══ Barra de herramientas ═════════════════════════════════════════ */}
+      <div className="table-toolbar">
+        <div className="table-search">
+          <label htmlFor="reservation-search" className="visually-hidden">
+            Buscar reservas
+          </label>
+          <input
+            id="reservation-search"
+            type="search"
+            className="form-control form-control-sm"
+            placeholder="Buscar por cliente, email o mesa…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        <div className="d-flex flex-wrap align-items-center gap-3">
           <div className="d-flex align-items-center gap-2">
             <label htmlFor="filter-restaurant" className="form-label mb-0 text-nowrap text-muted small fw-medium">
               Restaurante:
@@ -1084,7 +1114,10 @@ const Reservations = () => {
               className="form-select form-select-sm"
               style={{ minWidth: '160px' }}
               value={filterRestaurantId}
-              onChange={(e) => setFilterRestaurantId(e.target.value)}
+              onChange={(e) => {
+                setFilterRestaurantId(e.target.value);
+                setPage(0);
+              }}
               aria-label="Filtrar por restaurante"
             >
               <option value="">Todos</option>
@@ -1096,51 +1129,62 @@ const Reservations = () => {
             </select>
           </div>
 
-          {/* Filtro estado */}
-          <div className="d-flex align-items-center gap-2">
-            <label htmlFor="filter-status" className="form-label mb-0 text-nowrap text-muted small fw-medium">
-              Estado:
-            </label>
-            <select
-              id="filter-status"
-              className="form-select form-select-sm"
-              style={{ minWidth: '140px' }}
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              aria-label="Filtrar por estado"
-            >
-              <option value="">Todos</option>
-              {RESERVATION_STATUSES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Estado y fecha solo donde no los fija ya la vista. */}
+          {VIEWS_WITH_FILTERS.includes(view) && (
+            <>
+              <div className="d-flex align-items-center gap-2">
+                <label htmlFor="filter-status" className="form-label mb-0 text-nowrap text-muted small fw-medium">
+                  Estado:
+                </label>
+                <select
+                  id="filter-status"
+                  className="form-select form-select-sm"
+                  style={{ minWidth: '140px' }}
+                  value={filterStatus}
+                  onChange={(e) => {
+                    setFilterStatus(e.target.value);
+                    setPage(0);
+                  }}
+                  aria-label="Filtrar por estado"
+                >
+                  <option value="">Todos</option>
+                  {RESERVATION_STATUSES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          {/* Filtro fecha */}
-          <div className="d-flex align-items-center gap-2">
-            <label htmlFor="filter-date" className="form-label mb-0 text-nowrap text-muted small fw-medium">
-              Fecha:
-            </label>
-            <input
-              id="filter-date"
-              type="date"
-              className="form-control form-control-sm"
-              style={{ minWidth: '150px' }}
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
-              aria-label="Filtrar por fecha"
-            />
-          </div>
+              <div className="d-flex align-items-center gap-2">
+                <label htmlFor="filter-date" className="form-label mb-0 text-nowrap text-muted small fw-medium">
+                  Fecha:
+                </label>
+                <input
+                  id="filter-date"
+                  type="date"
+                  className="form-control form-control-sm"
+                  style={{ minWidth: '150px' }}
+                  value={filterDate}
+                  onChange={(e) => {
+                    setFilterDate(e.target.value);
+                    setPage(0);
+                  }}
+                  aria-label="Filtrar por fecha"
+                />
+              </div>
+            </>
+          )}
 
-          {(filterRestaurantId || filterStatus || filterDate) && (
+          {(filterRestaurantId || filterStatus || filterDate || searchQuery) && (
             <button
               className="btn btn-sm btn-secondary"
               onClick={() => {
                 setFilterRestaurantId('');
                 setFilterStatus('');
                 setFilterDate('');
+                setSearchQuery('');
+                setPage(0);
               }}
               type="button"
             >
@@ -1148,185 +1192,14 @@ const Reservations = () => {
             </button>
           )}
         </div>
-      )}
+      </div>
 
-      {/* ═══ Solicitudes Pendientes ══════════════════════════════════════════════ */}
-      {!loading && !error && pendingReservations.length > 0 && (
-        <div className="pending-section">
-          <div className="pending-section-header">
-            <div className="d-flex align-items-center gap-2">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--warning)' }}>
-                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <h6 className="mb-0 fw-semibold">Solicitudes Pendientes</h6>
-              <span className="pending-badge">{pendingReservations.length}</span>
-            </div>
-            <p className="pending-section-subtitle">
-              Estas reservas requieren confirmación o rechazo
-            </p>
-          </div>
-
-          <div className="pending-list">
-            {pendingReservations.slice(0, showAllPending ? pendingReservations.length : 5).map((r) => (
-              <div key={r.id} className="pending-item">
-                <div className="pending-item-info">
-                  <div className="pending-item-row">
-                    <span className="pending-customer">{getCustomerName(r)}</span>
-                    <span className="pending-party">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                      {r.partySize || '?'} {r.partySize === 1 ? 'persona' : 'personas'}
-                    </span>
-                  </div>
-                  <div className="pending-item-row pending-meta">
-                    <span>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                        <line x1="16" y1="2" x2="16" y2="6" />
-                        <line x1="8" y1="2" x2="8" y2="6" />
-                        <line x1="3" y1="10" x2="21" y2="10" />
-                      </svg>
-                      {formatDate(r.reservationDate)}
-                    </span>
-                    <span>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
-                      </svg>
-                      {formatTime(r.reservationTime)}
-                    </span>
-                    <span>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                        <polyline points="9 22 9 12 15 12 15 22" />
-                      </svg>
-                      {getRestaurantName(r)}
-                    </span>
-                    <span>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <path d="M9 3v18" />
-                      </svg>
-                      {getTableLabel(r)}
-                    </span>
-                  </div>
-                </div>
-                <div className="pending-item-actions">
-                  <button
-                    className="btn btn-sm btn-success d-flex align-items-center gap-1"
-                    onClick={() => {
-                      setChangingStatus(r.id);
-                      handleStatusChange(r, 'CONFIRMED').finally(() => setChangingStatus(null));
-                    }}
-                    disabled={changingStatus === r.id}
-                    type="button"
-                    title="Aceptar reserva"
-                  >
-                    {changingStatus === r.id ? (
-                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    )}
-                    Aceptar
-                  </button>
-                  <button
-                    className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1"
-                    onClick={() => {
-                      setChangingStatus(r.id);
-                      handleStatusChange(r, 'CANCELLED').finally(() => setChangingStatus(null));
-                    }}
-                    disabled={changingStatus === r.id}
-                    type="button"
-                    title="Rechazar reserva"
-                  >
-                    {changingStatus === r.id ? (
-                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    )}
-                    Rechazar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {pendingReservations.length > 5 && !showAllPending && (
-            <div className="pending-more text-center py-2">
-              <button
-                className="btn btn-sm btn-outline-primary"
-                onClick={() => setShowAllPending(true)}
-                type="button"
-              >
-                Ver todas las solicitudes ({pendingReservations.length})
-              </button>
-            </div>
-          )}
-
-          {showAllPending && pendingReservations.length > 5 && (
-            <div className="pending-more text-center py-2">
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={() => setShowAllPending(false)}
-                type="button"
-              >
-                Mostrar menos
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ═══ Loading ═══════════════════════════════════════════════════════ */}
-      {loading && (
-        <div className="loading-state">
-          <div className="spinner-border mb-3" role="status" style={{ width: '2.25rem', height: '2.25rem' }}>
-            <span className="visually-hidden">Cargando...</span>
-          </div>
-          <p className="text-muted mb-0">Cargando reservas...</p>
-        </div>
-      )}
-
-      {/* ═══ Empty State ═══════════════════════════════════════════════════ */}
-      {!loading && !error && safeReservations.length === 0 && (
-        <div className="app-card">
-          <div className="empty-state">
-            <div className="empty-state-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
-            </div>
-            <h5>No hay reservas registradas</h5>
-            <p>Crea la primera reserva para empezar a gestionarlas.</p>
-            <button
-              className="btn btn-primary"
-              onClick={handleOpenCreate}
-              type="button"
-            >
-              Crear Reserva
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ═══ Data View ═════════════════════════════════════════════════════ */}
-      {!loading && !error && safeReservations.length > 0 && (
+      {/* ═══ Datos ═════════════════════════════════════════════════════════ */}
+      {!error && (
         <>
-          {/* ─── Stats Cards ────────────────────────────────────────────── */}
+          {/* ─── Tarjetas ───────────────────────────────────────────────── */}
+          {/* Las calcula el servidor y no dependen de la vista: pulsar una
+              pestaña no cambia los números. */}
           <div className="stats-grid">
             <div className="stat-card">
               <div className="stat-card-icon primary">
@@ -1338,7 +1211,7 @@ const Reservations = () => {
                 </svg>
               </div>
               <div className="stat-card-info">
-                <div className="stat-card-value">{stats.total}</div>
+                <div className="stat-card-value">{statsLoading ? '—' : (stats?.total ?? 0)}</div>
                 <div className="stat-card-label">Total Reservas</div>
               </div>
             </div>
@@ -1350,7 +1223,9 @@ const Reservations = () => {
                 </svg>
               </div>
               <div className="stat-card-info">
-                <div className="stat-card-value">{stats.confirmed}</div>
+                <div className="stat-card-value">
+                  {statsLoading ? '—' : ((stats?.hoyConfirmadas ?? 0) + (stats?.proximasConfirmadas ?? 0))}
+                </div>
                 <div className="stat-card-label">Confirmadas</div>
               </div>
             </div>
@@ -1363,7 +1238,7 @@ const Reservations = () => {
                 </svg>
               </div>
               <div className="stat-card-info">
-                <div className="stat-card-value">{stats.pending}</div>
+                <div className="stat-card-value">{statsLoading ? '—' : (stats?.pendientes ?? 0)}</div>
                 <div className="stat-card-label">Pendientes</div>
               </div>
             </div>
@@ -1376,357 +1251,84 @@ const Reservations = () => {
                 </svg>
               </div>
               <div className="stat-card-info">
-                <div className="stat-card-value">{stats.cancelled}</div>
+                <div className="stat-card-value">{statsLoading ? '—' : (stats?.canceladasFuturas ?? 0)}</div>
                 <div className="stat-card-label">Canceladas</div>
               </div>
             </div>
           </div>
 
           {viewMode === 'table' ? (
-            /* ─── Table (tab-aware) ───────────────────────────────────────── */
-            <>
-              {/* ═══ Tab: Activas ══════════════════════════════════════════════ */}
-              {activeTab === 'active' && (
-                <div id="reservations-panel" role="tabpanel">
-                  {/* Pendientes por confirmar */}
-                  {pendingReservations.length > 0 && (
-                    <div className="mb-4">
-                      <div className="d-flex align-items-center gap-2 mb-3">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" />
-                          <line x1="12" y1="8" x2="12" y2="12" />
-                          <line x1="12" y1="16" x2="12.01" y2="16" />
-                        </svg>
-                        <h6 className="mb-0 fw-semibold" style={{ fontSize: '0.9rem' }}>Pendientes de Confirmar</h6>
-                        <span className="pending-badge">{pendingReservations.length}</span>
-                      </div>
-                      <div className="app-card">
-                        <div className="app-table-wrapper">
-                          <table className="app-table">
-                            <thead>
-                              <tr>
-                                <th className="col-id">#</th>
-                                <th>Cliente</th>
-                                <th>Mesa</th>
-                                <th>Restaurante</th>
-                                <th>Fecha</th>
-                                <th>Hora</th>
-                                <th>Personas</th>
-                                <th>Estado</th>
-                                <th className="col-actions">Acciones</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {[...pendingReservations]
-                                .sort((a, b) => {
-                                  const dateA = a.reservationDate || '';
-                                  const dateB = b.reservationDate || '';
-                                  const cmp = dateA.localeCompare(dateB);
-                                  if (cmp !== 0) return cmp;
-                                  return (a.reservationTime || '').localeCompare(b.reservationTime || '');
-                                })
-                                .map((r, index) => (
-                                <tr key={r?.id ?? index}>
-                                  <td className="col-id">{r?.id ?? index + 1}</td>
-                                  <td className="fw-semibold">{getCustomerName(r)}</td>
-                                  <td>{getTableLabel(r)}</td>
-                                  <td>{getRestaurantName(r)}</td>
-                                  <td className="text-nowrap">{formatDate(r.reservationDate)}</td>
-                                  <td className="text-nowrap">{formatTime(r.reservationTime)}</td>
-                                  <td>
-                                    <span className="capacity-badge">
-                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                                        <circle cx="9" cy="7" r="4" />
-                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                      </svg>
-                                      {r?.partySize ?? '—'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    {renderStatusBadge(r?.status)}
-                                    {r.holdStatus === 'EXPIRED' && (
-                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
-                                        Pendiente sin bloqueo
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="col-actions">{renderRowActions(r)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Hoy */}
-                  {todayReservations.length > 0 && (
-                    <div className="mb-4">
-                      <div className="d-flex align-items-center gap-2 mb-3">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="10" />
-                          <polyline points="12 6 12 12 16 14" />
-                        </svg>
-                        <h6 className="mb-0 fw-semibold" style={{ fontSize: '0.9rem' }}>Hoy</h6>
-                        <span className="pending-badge" style={{ background: 'var(--primary)' }}>{todayReservations.length}</span>
-                      </div>
-                      <div className="app-card">
-                        <div className="app-table-wrapper">
-                          <table className="app-table">
-                            <thead>
-                              <tr>
-                                <th className="col-id">#</th>
-                                <th>Cliente</th>
-                                <th>Mesa</th>
-                                <th>Restaurante</th>
-                                <th>Hora</th>
-                                <th>Personas</th>
-                                <th>Estado</th>
-                                <th className="col-actions">Acciones</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {[...todayReservations]
-                                .sort((a, b) => (a.reservationTime || '').localeCompare(b.reservationTime || ''))
-                                .map((r, index) => (
-                                <tr key={r?.id ?? index}>
-                                  <td className="col-id">{r?.id ?? index + 1}</td>
-                                  <td className="fw-semibold">{getCustomerName(r)}</td>
-                                  <td>{getTableLabel(r)}</td>
-                                  <td>{getRestaurantName(r)}</td>
-                                  <td className="text-nowrap">{formatTime(r.reservationTime)}</td>
-                                  <td>
-                                    <span className="capacity-badge">
-                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                                        <circle cx="9" cy="7" r="4" />
-                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                      </svg>
-                                      {r?.partySize ?? '—'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    {renderStatusBadge(r?.status)}
-                                    {r.holdStatus === 'EXPIRED' && (
-                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
-                                        Pendiente sin bloqueo
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="col-actions">{renderRowActions(r)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Próximas */}
-                  {upcomingReservations.length > 0 && (
-                    <div className="mb-4">
-                      <div className="d-flex align-items-center gap-2 mb-3">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                          <line x1="16" y1="2" x2="16" y2="6" />
-                          <line x1="8" y1="2" x2="8" y2="6" />
-                          <line x1="3" y1="10" x2="21" y2="10" />
-                        </svg>
-                        <h6 className="mb-0 fw-semibold" style={{ fontSize: '0.9rem' }}>Próximas Reservas</h6>
-                        <span className="pending-badge" style={{ background: 'var(--primary)' }}>{upcomingReservations.length}</span>
-                      </div>
-                      <div className="app-card">
-                        <div className="app-table-wrapper">
-                          <table className="app-table">
-                            <thead>
-                              <tr>
-                                <th className="col-id">#</th>
-                                <th>Cliente</th>
-                                <th>Mesa</th>
-                                <th>Restaurante</th>
-                                <th>Fecha</th>
-                                <th>Hora</th>
-                                <th>Personas</th>
-                                <th>Estado</th>
-                                <th className="col-actions">Acciones</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {[...upcomingReservations]
-                                .sort((a, b) => {
-                                  const dateA = a.reservationDate || '';
-                                  const dateB = b.reservationDate || '';
-                                  const cmp = dateA.localeCompare(dateB);
-                                  if (cmp !== 0) return cmp;
-                                  return (a.reservationTime || '').localeCompare(b.reservationTime || '');
-                                })
-                                .map((r, index) => (
-                                <tr key={r?.id ?? index}>
-                                  <td className="col-id">{r?.id ?? index + 1}</td>
-                                  <td className="fw-semibold">{getCustomerName(r)}</td>
-                                  <td>{getTableLabel(r)}</td>
-                                  <td>{getRestaurantName(r)}</td>
-                                  <td className="text-nowrap">{formatDate(r.reservationDate)}</td>
-                                  <td className="text-nowrap">{formatTime(r.reservationTime)}</td>
-                                  <td>
-                                    <span className="capacity-badge">
-                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                                        <circle cx="9" cy="7" r="4" />
-                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                      </svg>
-                                      {r?.partySize ?? '—'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    {renderStatusBadge(r?.status)}
-                                    {r.holdStatus === 'EXPIRED' && (
-                                      <span className="res-hold-badge" title="El bloqueo provisional de mesa ha caducado; la solicitud sigue pendiente de gestionar.">
-                                        Pendiente sin bloqueo
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="col-actions">{renderRowActions(r)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Empty state for active tab */}
-                  {pendingReservations.length === 0 && todayReservations.length === 0 && upcomingReservations.length === 0 && (
-                    <div className="app-card">
-                      <div className="empty-state" style={{ padding: '2.5rem 1rem' }}>
-                        <div className="empty-state-icon" style={{ width: 56, height: 56 }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                          </svg>
-                        </div>
-                        <h5>No hay reservas activas</h5>
-                        <p style={{ fontSize: '0.85rem' }}>Las reservas pendientes y confirmadas para hoy y los próximos días aparecerán aquí.</p>
-                      </div>
-                    </div>
-                  )}
+            /* ─── Tabla única, paginada por el servidor ──────────────────── */
+            <div
+              id="reservations-panel"
+              role="tabpanel"
+              className={`app-card${loading && !isInitialLoad ? ' is-refreshing' : ''}`}
+            >
+              {isInitialLoad ? (
+                <div className="loading-state">
+                  <div className="spinner-border mb-3" role="status" style={{ width: '2.25rem', height: '2.25rem' }}>
+                    <span className="visually-hidden">Cargando...</span>
+                  </div>
+                  <p className="text-muted mb-0">Cargando reservas...</p>
                 </div>
-              )}
-
-              {/* ═══ Tab: Historial ════════════════════════════════════════════ */}
-              {activeTab === 'history' && (
-                <div id="reservations-panel" role="tabpanel">
-                  {historyReservations.length === 0 ? (
-                    <div className="app-card">
-                      <div className="empty-state" style={{ padding: '2.5rem 1rem' }}>
-                        <div className="empty-state-icon" style={{ width: 56, height: 56 }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                          </svg>
-                        </div>
-                        <h5>No hay reservas en el historial</h5>
-                        <p style={{ fontSize: '0.85rem' }}>Las reservas canceladas, completadas o pasadas aparecerán aquí.</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="app-card">
-                      <div className="app-table-wrapper">
-                        <table className="app-table">
-                          <thead>
-                            <tr>
-                              <th className="col-id">#</th>
-                              <th>Cliente</th>
-                              <th>Mesa</th>
-                              <th>Restaurante</th>
-                              <th>Fecha</th>
-                              <th>Hora</th>
-                              <th>Personas</th>
-                              <th>Estado</th>
-                              <th className="col-actions">Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {[...historyReservations]
-                              .sort((a, b) => {
-                                const dateA = a.reservationDate || '';
-                                const dateB = b.reservationDate || '';
-                                const cmp = dateB.localeCompare(dateA); // descending
-                                if (cmp !== 0) return cmp;
-                                return (b.reservationTime || '').localeCompare(a.reservationTime || '');
-                              })
-                              .map((r, index) => (
-                              <tr key={r?.id ?? index}>
-                                <td className="col-id">{r?.id ?? index + 1}</td>
-                                <td className="fw-semibold">{getCustomerName(r)}</td>
-                                <td>{getTableLabel(r)}</td>
-                                <td>{getRestaurantName(r)}</td>
-                                <td className="text-nowrap">{formatDate(r.reservationDate)}</td>
-                                <td className="text-nowrap">{formatTime(r.reservationTime)}</td>
-                                <td>
-                                  <span className="capacity-badge">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                                      <circle cx="9" cy="7" r="4" />
-                                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                    </svg>
-                                    {r?.partySize ?? '—'}
-                                  </span>
-                                </td>
-                                <td>{renderStatusBadge(r?.status)}</td>
-                                <td className="col-actions">{renderRowActions(r)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ═══ Tab: Todas ════════════════════════════════════════════════ */}
-              {activeTab === 'all' && (
-                <div id="reservations-panel" role="tabpanel" className="app-card">
+              ) : (
+                <>
                   <div className="app-table-wrapper">
                     <table className="app-table">
                       <thead>
                         <tr>
                           <th className="col-id">#</th>
-                          <th>Cliente</th>
+                          {sortableHeader('customer', 'Cliente')}
                           <th>Mesa</th>
                           <th>Restaurante</th>
-                          <th>Fecha</th>
-                          <th>Hora</th>
-                          <th>Personas</th>
-                          <th>Estado</th>
+                          {sortableHeader('date', 'Fecha y hora', 'text-nowrap')}
+                          {sortableHeader('partySize', 'Personas')}
+                          {sortableHeader('status', 'Estado')}
                           <th className="col-actions">Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredReservations.length === 0 ? (
+                        {rows.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className="text-center text-muted py-4">
-                              No se encontraron reservas con los filtros actuales.
+                            <td colSpan={8} className="text-center text-muted py-4">
+                              {hasFilters ? (
+                                <>
+                                  No se encontraron reservas con los filtros actuales.
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-link"
+                                    onClick={() => {
+                                      setFilterRestaurantId('');
+                                      setFilterStatus('');
+                                      setFilterDate('');
+                                      setSearchQuery('');
+                                      setPage(0);
+                                    }}
+                                  >
+                                    Limpiar filtros
+                                  </button>
+                                </>
+                              ) : (
+                                emptyViewMessage
+                              )}
                             </td>
                           </tr>
                         ) : (
-                          filteredReservations.map((r, index) => (
+                          rows.map((r, index) => (
                             <tr key={r?.id ?? index}>
                               <td className="col-id">{r?.id ?? index + 1}</td>
-                              <td className="fw-semibold">{getCustomerName(r)}</td>
+                              <td>
+                                <div className="cell-primary">{getCustomerName(r)}</div>
+                                {r?.customerEmail && (
+                                  <div className="cell-secondary">{r.customerEmail}</div>
+                                )}
+                              </td>
                               <td>{getTableLabel(r)}</td>
                               <td>{getRestaurantName(r)}</td>
-                              <td className="text-nowrap">{formatDate(r.reservationDate)}</td>
-                              <td className="text-nowrap">{formatTime(r.reservationTime)}</td>
+                              <td className="text-nowrap">
+                                <div className="cell-primary">{formatDate(r.reservationDate)}</div>
+                                <div className="cell-secondary">{formatTime(r.reservationTime)}</div>
+                              </td>
                               <td>
                                 <span className="capacity-badge">
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1739,16 +1341,36 @@ const Reservations = () => {
                                 </span>
                               </td>
                               <td>{renderStatusBadge(r?.status)}</td>
-                              <td className="col-actions">{renderRowActions(r)}</td>
+                              <td className="col-actions">
+                                <ActionMenu
+                                  items={buildActions(r)}
+                                  label={`Acciones de la reserva ${r?.id ?? ''}`}
+                                />
+                              </td>
                             </tr>
                           ))
                         )}
                       </tbody>
                     </table>
                   </div>
-                </div>
+
+                  <Pagination
+                    page={pageData?.page ?? 0}
+                    size={size}
+                    totalElements={pageData?.totalElements ?? 0}
+                    totalPages={pageData?.totalPages ?? 0}
+                    sizeOptions={PAGE_SIZE_OPTIONS}
+                    itemLabel="reservas"
+                    disabled={loading}
+                    onPageChange={setPage}
+                    onSizeChange={(nuevoTamano) => {
+                      setSize(nuevoTamano);
+                      setPage(0);
+                    }}
+                  />
+                </>
               )}
-            </>
+            </div>
           ) : (
             /* ─── Calendario Diario ─────────────────────────────── */
             <div className="res-calendar">
@@ -1831,7 +1453,14 @@ const Reservations = () => {
               </div>
 
               {/* Timeline */}
-              {groupedByHour.length === 0 ? (
+              {calendarLoading ? (
+                <div className="loading-state">
+                  <div className="spinner-border mb-3" role="status" style={{ width: '2.25rem', height: '2.25rem' }}>
+                    <span className="visually-hidden">Cargando...</span>
+                  </div>
+                  <p className="text-muted mb-0">Cargando el día...</p>
+                </div>
+              ) : groupedByHour.length === 0 ? (
                 <div className="res-calendar-empty">
                   <div className="res-calendar-empty-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
