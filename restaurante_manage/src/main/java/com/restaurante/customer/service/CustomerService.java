@@ -3,10 +3,13 @@ package com.restaurante.customer.service;
 import com.restaurante.common.exception.DuplicateResourceException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
+import com.restaurante.customer.dto.CustomerListItem;
 import com.restaurante.customer.dto.CustomerMapper;
 import com.restaurante.customer.dto.CustomerRequest;
 import com.restaurante.customer.dto.CustomerReservationStats;
 import com.restaurante.customer.dto.CustomerResponse;
+import com.restaurante.customer.dto.CustomerSegment;
+import com.restaurante.customer.dto.CustomerStats;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
 import com.restaurante.reservation.dto.ReservationMapper;
@@ -23,6 +26,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -42,40 +46,125 @@ public class CustomerService {
     private final ReservationRepository reservationRepository;
     private final ReservationMapper reservationMapper;
 
-    public Page<CustomerResponse> findAll(Pageable pageable) {
-        return findAll(pageable, null, null);
-    }
-
     /**
-     * Lista clientes con filtros opcionales de texto y restaurante.
+     * Lista clientes con filtros opcionales de texto, restaurante y segmento.
      *
      * <p>El alcance multi-tenant se resuelve aquí y se aplica siempre en la
      * consulta: pedir un {@code restaurantId} fuera del alcance del usuario
      * devuelve vacío, nunca datos de otro tenant.</p>
      *
+     * <p>Los segmentos se resuelven en la base de datos. Antes se calculaban en
+     * el navegador sobre la lista completa, de modo que al paginar habrían pasado
+     * a filtrar solo la página.</p>
+     *
      * @param search       texto libre sobre nombre completo, email o teléfono.
      * @param restaurantId restringe a un restaurante concreto, si se indica.
+     * @param segment      segmento de clientela, o {@code null} para no filtrar.
      */
-    public Page<CustomerResponse> findAll(Pageable pageable, String search, Long restaurantId) {
+    @Transactional(readOnly = true)
+    public Page<CustomerListItem> findAll(Pageable pageable, String search, Long restaurantId,
+                                         CustomerSegment segment) {
         Set<Long> scope = resolveVisibleRestaurantIds();
         boolean unrestricted = scope == null;
 
         // Alcance vacío: el usuario no ve ningún restaurante.
         if (!unrestricted && scope.isEmpty()) {
-            return Page.empty();
+            return Page.empty(pageable);
         }
 
-        String normalizedSearch = normalizeSearch(search);
+        Page<CustomerListItem> page = customerRepository.searchForList(
+                unrestricted,
+                unrestricted ? Set.of(-1L) : scope,
+                restaurantId,
+                normalizeSearch(search),
+                segment == CustomerSegment.RECURRENTES,
+                segment == CustomerSegment.NUEVOS ? startOfCurrentMonth() : null,
+                segment == CustomerSegment.SIN_VENIR ? inactiveThreshold() : null,
+                pageable);
 
-        Page<CustomerResponse> page = customerRepository
-                .search(unrestricted,
-                        unrestricted ? Set.of(-1L) : scope,
-                        restaurantId,
-                        normalizedSearch,
-                        pageable)
-                .map(customerMapper::toResponse);
+        return enrichListWithReservationStats(page);
+    }
 
-        return enrichWithReservationStats(page);
+    /**
+     * Cifras de las tarjetas, con una sola consulta agregada y en el mismo
+     * alcance que el listado.
+     */
+    @Transactional(readOnly = true)
+    public CustomerStats stats(Long restaurantId) {
+        Set<Long> scope = resolveVisibleRestaurantIds();
+        boolean unrestricted = scope == null;
+
+        if (!unrestricted && scope.isEmpty()) {
+            return CustomerStats.builder().build();
+        }
+
+        List<Object[]> rows = customerRepository.statsForList(
+                unrestricted,
+                unrestricted ? Set.of(-1L) : scope,
+                restaurantId,
+                startOfCurrentMonth(),
+                inactiveThreshold());
+
+        if (rows == null || rows.isEmpty() || rows.get(0) == null) {
+            return CustomerStats.builder().build();
+        }
+
+        Object[] row = rows.get(0);
+        return CustomerStats.builder()
+                .total(toLong(row, 0))
+                .recurrentes(toLong(row, 1))
+                .nuevosEsteMes(toLong(row, 2))
+                .sinVenir(toLong(row, 3))
+                .build();
+    }
+
+    /** Primer instante del mes en curso, para el segmento de altas recientes. */
+    private LocalDateTime startOfCurrentMonth() {
+        return LocalDate.now().withDayOfMonth(1).atStartOfDay();
+    }
+
+    /**
+     * Frontera de «sin venir»: tres meses atrás. Se calcula aquí y viaja como
+     * parámetro para que H2 y MySQL den el mismo resultado.
+     */
+    private LocalDate inactiveThreshold() {
+        return LocalDate.now().minusMonths(3);
+    }
+
+    private long toLong(Object[] row, int index) {
+        if (row.length <= index || row[index] == null) {
+            return 0L;
+        }
+        return ((Number) row[index]).longValue();
+    }
+
+    /**
+     * Rellena el total de reservas y la fecha de la última para toda la página
+     * del listado, con UNA sola consulta agregada.
+     */
+    private Page<CustomerListItem> enrichListWithReservationStats(Page<CustomerListItem> page) {
+        Set<Long> customerIds = page.getContent().stream()
+                .map(CustomerListItem::getId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (customerIds.isEmpty()) {
+            return page;
+        }
+
+        Map<Long, CustomerReservationStats> statsById = reservationRepository
+                .findStatsByCustomerIds(customerIds).stream()
+                .collect(Collectors.toMap(CustomerReservationStats::getCustomerId, s -> s));
+
+        page.getContent().forEach(customer -> {
+            CustomerReservationStats stats = statsById.get(customer.getId());
+            if (stats != null) {
+                customer.setTotalReservations(stats.getTotalReservations());
+                customer.setLastReservationDate(stats.getLastReservationDate());
+            }
+        });
+
+        return page;
     }
 
     /**
