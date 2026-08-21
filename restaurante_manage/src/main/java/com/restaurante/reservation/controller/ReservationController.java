@@ -2,10 +2,16 @@ package com.restaurante.reservation.controller;
 
 import com.restaurante.common.dto.ApiResponse;
 import com.restaurante.common.dto.PagedResponse;
+import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.util.Constants;
+import com.restaurante.reservation.dto.ReservationListItem;
 import com.restaurante.reservation.dto.ReservationRequest;
 import com.restaurante.reservation.dto.ReservationResponse;
+import com.restaurante.reservation.dto.ReservationSortField;
+import com.restaurante.reservation.dto.ReservationStats;
 import com.restaurante.reservation.dto.ReservationStatusUpdateRequest;
+import com.restaurante.reservation.dto.ReservationView;
+import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.service.ReservationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -17,12 +23,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping(Constants.RESERVATIONS_PATH)
@@ -34,45 +41,34 @@ public class ReservationController {
 
     private final ReservationService reservationService;
 
+    /** Tope de tamaño de página, para que nadie pida la tabla entera. */
+    private static final int MAX_PAGE_SIZE = 100;
+
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
-    @Operation(summary = "Listar reservas", description = "Obtiene lista paginada de reservas")
-    public ResponseEntity<PagedResponse<ReservationResponse>> findAll(
+    @Operation(summary = "Listar reservas",
+            description = "Página de reservas con vista (solicitudes, hoy, proximas, historial, todas), "
+                    + "búsqueda por cliente, email o número de mesa, filtros opcionales por restaurante, "
+                    + "estado y fecha, y ordenación por un conjunto cerrado de campos: id, date, customer, "
+                    + "partySize, status, createdAt. El alcance multi-tenant se aplica siempre.")
+    public ResponseEntity<PagedResponse<ReservationListItem>> findAll(
             @RequestParam(defaultValue = Constants.DEFAULT_PAGE) int page,
-            @RequestParam(defaultValue = Constants.DEFAULT_SIZE) int size,
-            @RequestParam(required = false) String[] sort,
-            @RequestParam(defaultValue = "desc") String direction) {
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "date") String sort,
+            @RequestParam(defaultValue = "desc") String direction,
+            @RequestParam(required = false) String view,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Long restaurantId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
 
-        Sort sorting;
-        if (sort != null && sort.length > 0) {
-            List<Sort.Order> orders = new java.util.ArrayList<>();
-            for (String s : sort) {
-                if (s == null || s.trim().isEmpty()) continue;
-                String[] parts = s.split(",");
-                String property = parts[0].trim();
-                if (property.isEmpty()) continue;
-                Sort.Direction dir = (parts.length > 1 && "desc".equalsIgnoreCase(parts[1].trim()))
-                        ? Sort.Direction.DESC : Sort.Direction.ASC;
-                orders.add(new Sort.Order(dir, property));
-            }
-            sorting = orders.isEmpty() ? Sort.by(Sort.Direction.DESC, Constants.DEFAULT_SORT) : Sort.by(orders);
-        } else {
-            Sort.Direction dir = direction.equalsIgnoreCase("desc") ? Sort.Direction.DESC : Sort.Direction.ASC;
-            sorting = Sort.by(dir, Constants.DEFAULT_SORT);
-        }
+        Pageable pageable = buildPageable(page, size, sort, direction);
+        log.debug("findAll() -> page={}, size={}, view={}, sort={}", page, size, view, pageable.getSort());
 
-        Pageable pageable = PageRequest.of(page, size, sorting);
-        log.debug("findAll() -> page={}, size={}, sort={}", page, size, sorting);
+        Page<ReservationListItem> reservationPage = reservationService.findAllForList(
+                pageable, ReservationView.from(view), search, restaurantId, resolveStatus(status), date);
 
-        Page<ReservationResponse> reservationPage;
-        try {
-            reservationPage = reservationService.findAll(pageable);
-        } catch (Exception e) {
-            log.error("Error al listar reservas: page={}, size={}, sort={}", page, size, sorting, e);
-            throw e;
-        }
-
-        PagedResponse<ReservationResponse> response = PagedResponse.<ReservationResponse>builder()
+        PagedResponse<ReservationListItem> response = PagedResponse.<ReservationListItem>builder()
                 .content(reservationPage.getContent())
                 .page(reservationPage.getNumber())
                 .size(reservationPage.getSize())
@@ -84,6 +80,65 @@ public class ReservationController {
                 .build();
 
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/stats")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER','EMPLOYEE')")
+    @Operation(summary = "Cifras de reservas",
+            description = "Total, pendientes, confirmadas de hoy, próximas, canceladas futuras e "
+                    + "historial, calculados con una consulta agregada en el alcance del usuario. "
+                    + "No dependen de la vista ni de los filtros.")
+    public ResponseEntity<ApiResponse<ReservationStats>> stats(
+            @RequestParam(required = false) Long restaurantId) {
+        return ResponseEntity.ok(ApiResponse.success(reservationService.stats(restaurantId)));
+    }
+
+    /**
+     * Construye la paginación validando lo que llega del cliente. El campo de
+     * orden se resuelve contra {@link ReservationSortField}, que es una lista
+     * cerrada: antes se partía la cadena y el nombre resultante iba directo a
+     * {@code Sort}, así que un parámetro con una errata daba 500 en vez de 400.
+     */
+    private Pageable buildPageable(int page, int size, String sort, String direction) {
+        if (page < 0) {
+            throw new BadRequestException("El número de página no puede ser negativo.");
+        }
+        if (size < 1) {
+            throw new BadRequestException("El tamaño de página debe ser al menos 1.");
+        }
+
+        Sort.Direction dir = resolveDirection(direction);
+        ReservationSortField sortField = ReservationSortField.from(sort);
+        Sort orders = Sort.by(sortField.getProperties().stream()
+                .map(property -> new Sort.Order(dir, property))
+                .toList());
+
+        return PageRequest.of(page, Math.min(size, MAX_PAGE_SIZE), orders);
+    }
+
+    /** Por defecto descendente: es el orden que ya tenía el panel. */
+    private Sort.Direction resolveDirection(String direction) {
+        if (direction == null || direction.isBlank() || "desc".equalsIgnoreCase(direction.trim())) {
+            return Sort.Direction.DESC;
+        }
+        if ("asc".equalsIgnoreCase(direction.trim())) {
+            return Sort.Direction.ASC;
+        }
+        throw new BadRequestException("Dirección de ordenación no válida: '" + direction
+                + "'. Valores admitidos: asc, desc.");
+    }
+
+    /** Estado opcional; un valor desconocido es un 400, no una lista vacía. */
+    private ReservationStatus resolveStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return ReservationStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Estado no válido: '" + status
+                    + "'. Valores admitidos: PENDING, CONFIRMED, CANCELLED, COMPLETED, NO_SHOW.");
+        }
     }
 
     @GetMapping("/{id}")
