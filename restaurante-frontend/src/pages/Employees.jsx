@@ -2,12 +2,17 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   getUsers,
+  getUserStats,
   createUser,
   updateUser,
   deleteUser,
+  PAGE_SIZE_OPTIONS,
+  DEFAULT_PAGE_SIZE,
 } from '../services/userService';
 import { getRestaurants } from '../services/restaurantService';
 import { ROLES, ROLE_LABELS, canAccess, PERMISSIONS, normalizeRole } from '../config/permissions';
+import ActionMenu from '../components/ActionMenu';
+import Pagination from '../components/Pagination';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -30,13 +35,26 @@ const STATUS_LABELS = {
   false: { label: 'Inactivo', className: 'maintenance' },
 };
 
-const SORT_FIELDS = {
-  name: (u) => getFullName(u).toLowerCase(),
-  username: (u) => (u.username || '').toLowerCase(),
-  email: (u) => (u.email || '').toLowerCase(),
-  role: (u) => getRoleLabel(getPrimaryRole(u)).toLowerCase(),
-  createdAt: (u) => u.createdAt || '',
+/** Milisegundos de espera antes de consultar al escribir en el buscador. */
+const SEARCH_DEBOUNCE_MS = 350;
+
+/** Página vacía inicial: la pantalla nunca trabaja con datos indefinidos. */
+const EMPTY_PAGE = {
+  content: [],
+  page: 0,
+  size: DEFAULT_PAGE_SIZE,
+  totalElements: 0,
+  totalPages: 0,
+  first: true,
+  last: true,
+  empty: true,
 };
+
+/**
+ * Roles que se ofrecen en el filtro. No incluye SUPER_ADMIN porque no es un
+ * empleado de ningún restaurante, sino el dueño de la plataforma.
+ */
+const FILTERABLE_ROLES = [ROLES.ADMIN, ROLES.MANAGER, ROLES.EMPLOYEE];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -97,17 +115,28 @@ const INITIAL_FORM = {
 const Employees = () => {
   const { user } = useAuth();
 
+  // ─── Consulta al backend: página, tamaño, texto, filtros y orden ───────
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(DEFAULT_PAGE_SIZE);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [filterRole, setFilterRole] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [refreshKey, setRefreshKey] = useState(0);
+
   // ─── Estados de datos ──────────────────────────────────────────────────
-  const [employees, setEmployees] = useState([]);
+  const [pageData, setPageData] = useState(EMPTY_PAGE);
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // ─── Filtros y orden ───────────────────────────────────────────────────
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortField, setSortField] = useState('name');
-  const [sortDirection, setSortDirection] = useState('asc');
+  // ─── Métricas ──────────────────────────────────────────────────────────
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // ─── Modal de formulario (crear/editar) ────────────────────────────────
   const [showModal, setShowModal] = useState(false);
@@ -124,7 +153,10 @@ const Employees = () => {
   const [deletingError, setDeletingError] = useState(null);
 
   // Safe access
-  const safeEmployees = useMemo(() => Array.isArray(employees) ? employees : [], [employees]);
+  const employees = useMemo(
+    () => (Array.isArray(pageData.content) ? pageData.content : []),
+    [pageData]
+  );
   const safeRestaurants = useMemo(() => Array.isArray(restaurants) ? restaurants : [], [restaurants]);
 
   // ─── Rol del usuario actual ────────────────────────────────────────────
@@ -148,24 +180,85 @@ const Employees = () => {
     fetchRestaurantsList();
   }, []);
 
-  // ─── Cargar empleados ──────────────────────────────────────────────────
-  const fetchEmployees = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getUsers();
-      setEmployees(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // ─── Debounce del buscador ─────────────────────────────────────────────
+  // Cambiar el texto vuelve a la primera página, pero conserva filtros, orden y
+  // tamaño. Los dos estados se actualizan juntos para lanzar UNA sola consulta.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchEmployees();
-  }, [fetchEmployees]);
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(0);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // ─── Cargar la página ──────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getUsers({
+          page,
+          size,
+          search,
+          role: filterRole || undefined,
+          status: filterStatus || undefined,
+          sort: sortField,
+          direction: sortDirection,
+        });
+        if (cancelled) return;
+
+        // La página pedida puede quedarse vacía al eliminar el último elemento:
+        // se retrocede en vez de mostrar una tabla vacía sin explicación.
+        if (data.content.length === 0 && data.totalElements > 0 && page > 0) {
+          setPage(Math.max(0, Math.min(page - 1, Math.max(0, data.totalPages - 1))));
+          return;
+        }
+
+        setPageData(data);
+      } catch (err) {
+        if (!cancelled) setError(getErrorMessage(err));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setIsInitialLoad(false);
+        }
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page, size, search, filterRole, filterStatus, sortField, sortDirection, refreshKey]);
+
+  // ─── Cargar métricas ───────────────────────────────────────────────────
+  // Vienen de una consulta agregada del backend: no se derivan de la página.
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setStatsLoading(true);
+      try {
+        const data = await getUserStats();
+        if (!cancelled) setStats(data);
+      } catch {
+        // Un fallo de métricas no debe tapar la tabla.
+        if (!cancelled) setStats(null);
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  const refresh = useCallback(() => setRefreshKey((key) => key + 1), []);
 
   // ─── Limpiar mensajes ─────────────────────────────────────────────────
   useEffect(() => {
@@ -176,54 +269,16 @@ const Employees = () => {
   }, [successMessage]);
 
   // ══════════════════════════════════════════════════════════════════════════
-  // FILTRADO Y ORDEN
+  // DATOS DERIVADOS
   // ══════════════════════════════════════════════════════════════════════════
 
-  const filteredEmployees = useMemo(() => {
-    let result = safeEmployees.filter((emp) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase().trim();
-      const fullName = getFullName(emp).toLowerCase();
-      const username = (emp.username || '').toLowerCase();
-      const email = (emp.email || '').toLowerCase();
-      return fullName.includes(q) || username.includes(q) || email.includes(q);
-    });
-
-    const keyFn = SORT_FIELDS[sortField] || SORT_FIELDS.name;
-    result = [...result].sort((a, b) => {
-      const ka = keyFn(a);
-      const kb = keyFn(b);
-      if (ka < kb) return sortDirection === 'asc' ? -1 : 1;
-      if (ka > kb) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-
-    return result;
-  }, [safeEmployees, searchQuery, sortField, sortDirection]);
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // STATS
-  // ══════════════════════════════════════════════════════════════════════════
-
-  const stats = useMemo(() => {
-    const total = safeEmployees.length;
-    const active = safeEmployees.filter((e) => e.enabled).length;
-    const inactive = total - active;
-    return { total, active, inactive };
-  }, [safeEmployees]);
-
+  /**
+   * Nombres de restaurante de la fila. Ya vienen resueltos en el DTO, así que la
+   * tabla no necesita cruzarlos contra la lista completa de restaurantes.
+   */
   const getRestaurantNames = (emp) => {
-    const ids = emp.assignedRestaurantIds
-      ? Array.from(emp.assignedRestaurantIds)
-      : (emp.restaurantId ? [emp.restaurantId] : []);
-    if (ids.length === 0) return '—';
-    return ids
-      .map((id) => {
-        const rest = safeRestaurants.find((r) => Number(r.id) === Number(id));
-        return rest ? rest.name : null;
-      })
-      .filter(Boolean)
-      .join(', ') || '—';
+    const names = Array.isArray(emp?.restaurantNames) ? emp.restaurantNames : [];
+    return names.length > 0 ? names.join(', ') : '—';
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -237,11 +292,38 @@ const Employees = () => {
       setSortField(field);
       setSortDirection('asc');
     }
+    setPage(0);
   };
 
-  const sortIndicator = (field) => {
-    if (sortField !== field) return '';
-    return sortDirection === 'asc' ? ' ▲' : ' ▼';
+  /** Cabecera ordenable, con el mismo indicador que la tabla de restaurantes. */
+  const sortableHeader = (field, label, extraClass = '') => {
+    const isSorted = sortField === field;
+    return (
+      <th
+        className={`is-sortable${isSorted ? ' is-sorted' : ''}${extraClass ? ` ${extraClass}` : ''}`}
+        aria-sort={isSorted ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <button type="button" className="sort-button" onClick={() => handleSort(field)}>
+          <span>{label}</span>
+          <svg
+            className="sort-indicator"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {isSorted && sortDirection === 'desc' ? (
+              <polyline points="6 9 12 15 18 9" />
+            ) : (
+              <polyline points="6 15 12 9 18 15" />
+            )}
+          </svg>
+        </button>
+      </th>
+    );
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -265,7 +347,9 @@ const Employees = () => {
       email: emp.email || '',
       password: '',
       role: getPrimaryRole(emp) || ROLES.EMPLOYEE,
-      restaurantIds: emp.assignedRestaurantIds ? Array.from(emp.assignedRestaurantIds) : (emp.restaurantId ? [emp.restaurantId] : []),
+      restaurantIds: Array.isArray(emp.assignedRestaurantIds) && emp.assignedRestaurantIds.length > 0
+        ? Array.from(emp.assignedRestaurantIds)
+        : (emp.primaryRestaurantId ? [emp.primaryRestaurantId] : []),
     });
     setFormErrors({});
     setShowModal(true);
@@ -358,6 +442,7 @@ const Employees = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
+    if (submitting) return;
 
     setSubmitting(true);
     setFormErrors({});
@@ -389,7 +474,7 @@ const Employees = () => {
       }
 
       handleCloseModal();
-      await fetchEmployees();
+      refresh();
     } catch (err) {
       const msg = getErrorMessage(err);
       if (showModal) {
@@ -420,22 +505,126 @@ const Employees = () => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!deletingEmployee) return;
+    // La bandera evita que dos clics rápidos lancen dos eliminaciones.
+    if (!deletingEmployee || deleting) return;
 
     setDeleting(true);
     setDeletingError(null);
     try {
       await deleteUser(deletingEmployee.id);
-      setSuccessMessage('Empleado eliminado correctamente.');
+      setSuccessMessage(`Empleado «${getFullName(deletingEmployee)}» eliminado correctamente.`);
       setShowDeleteModal(false);
       setDeletingEmployee(null);
-      await fetchEmployees();
+      // Solo se recarga la página actual; si queda vacía, el efecto de carga
+      // retrocede a la anterior.
+      refresh();
     } catch (err) {
       setDeletingError(getErrorMessage(err));
     } finally {
       setDeleting(false);
     }
   };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ACCIONES DE FILA
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** Copia al portapapeles con respaldo para navegadores sin Clipboard API. */
+  const copyToClipboard = async (text) => {
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+
+  const handleCopyEmail = async (emp) => {
+    const copied = await copyToClipboard(emp?.email);
+    if (copied) {
+      setSuccessMessage('Email copiado al portapapeles.');
+    } else {
+      setError('No se pudo copiar el email.');
+    }
+  };
+
+  /** Solo se ofrecen acciones que el backend ya soporta. */
+  const buildActions = (emp) => {
+    const actions = [];
+
+    if (canManageEmployees) {
+      actions.push({
+        key: 'edit',
+        label: 'Editar empleado',
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        ),
+        onSelect: () => handleOpenEdit(emp),
+      });
+    }
+
+    actions.push({
+      key: 'copy-email',
+      label: 'Copiar email',
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      ),
+      onSelect: () => handleCopyEmail(emp),
+      disabled: !emp?.email,
+      separatorBefore: canManageEmployees,
+    });
+
+    if (canManageEmployees) {
+      actions.push({
+        key: 'delete',
+        label: 'Eliminar empleado',
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
+        ),
+        onSelect: () => handleOpenDelete(emp),
+        danger: true,
+        separatorBefore: true,
+      });
+    }
+
+    return actions;
+  };
+
+  const handleClearFilters = () => {
+    setSearchInput('');
+    setFilterRole('');
+    setFilterStatus('');
+    setPage(0);
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ESTADOS DERIVADOS DE LA VISTA
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const hasFilters = search.length > 0 || filterRole !== '' || filterStatus !== '';
+  const showEmptyDatabase = !isInitialLoad && !error && pageData.totalElements === 0 && !hasFilters;
+  const showNoResults = !loading && !error && employees.length === 0 && hasFilters;
+  const showTable = !isInitialLoad && !error && !showEmptyDatabase;
 
   // ══════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -489,24 +678,114 @@ const Employees = () => {
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span className="flex-grow-1">{error}</span>
-          <button className="btn btn-outline-danger btn-sm ms-2" onClick={fetchEmployees} type="button">
+          <button className="btn btn-outline-danger btn-sm ms-2" onClick={refresh} type="button">
             Reintentar
           </button>
         </div>
       )}
 
-      {/* ═══ Loading ═══════════════════════════════════════════════════════ */}
-      {loading && (
-        <div className="loading-state">
-          <div className="spinner-border mb-3" role="status" style={{ width: '2.25rem', height: '2.25rem' }}>
-            <span className="visually-hidden">Cargando...</span>
+      {/* ═══ Tarjetas de resumen ═══════════════════════════════════════════ */}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-card-icon primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
           </div>
-          <p className="text-muted mb-0">Cargando empleados...</p>
+          <div className="stat-card-info">
+            {statsLoading ? (
+              <>
+                <span className="skeleton skeleton-line skeleton-line-value" />
+                <span className="skeleton skeleton-line skeleton-line-label" />
+              </>
+            ) : (
+              <>
+                <div className="stat-card-value">{stats?.total ?? '—'}</div>
+                <div className="stat-card-label">Total Empleados</div>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-icon success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          </div>
+          <div className="stat-card-info">
+            {statsLoading ? (
+              <>
+                <span className="skeleton skeleton-line skeleton-line-value" />
+                <span className="skeleton skeleton-line skeleton-line-label" />
+              </>
+            ) : (
+              <>
+                <div className="stat-card-value">{stats?.active ?? '—'}</div>
+                <div className="stat-card-label">Activos</div>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-icon warning">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <div className="stat-card-info">
+            {statsLoading ? (
+              <>
+                <span className="skeleton skeleton-line skeleton-line-value" />
+                <span className="skeleton skeleton-line skeleton-line-label" />
+              </>
+            ) : (
+              <>
+                <div className="stat-card-value">{stats?.inactive ?? '—'}</div>
+                <div className="stat-card-label">Inactivos</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ Carga inicial ═════════════════════════════════════════════════ */}
+      {isInitialLoad && !error && (
+        <div className="app-card" aria-busy="true">
+          <div className="app-table-wrapper">
+            <table className="app-table">
+              <thead>
+                <tr>
+                  <th className="col-id">#</th>
+                  <th>Empleado</th>
+                  <th>Rol</th>
+                  <th>Restaurantes</th>
+                  <th>Estado</th>
+                  <th>Alta</th>
+                  <th className="col-actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 6 }, (_, row) => (
+                  <tr key={row}>
+                    {Array.from({ length: 7 }, (_, cell) => (
+                      <td key={cell}>
+                        <span className="skeleton skeleton-line" style={{ width: '70%' }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* ═══ Empty State ═══════════════════════════════════════════════════ */}
-      {!loading && !error && safeEmployees.length === 0 && (
+      {/* ═══ Sin empleados registrados ═════════════════════════════════════ */}
+      {showEmptyDatabase && (
         <div className="app-card">
           <div className="empty-state">
             <div className="empty-state-icon">
@@ -526,122 +805,132 @@ const Employees = () => {
         </div>
       )}
 
-      {/* ═══ Data View ═════════════════════════════════════════════════════ */}
-      {!loading && !error && safeEmployees.length > 0 && (
+      {/* ═══ Tabla ═════════════════════════════════════════════════════════ */}
+      {showTable && (
         <>
-          {/* ─── Stats Cards ────────────────────────────────────────────── */}
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-card-icon primary">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
+          <div className={`app-card${loading ? ' is-refreshing' : ''}`} aria-busy={loading}>
+            {/* ─── Buscador y filtros ─────────────────────────────────────
+                No se desmontan al refrescar, así el foco y el texto se
+                mantienen mientras se escribe. */}
+            <div className="table-toolbar">
+              <div className="table-search">
+                <span className="table-search-icon">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </span>
+                <input
+                  type="search"
+                  className="form-control form-control-sm"
+                  placeholder="Buscar por nombre, usuario, email o teléfono…"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  aria-label="Buscar empleados"
+                />
+                {searchInput && (
+                  <button
+                    type="button"
+                    className="table-search-clear"
+                    onClick={() => setSearchInput('')}
+                    aria-label="Limpiar búsqueda"
+                    title="Limpiar búsqueda"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
               </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{stats.total}</div>
-                <div className="stat-card-label">Total Empleados</div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-icon success">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{stats.active}</div>
-                <div className="stat-card-label">Activos</div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-card-icon warning">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{stats.inactive}</div>
-                <div className="stat-card-label">Inactivos</div>
-              </div>
-            </div>
-          </div>
 
-          {/* ─── Search ─────────────────────────────────────────────────── */}
-          <div className="d-flex flex-wrap align-items-center gap-3 mb-3">
-            <div className="d-flex align-items-center gap-2 flex-grow-1" style={{ maxWidth: '320px' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input
-                type="text"
-                className="form-control form-control-sm"
-                placeholder="Buscar por nombre, usuario o email..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                aria-label="Buscar empleados"
-              />
-              {searchQuery && (
-                <button
-                  className="btn btn-sm btn-secondary"
-                  onClick={() => setSearchQuery('')}
-                  type="button"
-                  aria-label="Limpiar búsqueda"
+              <div className="d-flex flex-wrap align-items-center gap-2">
+                <select
+                  className="form-select form-select-sm"
+                  style={{ width: 'auto' }}
+                  value={filterRole}
+                  onChange={(e) => {
+                    setFilterRole(e.target.value);
+                    setPage(0);
+                  }}
+                  aria-label="Filtrar por rol"
                 >
-                  Limpiar
-                </button>
-              )}
-            </div>
-          </div>
+                  <option value="">Todos los roles</option>
+                  {FILTERABLE_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_LABELS[role] || role}
+                    </option>
+                  ))}
+                </select>
 
-          {/* ─── Table ──────────────────────────────────────────────────── */}
-          <div className="app-card">
+                <select
+                  className="form-select form-select-sm"
+                  style={{ width: 'auto' }}
+                  value={filterStatus}
+                  onChange={(e) => {
+                    setFilterStatus(e.target.value);
+                    setPage(0);
+                  }}
+                  aria-label="Filtrar por estado"
+                >
+                  <option value="">Todos los estados</option>
+                  <option value="active">Activos</option>
+                  <option value="inactive">Inactivos</option>
+                </select>
+
+                {loading && (
+                  <span className="d-flex align-items-center gap-2 text-muted" style={{ fontSize: 'var(--text-xs)' }}>
+                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                    Actualizando…
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="app-table-wrapper">
               <table className="app-table">
                 <thead>
                   <tr>
-                    <th className="col-id">#</th>
-                    <th role="button" onClick={() => handleSort('name')}>Nombre{sortIndicator('name')}</th>
-                    <th role="button" onClick={() => handleSort('username')}>Usuario{sortIndicator('username')}</th>
-                    <th role="button" onClick={() => handleSort('email')}>Email{sortIndicator('email')}</th>
-                    <th role="button" onClick={() => handleSort('role')}>Rol{sortIndicator('role')}</th>
+                    {sortableHeader('id', '#', 'col-id')}
+                    {sortableHeader('name', 'Empleado')}
+                    <th>Rol</th>
                     <th>Restaurantes</th>
-                    <th>Estado</th>
-                    <th role="button" onClick={() => handleSort('createdAt')}>Fecha de creación{sortIndicator('createdAt')}</th>
+                    {sortableHeader('enabled', 'Estado')}
+                    {sortableHeader('createdAt', 'Alta')}
                     <th className="col-actions">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEmployees.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="text-center text-muted py-4">
-                        No se encontraron empleados que coincidan con la búsqueda.
+                  {showNoResults ? (
+                    <tr className="no-results">
+                      <td colSpan={7}>
+                        <div>Ningún empleado coincide con los filtros aplicados.</div>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm mt-3"
+                          onClick={handleClearFilters}
+                        >
+                          Limpiar filtros
+                        </button>
                       </td>
                     </tr>
                   ) : (
-                    filteredEmployees.map((emp, index) => (
-                      <tr key={emp?.id ?? index}>
-                        <td className="col-id">{emp?.id ?? index + 1}</td>
-                        <td className="fw-semibold">{getFullName(emp)}</td>
-                        <td>{emp?.username || '—'}</td>
+                    employees.map((emp) => (
+                      <tr key={emp.id}>
+                        <td className="col-id">{emp.id}</td>
                         <td>
-                          {emp?.email ? (
-                            <span className="text-truncate d-inline-block" style={{ maxWidth: '180px' }}>
-                              {emp.email}
+                          <div className="cell-primary">
+                            <span className="cell-primary-title">{getFullName(emp)}</span>
+                            <span className="cell-primary-meta">
+                              {[emp.username, emp.email].filter(Boolean).join(' · ') || '—'}
                             </span>
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
+                          </div>
                         </td>
                         <td>
                           <span className="fw-medium">{getRoleLabel(getPrimaryRole(emp))}</span>
                         </td>
-                        <td style={{ maxWidth: '200px' }}>
-                          <span className="text-truncate d-inline-block" style={{ maxWidth: '200px' }}>
+                        <td style={{ maxWidth: '220px' }}>
+                          <span className="text-truncate d-inline-block" style={{ maxWidth: '220px' }}>
                             {getRestaurantNames(emp)}
                           </span>
                         </td>
@@ -650,35 +939,13 @@ const Employees = () => {
                             {STATUS_LABELS[emp.enabled !== false ? 'true' : 'false'].label}
                           </span>
                         </td>
-                        <td>{formatDate(emp.createdAt)}</td>
+                        <td className="text-nowrap">{formatDate(emp.createdAt)}</td>
                         <td className="col-actions">
-                          <div className="d-flex justify-content-end gap-1">
-                            {canManageEmployees && (
-                              <button
-                                className="btn-icon btn-edit"
-                                onClick={() => handleOpenEdit(emp)}
-                                title="Editar empleado"
-                                type="button"
-                              >
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                </svg>
-                              </button>
-                            )}
-                            {canManageEmployees && (
-                              <button
-                                className="btn-icon btn-delete"
-                                onClick={() => handleOpenDelete(emp)}
-                                title="Eliminar empleado"
-                                type="button"
-                              >
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                </svg>
-                              </button>
-                            )}
+                          <div className="d-flex justify-content-end">
+                            <ActionMenu
+                              items={buildActions(emp)}
+                              label={`Acciones de ${getFullName(emp)}`}
+                            />
                           </div>
                         </td>
                       </tr>
@@ -687,6 +954,21 @@ const Employees = () => {
                 </tbody>
               </table>
             </div>
+
+            <Pagination
+              page={pageData.page}
+              size={size}
+              totalElements={pageData.totalElements}
+              totalPages={pageData.totalPages}
+              sizeOptions={PAGE_SIZE_OPTIONS}
+              itemLabel="empleados"
+              disabled={loading}
+              onPageChange={setPage}
+              onSizeChange={(newSize) => {
+                setSize(newSize);
+                setPage(0);
+              }}
+            />
           </div>
         </>
       )}

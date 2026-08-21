@@ -1,12 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { canAccess, PERMISSIONS } from '../config/permissions';
+import { createRestaurant, deleteRestaurant } from '../services/restaurantService';
 import {
-  getRestaurants,
-  createRestaurant,
-  deleteRestaurant,
-} from '../services/restaurantService';
+  getAdminRestaurants,
+  getAdminRestaurantStats,
+  PAGE_SIZE_OPTIONS,
+  DEFAULT_PAGE_SIZE,
+} from '../services/adminRestaurantService';
 import QRModal from '../components/QRModal';
 import RestaurantInfoForm from '../components/RestaurantInfoForm';
+import RestaurantDetailModal from '../components/RestaurantDetailModal';
+import ActionMenu from '../components/ActionMenu';
+import Pagination from '../components/Pagination';
 
 // ─── Estado inicial del formulario ───────────────────────────────────────
 const INITIAL_FORM = {
@@ -21,7 +28,23 @@ const INITIAL_FORM = {
   defaultReservationDurationMinutes: '',
 };
 
-// ─── Helper: extraer mensaje de error de forma segura ──────────────────
+/** Milisegundos de espera antes de consultar al escribir en el buscador. */
+const SEARCH_DEBOUNCE_MS = 350;
+
+/** Página vacía inicial: la pantalla nunca trabaja con datos indefinidos. */
+const EMPTY_PAGE = {
+  content: [],
+  page: 0,
+  size: DEFAULT_PAGE_SIZE,
+  totalElements: 0,
+  totalPages: 0,
+  first: true,
+  last: true,
+  empty: true,
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
 const getErrorMessage = (err) => {
   if (!err) return 'Error inesperado.';
   if (typeof err === 'string') return err;
@@ -29,84 +52,282 @@ const getErrorMessage = (err) => {
   return 'Error al procesar la solicitud.';
 };
 
+const publicLinkFor = (restaurant) =>
+  restaurant?.id ? `${window.location.origin}/public/reservar/${restaurant.id}` : '';
+
+const sanitizeFileName = (name) => {
+  const base = (name || 'restaurante')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // eliminar tildes
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return `qr-${base || 'restaurante'}.png`;
+};
+
+const formatDate = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+/** Copia al portapapeles con respaldo para navegadores sin Clipboard API. */
+const copyToClipboard = async (text) => {
+  if (!text) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
+
+// ─── Iconos del menú de acciones ─────────────────────────────────────────
+const iconProps = {
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+};
+
+const IconEye = () => (
+  <svg {...iconProps}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const IconSettings = () => (
+  <svg {...iconProps}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
+const IconExternal = () => (
+  <svg {...iconProps}>
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    <polyline points="15 3 21 3 21 9" />
+    <line x1="10" y1="14" x2="21" y2="3" />
+  </svg>
+);
+
+const IconCopy = () => (
+  <svg {...iconProps}>
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+
+const IconQR = () => (
+  <svg {...iconProps}>
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+);
+
+const IconDownload = () => (
+  <svg {...iconProps}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
+const IconTrash = () => (
+  <svg {...iconProps}>
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+/** Flecha del indicador de ordenación. */
+const SortArrow = ({ direction }) => (
+  <svg className="sort-indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {direction === 'desc' ? <polyline points="6 9 12 15 18 9" /> : <polyline points="6 15 12 9 18 15" />}
+  </svg>
+);
+
 // ─── Componente principal ────────────────────────────────────────────────
 const Restaurants = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canManage = canAccess(user, PERMISSIONS.MANAGE_RESTAURANTS);
 
-  // Estados de datos y UI
-  const [restaurants, setRestaurants] = useState([]);
+  // Consulta al backend: página, tamaño, texto y orden.
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(DEFAULT_PAGE_SIZE);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('name');
+  const [direction, setDirection] = useState('asc');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Datos y estado de la vista
+  const [pageData, setPageData] = useState(EMPTY_PAGE);
   const [loading, setLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Estados del modal
+  // Métricas
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  // Modales
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formErrors, setFormErrors] = useState({});
 
-  // Estados del modal de eliminar
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingRestaurant, setDeletingRestaurant] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Estados del modal QR
-  const [showQRModal, setShowQRModal] = useState(false);
-  const [qrModalRestaurant, setQRModalRestaurant] = useState(null);
+  const [detailRestaurant, setDetailRestaurant] = useState(null);
+  const [qrRestaurant, setQRRestaurant] = useState(null);
+  const [qrDownloadingId, setQRDownloadingId] = useState(null);
 
-  // Safe access: garantiza que restaurants siempre sea un array
-  const safeRestaurants = Array.isArray(restaurants) ? restaurants : [];
+  const restaurants = useMemo(
+    () => (Array.isArray(pageData.content) ? pageData.content : []),
+    [pageData]
+  );
 
-  // ─── Cargar restaurantes ─────────────────────────────────────────────
-  const fetchRestaurants = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getRestaurants();
-      // Asegurar que lo que se guarda es un array válido
-      setRestaurants(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-      // Si falla la recarga, mantener el array anterior (no se modifica)
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Carga inicial al montar el componente
-  // fetchRestaurants se define fuera y solo se ejecuta una vez al montar.
+  // ─── Debounce del buscador ────────────────────────────────────────────
+  // Cambiar el texto vuelve a la primera página, pero conserva orden y tamaño.
+  // Ambos estados se actualizan juntos para que solo se lance UNA consulta.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchRestaurants();
-  }, []);
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(0);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  // ─── Limpiar mensajes ─────────────────────────────────────────────────
+  // ─── Cargar la página ─────────────────────────────────────────────────
   useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(''), 4000);
-      return () => clearTimeout(timer);
-    }
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getAdminRestaurants({ page, size, search, sort, direction });
+        if (cancelled) return;
+
+        // La página pedida puede haberse quedado vacía (por ejemplo, al borrar
+        // el último elemento): se retrocede en vez de mostrar una tabla vacía.
+        if (data.content.length === 0 && data.totalElements > 0 && page > 0) {
+          setPage(Math.max(0, Math.min(page - 1, Math.max(0, data.totalPages - 1))));
+          return;
+        }
+
+        setPageData(data);
+      } catch (err) {
+        if (!cancelled) setError(getErrorMessage(err));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setIsInitialLoad(false);
+        }
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page, size, search, sort, direction, refreshKey]);
+
+  // ─── Cargar métricas ──────────────────────────────────────────────────
+  // Vienen de una consulta agregada del backend: no se derivan de la página.
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setStatsLoading(true);
+      try {
+        const data = await getAdminRestaurantStats();
+        if (!cancelled) setStats(data);
+      } catch {
+        // Un fallo de métricas no debe tapar la tabla: se dejan en blanco.
+        if (!cancelled) setStats(null);
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  // ─── Limpiar mensajes de éxito ────────────────────────────────────────
+  useEffect(() => {
+    if (!successMessage) return undefined;
+    const timer = setTimeout(() => setSuccessMessage(''), 4000);
+    return () => clearTimeout(timer);
   }, [successMessage]);
 
-  // ─── Abrir modal para crear ───────────────────────────────────────────
+  const refresh = useCallback(() => setRefreshKey((key) => key + 1), []);
+
+  // ─── Ordenación ───────────────────────────────────────────────────────
+  const handleSort = (field) => {
+    if (sort === field) {
+      setDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSort(field);
+      setDirection('asc');
+    }
+    setPage(0);
+  };
+
+  const sortableHeader = (field, label, extraClass = '') => {
+    const isSorted = sort === field;
+    return (
+      <th
+        className={`is-sortable${isSorted ? ' is-sorted' : ''}${extraClass ? ` ${extraClass}` : ''}`}
+        aria-sort={isSorted ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <button type="button" className="sort-button" onClick={() => handleSort(field)}>
+          <span>{label}</span>
+          <SortArrow direction={isSorted ? direction : 'asc'} />
+        </button>
+      </th>
+    );
+  };
+
+  // ─── Formulario de creación ───────────────────────────────────────────
   const handleOpenCreate = () => {
     setFormData({ ...INITIAL_FORM });
     setFormErrors({});
     setShowModal(true);
   };
 
-  // ─── Cerrar modal ─────────────────────────────────────────────────────
   const handleCloseModal = () => {
     setShowModal(false);
     setFormData({ ...INITIAL_FORM });
     setFormErrors({});
   };
 
-  // ─── Cambios en el formulario ─────────────────────────────────────────
   const handleFormChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    // Limpiar error del campo al escribir
     if (formErrors[name]) {
       setFormErrors((prev) => {
         const updated = { ...prev };
@@ -116,7 +337,6 @@ const Restaurants = () => {
     }
   };
 
-  // ─── Validar formulario ───────────────────────────────────────────────
   const validateForm = () => {
     const errors = {};
 
@@ -125,12 +345,8 @@ const Restaurants = () => {
     const email = (formData.email || '').trim();
     const capacity = formData.capacity;
 
-    if (!name) {
-      errors.name = 'El nombre es obligatorio.';
-    }
-    if (!address) {
-      errors.address = 'La dirección es obligatoria.';
-    }
+    if (!name) errors.name = 'El nombre es obligatorio.';
+    if (!address) errors.address = 'La dirección es obligatoria.';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       errors.email = 'Correo electrónico no válido.';
     }
@@ -150,23 +366,23 @@ const Restaurants = () => {
       duration !== undefined &&
       (!Number.isInteger(Number(duration)) || Number(duration) < 15 || Number(duration) > 480)
     ) {
-      errors.defaultReservationDurationMinutes = 'La duración debe ser un número entero entre 15 y 480 minutos.';
+      errors.defaultReservationDurationMinutes =
+        'La duración debe ser un número entero entre 15 y 480 minutos.';
     }
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // ─── Guardar (crear o actualizar) ─────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
+    if (submitting) return;
 
     setSubmitting(true);
     setFormErrors({});
 
     try {
-      // Convertir horarios al formato HH:mm:ss que espera el backend
       const payload = {
         name: (formData.name || '').trim(),
         address: (formData.address || '').trim(),
@@ -184,188 +400,188 @@ const Restaurants = () => {
             ? Number(formData.capacity)
             : null,
         defaultReservationDurationMinutes:
-          formData.defaultReservationDurationMinutes !== '' && formData.defaultReservationDurationMinutes !== null
+          formData.defaultReservationDurationMinutes !== '' &&
+          formData.defaultReservationDurationMinutes !== null
             ? Number(formData.defaultReservationDurationMinutes)
             : null,
       };
 
       await createRestaurant(payload);
       setSuccessMessage('Restaurante creado correctamente.');
-
-      // Cerrar modal y refrescar lista
       handleCloseModal();
-      await fetchRestaurants();
+      refresh();
     } catch (err) {
-      // Si el modal sigue abierto, mostrar error en el formulario
-      // Si ya se cerró, mostrar error global
-      const msg = getErrorMessage(err);
-      if (showModal) {
-        setFormErrors({ submit: msg });
-      } else {
-        setError(msg);
-      }
+      setFormErrors({ submit: getErrorMessage(err) });
     } finally {
       setSubmitting(false);
     }
   };
 
-  // ─── Abrir confirmación de eliminar ───────────────────────────────────
-  const handleOpenDelete = (restaurant) => {
-    if (!restaurant) return;
-    setDeletingRestaurant(restaurant);
-    setShowDeleteModal(true);
-  };
-
-  // ─── Confirmar eliminación ────────────────────────────────────────────
+  // ─── Eliminación ──────────────────────────────────────────────────────
   const handleConfirmDelete = async () => {
-    if (!deletingRestaurant) return;
+    // La bandera evita que dos clics rápidos lancen dos borrados.
+    if (!deletingRestaurant || deleting) return;
 
     setDeleting(true);
     setError(null);
     try {
       await deleteRestaurant(deletingRestaurant.id);
-      setSuccessMessage('Restaurante eliminado correctamente.');
-      setShowDeleteModal(false);
+      setSuccessMessage(`Restaurante «${deletingRestaurant.name || '—'}» eliminado correctamente.`);
       setDeletingRestaurant(null);
-      await fetchRestaurants();
+      // Solo se recarga la página actual; si se queda vacía, el efecto de carga
+      // retrocede a la anterior.
+      refresh();
     } catch (err) {
       setError(getErrorMessage(err));
-      setShowDeleteModal(false);
       setDeletingRestaurant(null);
     } finally {
       setDeleting(false);
     }
   };
 
-  // ─── Copiar enlace público de reservas ─────────────────────────────────
-  const [linkCopiedId, setLinkCopiedId] = useState(null);
-
-  const handleCopyPublicLink = (restaurant) => {
-    if (!restaurant || !restaurant.id) return;
-    const link = `${window.location.origin}/public/reservar/${restaurant.id}`;
-    navigator.clipboard.writeText(link).then(() => {
-      setLinkCopiedId(restaurant.id);
-      setTimeout(() => setLinkCopiedId(null), 2500);
-    }).catch(() => {
-      // Fallback para navegadores sin clipboard API
-      const textArea = document.createElement('textarea');
-      textArea.value = link;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setLinkCopiedId(restaurant.id);
-      setTimeout(() => setLinkCopiedId(null), 2500);
-    });
+  // ─── Acciones de enlace y QR ──────────────────────────────────────────
+  const handleCopyLink = async (restaurant) => {
+    const copied = await copyToClipboard(publicLinkFor(restaurant));
+    if (copied) {
+      setSuccessMessage('Enlace público copiado al portapapeles.');
+    } else {
+      setError('No se pudo copiar el enlace. Cópialo manualmente desde el detalle.');
+    }
   };
 
-  // ─── Abrir página pública de reservas ──────────────────────────────────
-  const handleOpenPublicLink = (restaurant) => {
-    if (!restaurant || !restaurant.id) return;
-    const link = `${window.location.origin}/public/reservar/${restaurant.id}`;
-    window.open(link, '_blank', 'noopener,noreferrer');
+  const handleOpenPublicPage = (restaurant) => {
+    const link = publicLinkFor(restaurant);
+    if (link) window.open(link, '_blank', 'noopener,noreferrer');
   };
 
-  // ─── Abrir modal QR ────────────────────────────────────────────────────
-  const handleOpenQR = (restaurant) => {
-    if (!restaurant || !restaurant.id) return;
-    setQRModalRestaurant(restaurant);
-    setShowQRModal(true);
-  };
-
-  // ─── Cerrar modal QR ───────────────────────────────────────────────────
-  const handleCloseQR = useCallback(() => {
-    setShowQRModal(false);
-    // Pequeño retardo para limpiar el restaurante después de la animación
-    setTimeout(() => setQRModalRestaurant(null), 200);
-  }, []);
-
-  // ─── Descargar QR directamente (sin modal) ─────────────────────────────
-  const [qrDownloadingId, setQRDownloadingId] = useState(null);
-
+  /**
+   * Descarga el QR generándolo en ese momento. El módulo `qrcode` se importa de
+   * forma diferida y solo se dibuja un QR: al cargar la pantalla no se genera
+   * ninguno.
+   */
   const handleDownloadQR = async (restaurant) => {
-    if (!restaurant || !restaurant.id) return;
+    if (!restaurant?.id || qrDownloadingId === restaurant.id) return;
     setQRDownloadingId(restaurant.id);
 
     try {
       const { default: QRCode } = await import('qrcode');
-      const url = `${window.location.origin}/public/reservar/${restaurant.id}`;
-      const dataUrl = await QRCode.toDataURL(url, {
+      const dataUrl = await QRCode.toDataURL(publicLinkFor(restaurant), {
         width: 512,
         margin: 2,
         color: { dark: '#1e1e2a', light: '#ffffff' },
       });
 
-      const restaurantName = restaurant.name || 'restaurante';
-      // Sanitizar nombre para filename
-      const fileName = 'qr-'
-        + restaurantName
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '')
-        + '.png';
-
       const link = document.createElement('a');
-      link.download = fileName || 'qr-restaurante.png';
+      link.download = sanitizeFileName(restaurant.name);
       link.href = dataUrl;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setSuccessMessage('Código QR descargado.');
     } catch {
-      // Silencioso — si falla la descarga directa, el usuario puede usar el modal
+      setError('No se pudo generar el código QR.');
     } finally {
       setQRDownloadingId(null);
     }
   };
 
-  // ─── Generar enlace público ────────────────────────────────────────────
-  const getPublicLink = (restaurant) => {
-    if (!restaurant || !restaurant.id) return '#';
-    return `${window.location.origin}/public/reservar/${restaurant.id}`;
+  const buildActions = (restaurant) => {
+    const actions = [
+      {
+        key: 'detail',
+        label: 'Ver detalles',
+        icon: <IconEye />,
+        onSelect: () => setDetailRestaurant(restaurant),
+      },
+    ];
+
+    if (canManage) {
+      actions.push({
+        key: 'edit',
+        label: 'Editar restaurante',
+        icon: <IconSettings />,
+        onSelect: () => navigate(`/restaurants/${restaurant.id}/configuracion`),
+      });
+    }
+
+    actions.push(
+      {
+        key: 'public',
+        label: 'Abrir página pública',
+        icon: <IconExternal />,
+        onSelect: () => handleOpenPublicPage(restaurant),
+        separatorBefore: true,
+      },
+      {
+        key: 'copy',
+        label: 'Copiar enlace público',
+        icon: <IconCopy />,
+        onSelect: () => handleCopyLink(restaurant),
+      },
+      {
+        key: 'qr',
+        label: 'Ver código QR',
+        icon: <IconQR />,
+        onSelect: () => setQRRestaurant(restaurant),
+      },
+      {
+        key: 'qr-download',
+        label: 'Descargar código QR',
+        icon: <IconDownload />,
+        onSelect: () => handleDownloadQR(restaurant),
+        disabled: qrDownloadingId === restaurant.id,
+      }
+    );
+
+    if (canManage) {
+      actions.push({
+        key: 'delete',
+        label: 'Eliminar restaurante',
+        icon: <IconTrash />,
+        onSelect: () => setDeletingRestaurant(restaurant),
+        danger: true,
+        separatorBefore: true,
+      });
+    }
+
+    return actions;
   };
 
-  // ─── Formatear horario seguro ─────────────────────────────────────────
-  const formatTime = (time) => {
-    if (!time) return null;
-    const str = String(time);
-    return str.length >= 5 ? str.substring(0, 5) : str;
-  };
+  // ─── Estados derivados de la vista ────────────────────────────────────
+  const hasSearch = search.length > 0;
+  const showEmptyDatabase = !isInitialLoad && !error && pageData.totalElements === 0 && !hasSearch;
+  const showNoResults = !loading && !error && restaurants.length === 0 && hasSearch;
+  const showTable = !isInitialLoad && !error && !showEmptyDatabase;
 
-  // ─── Cálculos para stats ──────────────────────────────────────────────
-  const totalCapacity = safeRestaurants.reduce(
-    (sum, r) => sum + (Number(r.capacity) || 0),
-    0
-  );
+  // Filas de esqueleto: reservan el espacio de la tabla en la primera carga.
+  const skeletonRows = Array.from({ length: 6 }, (_, i) => i);
 
-  // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div>
       {/* ═══ Page Header ═══════════════════════════════════════════════ */}
       <div className="page-header d-flex flex-wrap justify-content-between align-items-start gap-3">
         <div>
           <h1>Restaurantes</h1>
-          <p className="page-description">
-            Gestiona todos los restaurantes registrados
-          </p>
+          <p className="page-description">Gestiona todos los restaurantes registrados</p>
         </div>
-        <div className="page-header-actions">
-          <button
-            className="btn btn-primary d-flex align-items-center gap-2"
-            onClick={handleOpenCreate}
-            type="button"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Añadir Restaurante
-          </button>
-        </div>
+        {canManage && (
+          <div className="page-header-actions">
+            <button
+              className="btn btn-primary d-flex align-items-center gap-2"
+              onClick={handleOpenCreate}
+              type="button"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Añadir Restaurante
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ═══ Messages ════════════════════════════════════════════════════ */}
+      {/* ═══ Mensajes ════════════════════════════════════════════════════ */}
       {successMessage && (
         <div className="alert alert-success d-flex align-items-center gap-2 mb-3" role="alert">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -385,24 +601,117 @@ const Restaurants = () => {
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span className="flex-grow-1">{error}</span>
-          <button className="btn btn-outline-danger btn-sm ms-2" onClick={fetchRestaurants} type="button">
+          <button className="btn btn-outline-danger btn-sm ms-2" onClick={refresh} type="button">
             Reintentar
           </button>
         </div>
       )}
 
-      {/* ═══ Loading ═════════════════════════════════════════════════════ */}
-      {loading && (
-        <div className="loading-state">
-          <div className="spinner-border mb-3" role="status" style={{ width: '2.25rem', height: '2.25rem' }}>
-            <span className="visually-hidden">Cargando...</span>
+      {/* ═══ Tarjetas de resumen ═════════════════════════════════════════ */}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-card-icon primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
           </div>
-          <p className="text-muted mb-0">Cargando restaurantes...</p>
+          <div className="stat-card-info">
+            {statsLoading ? (
+              <>
+                <span className="skeleton skeleton-line skeleton-line-value" />
+                <span className="skeleton skeleton-line skeleton-line-label" />
+              </>
+            ) : (
+              <>
+                <div className="stat-card-value">{stats?.totalRestaurants ?? '—'}</div>
+                <div className="stat-card-label">Total Restaurantes</div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-icon success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
+          <div className="stat-card-info">
+            {statsLoading ? (
+              <>
+                <span className="skeleton skeleton-line skeleton-line-value" />
+                <span className="skeleton skeleton-line skeleton-line-label" />
+              </>
+            ) : (
+              <>
+                <div className="stat-card-value">{stats?.totalCapacity ?? '—'}</div>
+                <div className="stat-card-label">Capacidad Total</div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-icon warning">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </div>
+          <div className="stat-card-info">
+            {statsLoading ? (
+              <>
+                <span className="skeleton skeleton-line skeleton-line-value" />
+                <span className="skeleton skeleton-line skeleton-line-label" />
+              </>
+            ) : (
+              <>
+                <div className="stat-card-value">{stats?.publicBookingEnabledCount ?? '—'}</div>
+                <div className="stat-card-label">Con Reservas Online</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ Carga inicial ═══════════════════════════════════════════════ */}
+      {isInitialLoad && !error && (
+        <div className="app-card" aria-busy="true">
+          <div className="app-table-wrapper">
+            <table className="app-table">
+              <thead>
+                <tr>
+                  <th className="col-id">#</th>
+                  <th>Restaurante</th>
+                  <th>Cuenta</th>
+                  <th>Capacidad</th>
+                  <th>Reservas online</th>
+                  <th>Alta</th>
+                  <th className="col-actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {skeletonRows.map((row) => (
+                  <tr key={row}>
+                    {Array.from({ length: 7 }, (_, cell) => (
+                      <td key={cell}>
+                        <span className="skeleton skeleton-line" style={{ width: '70%' }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* ═══ Empty State ════════════════════════════════════════════════ */}
-      {!loading && !error && safeRestaurants.length === 0 && (
+      {/* ═══ Sin restaurantes registrados ════════════════════════════════ */}
+      {showEmptyDatabase && (
         <div className="app-card">
           <div className="empty-state">
             <div className="empty-state-icon">
@@ -413,74 +722,101 @@ const Restaurants = () => {
             </div>
             <h5>No hay restaurantes registrados</h5>
             <p>Crea tu primer restaurante para empezar a gestionar tu negocio.</p>
-            <button className="btn btn-primary" onClick={handleOpenCreate} type="button">
-              Crear Restaurante
-            </button>
+            {canManage && (
+              <button className="btn btn-primary" onClick={handleOpenCreate} type="button">
+                Crear Restaurante
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {/* ═══ Data View ═══════════════════════════════════════════════════ */}
-      {!loading && !error && safeRestaurants.length > 0 && (
-        <>
-          {/* ─── Stats Cards ─────────────────────────────────────────── */}
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-card-icon primary">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  <polyline points="9 22 9 12 15 12 15 22" />
+      {/* ═══ Tabla ═══════════════════════════════════════════════════════ */}
+      {showTable && (
+        <div className={`app-card${loading ? ' is-refreshing' : ''}`} aria-busy={loading}>
+          {/* ─── Buscador ──────────────────────────────────────────────
+              Nunca se desmonta al refrescar, así el foco y el texto se
+              mantienen mientras se escribe. */}
+          <div className="table-toolbar">
+            <div className="table-search">
+              <span className="table-search-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{safeRestaurants.length}</div>
-                <div className="stat-card-label">Total Restaurantes</div>
-              </div>
+              </span>
+              <input
+                type="search"
+                className="form-control form-control-sm"
+                placeholder="Buscar por nombre, email, teléfono, dirección o cuenta…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                aria-label="Buscar restaurantes"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  className="table-search-clear"
+                  onClick={() => setSearchInput('')}
+                  aria-label="Limpiar búsqueda"
+                  title="Limpiar búsqueda"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              )}
             </div>
-            <div className="stat-card">
-              <div className="stat-card-icon success">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              </div>
-              <div className="stat-card-info">
-                <div className="stat-card-value">{totalCapacity}</div>
-                <div className="stat-card-label">Capacidad Total</div>
-              </div>
-            </div>
+
+            {loading && (
+              <span className="d-flex align-items-center gap-2 text-muted" style={{ fontSize: 'var(--text-xs)' }}>
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                Actualizando…
+              </span>
+            )}
           </div>
 
-          {/* ─── Table ───────────────────────────────────────────────── */}
-          <div className="app-card">
-            <div className="app-table-wrapper">
-              <table className="app-table">
-                <thead>
-                  <tr>
-                    <th className="col-id">#</th>
-                    <th>Nombre</th>
-                    <th>Dirección</th>
-                    <th>Teléfono</th>
-                    <th>Email</th>
-                    <th>Capacidad</th>
-                    <th>Horario</th>
-                    <th className="col-actions">Acciones</th>
+          <div className="app-table-wrapper">
+            <table className="app-table">
+              <thead>
+                <tr>
+                  {sortableHeader('id', '#', 'col-id')}
+                  {sortableHeader('name', 'Restaurante')}
+                  <th>Cuenta</th>
+                  {sortableHeader('capacity', 'Capacidad')}
+                  <th>Reservas online</th>
+                  {sortableHeader('createdAt', 'Alta')}
+                  <th className="col-actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {showNoResults ? (
+                  <tr className="no-results">
+                    <td colSpan={7}>
+                      <div>Ningún restaurante coincide con «{search}».</div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm mt-3"
+                        onClick={() => setSearchInput('')}
+                      >
+                        Limpiar búsqueda
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {safeRestaurants.map((restaurant, index) => (
-                    <tr key={restaurant?.id ?? index}>
-                      <td className="col-id">{restaurant?.id ?? index + 1}</td>
-                      <td className="fw-semibold">{restaurant?.name || '—'}</td>
-                      <td style={{ maxWidth: '200px' }}>
-                        <span className="text-truncate d-inline-block" style={{ maxWidth: '200px' }}>
-                          {restaurant?.address || '—'}
-                        </span>
+                ) : (
+                  restaurants.map((restaurant) => (
+                    <tr key={restaurant.id}>
+                      <td className="col-id">{restaurant.id}</td>
+                      <td>
+                        <div className="cell-primary">
+                          <span className="cell-primary-title">{restaurant.name || '—'}</span>
+                          <span className="cell-primary-meta">
+                            {[restaurant.address, restaurant.email].filter(Boolean).join(' · ') || '—'}
+                          </span>
+                        </div>
                       </td>
-                      <td>{restaurant?.phone || '—'}</td>
-                      <td>{restaurant?.email || '—'}</td>
+                      <td>{restaurant.tenantName || '—'}</td>
                       <td>
                         <span className="capacity-badge">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -489,202 +825,50 @@ const Restaurants = () => {
                             <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                             <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                           </svg>
-                          {restaurant?.capacity ?? '—'}
+                          {restaurant.capacity ?? '—'}
                         </span>
                       </td>
-                      <td className="text-nowrap">
-                        {restaurant?.openingTime && restaurant?.closingTime
-                          ? `${formatTime(restaurant.openingTime)} - ${formatTime(restaurant.closingTime)}`
-                          : '—'}
+                      <td>
+                        <span
+                          className={`badge-status ${restaurant.publicBookingEnabled ? 'available' : 'maintenance'}`}
+                        >
+                          {restaurant.publicBookingEnabled ? 'Activas' : 'Desactivadas'}
+                        </span>
                       </td>
+                      <td className="text-nowrap">{formatDate(restaurant.createdAt)}</td>
                       <td className="col-actions">
-                        <div className="d-flex justify-content-end gap-1">
-                          <button
-                            className={`btn-icon ${linkCopiedId === restaurant.id ? 'btn-copied' : 'btn-share'}`}
-                            onClick={() => handleCopyPublicLink(restaurant)}
-                            title={linkCopiedId === restaurant.id ? '¡Enlace copiado!' : 'Copiar enlace público de reservas'}
-                            type="button"
-                          >
-                            {linkCopiedId === restaurant.id ? (
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                            ) : (
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-                                <polyline points="7 11 12 16 17 11" />
-                                <line x1="12" y1="4" x2="12" y2="16" />
-                              </svg>
-                            )}
-                          </button>
-                          <button
-                            className="btn-icon btn-edit"
-                            onClick={() => navigate(`/restaurants/${restaurant.id}/configuracion`)}
-                            title="Configurar restaurante"
-                            type="button"
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <circle cx="12" cy="12" r="3" />
-                              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                            </svg>
-                          </button>
-                          <button
-                            className="btn-icon btn-delete"
-                            onClick={() => handleOpenDelete(restaurant)}
-                            title="Eliminar restaurante"
-                            type="button"
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                          </button>
+                        <div className="d-flex justify-content-end">
+                          <ActionMenu
+                            items={buildActions(restaurant)}
+                            label={`Acciones de ${restaurant.name || 'restaurante'}`}
+                          />
                         </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        </>
-      )}
 
-      {/* ═══ RESERVAS ONLINE ═══════════════════════════════════════════════ */}
-      {!loading && !error && safeRestaurants.length > 0 && (
-        <div className="app-card mt-4">
-          <div className="app-card-body">
-            {/* ─── Header ─────────────────────────────────────────────── */}
-            <div className="d-flex align-items-center gap-2 mb-1">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--primary)', flexShrink: 0 }}>
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              <h3 className="mb-0" style={{ fontSize: '1rem', fontWeight: 600 }}>Reservas online</h3>
-            </div>
-            <p className="public-link-desc">
-              Comparte este enlace en WhatsApp, Instagram, Google Business o tu web para que tus clientes puedan reservar online.
-            </p>
-
-            {/* ─── Lista de restaurantes ──────────────────────────────── */}
-            <div className="online-reservations-list">
-              {safeRestaurants.map((restaurant) => {
-                const link = getPublicLink(restaurant);
-                const isCopied = linkCopiedId === restaurant.id;
-                return (
-                  <div key={restaurant.id} className="online-reservation-item">
-                    <div className="online-reservation-info">
-                      <span className="online-reservation-name">
-                        {restaurant.name || 'No disponible'}
-                      </span>
-                      <span className="online-reservation-link">{link}</span>
-                    </div>
-                    <div className="online-reservation-actions">
-                      <button
-                        type="button"
-                        className={`online-reservation-btn online-reservation-btn-copy ${isCopied ? 'copied' : ''}`}
-                        onClick={() => handleCopyPublicLink(restaurant)}
-                        title="Copiar enlace"
-                      >
-                        {isCopied ? (
-                          <>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                            Enlace copiado
-                          </>
-                        ) : (
-                          <>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                            Copiar enlace
-                          </>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className="online-reservation-btn online-reservation-btn-open"
-                        onClick={() => handleOpenPublicLink(restaurant)}
-                        title="Abrir página pública de reservas"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
-                        Abrir página
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* ─── Código QR por restaurante ─────────────────────────── */}
-            <div className="online-reservation-qr-list">
-              {safeRestaurants.map((restaurant) => {
-                const isDownloading = qrDownloadingId === restaurant.id;
-                return (
-                  <div key={`qr-${restaurant.id}`} className="online-reservation-qr-item">
-                    <div className="online-reservation-qr-item-info">
-                      <span className="online-reservation-qr-item-name">
-                        {restaurant.name || 'No disponible'}
-                      </span>
-                      <span className="online-reservation-qr-item-hint">
-                        Comparte este c&oacute;digo QR para que tus clientes reserven online
-                      </span>
-                    </div>
-                    <div className="online-reservation-qr-item-actions">
-                      <button
-                        type="button"
-                        className="online-reservation-btn online-reservation-btn-qr-view"
-                        onClick={() => handleOpenQR(restaurant)}
-                        title="Ver c&oacute;digo QR"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="7" height="7" rx="1" />
-                          <rect x="14" y="3" width="7" height="7" rx="1" />
-                          <rect x="3" y="14" width="7" height="7" rx="1" />
-                          <rect x="14" y="14" width="7" height="7" rx="1" />
-                          <line x1="5" y1="5" x2="5" y2="5.01" />
-                          <line x1="16" y1="5" x2="17.5" y2="5.01" />
-                          <line x1="5" y1="16" x2="5" y2="16.01" />
-                          <line x1="16" y1="16" x2="18" y2="16" />
-                          <line x1="18" y1="14" x2="18" y2="18" />
-                          <line x1="14" y1="18" x2="18" y2="18" />
-                        </svg>
-                        Ver QR
-                      </button>
-                      <button
-                        type="button"
-                        className="online-reservation-btn online-reservation-btn-qr-download"
-                        onClick={() => handleDownloadQR(restaurant)}
-                        disabled={isDownloading}
-                        title="Descargar QR"
-                      >
-                        {isDownloading ? (
-                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                        ) : (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                          </svg>
-                        )}
-                        Descargar QR
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <Pagination
+            page={pageData.page}
+            size={size}
+            totalElements={pageData.totalElements}
+            totalPages={pageData.totalPages}
+            sizeOptions={PAGE_SIZE_OPTIONS}
+            itemLabel="restaurantes"
+            disabled={loading}
+            onPageChange={setPage}
+            onSizeChange={(newSize) => {
+              setSize(newSize);
+              setPage(0);
+            }}
+          />
         </div>
       )}
 
-      {/* ═══ Modal: Crear / Editar ════════════════════════════════════════ */}
+      {/* ═══ Modal: Crear ════════════════════════════════════════════════ */}
       {showModal && (
         <div className="modal d-block" tabIndex="-1" role="dialog" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-lg modal-dialog-scrollable">
@@ -696,7 +880,6 @@ const Restaurants = () => {
 
               <form onSubmit={handleSubmit} noValidate>
                 <div className="modal-body">
-                  {/* Error del submit */}
                   {formErrors.submit && (
                     <div className="alert alert-danger py-2" role="alert">
                       {formErrors.submit}
@@ -711,19 +894,10 @@ const Restaurants = () => {
                 </div>
 
                 <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleCloseModal}
-                    disabled={submitting}
-                  >
+                  <button type="button" className="btn btn-secondary" onClick={handleCloseModal} disabled={submitting}>
                     Cancelar
                   </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary d-flex align-items-center gap-2"
-                    disabled={submitting}
-                  >
+                  <button type="submit" className="btn btn-primary d-flex align-items-center gap-2" disabled={submitting}>
                     {submitting && (
                       <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                     )}
@@ -736,14 +910,20 @@ const Restaurants = () => {
         </div>
       )}
 
-      {/* ═══ Modal: Confirmar Eliminación ═════════════════════════════════ */}
-      {showDeleteModal && deletingRestaurant && (
+      {/* ═══ Modal: Confirmar eliminación ════════════════════════════════ */}
+      {deletingRestaurant && (
         <div className="modal d-block" tabIndex="-1" role="dialog" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content">
               <div className="modal-header border-0">
                 <h5 className="modal-title">Confirmar Eliminación</h5>
-                <button type="button" className="btn-close" onClick={() => setShowDeleteModal(false)} aria-label="Cerrar" />
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setDeletingRestaurant(null)}
+                  disabled={deleting}
+                  aria-label="Cerrar"
+                />
               </div>
               <div className="modal-body text-center py-4">
                 <div className="mb-3">
@@ -755,17 +935,15 @@ const Restaurants = () => {
                 </div>
                 <h6 className="mb-2">¿Estás seguro de eliminar este restaurante?</h6>
                 <p className="text-muted mb-0">
-                  <strong>{deletingRestaurant?.name || '—'}</strong>
+                  <strong>{deletingRestaurant.name || '—'}</strong>
                 </p>
-                <p className="text-muted small mt-2 mb-0">
-                  Esta acción no se puede deshacer.
-                </p>
+                <p className="text-muted small mt-2 mb-0">Esta acción no se puede deshacer.</p>
               </div>
               <div className="modal-footer border-0 justify-content-center gap-2">
                 <button
                   type="button"
                   className="btn btn-secondary px-4"
-                  onClick={() => setShowDeleteModal(false)}
+                  onClick={() => setDeletingRestaurant(null)}
                   disabled={deleting}
                 >
                   Cancelar
@@ -776,9 +954,7 @@ const Restaurants = () => {
                   onClick={handleConfirmDelete}
                   disabled={deleting}
                 >
-                  {deleting && (
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  )}
+                  {deleting && <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />}
                   Eliminar
                 </button>
               </div>
@@ -787,9 +963,26 @@ const Restaurants = () => {
         </div>
       )}
 
-      {/* ═══ Modal: QR Code ════════════════════════════════════════════════ */}
-      {showQRModal && qrModalRestaurant && (
-        <QRModal restaurant={qrModalRestaurant} onClose={handleCloseQR} />
+      {/* ═══ Modal: Detalle ══════════════════════════════════════════════ */}
+      {detailRestaurant && (
+        <RestaurantDetailModal
+          restaurant={detailRestaurant}
+          onClose={() => setDetailRestaurant(null)}
+          onEdit={
+            canManage
+              ? () => navigate(`/restaurants/${detailRestaurant.id}/configuracion`)
+              : undefined
+          }
+          onCopyLink={() => handleCopyLink(detailRestaurant)}
+          onShowQR={() => setQRRestaurant(detailRestaurant)}
+          onDownloadQR={() => handleDownloadQR(detailRestaurant)}
+          downloadingQR={qrDownloadingId === detailRestaurant.id}
+        />
+      )}
+
+      {/* ═══ Modal: QR ═══════════════════════════════════════════════════ */}
+      {qrRestaurant && (
+        <QRModal restaurant={qrRestaurant} onClose={() => setQRRestaurant(null)} />
       )}
     </div>
   );

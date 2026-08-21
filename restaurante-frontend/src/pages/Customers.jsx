@@ -2,14 +2,18 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   getCustomers,
+  getCustomerStats,
   getCustomerById,
   getCustomerReservations,
   createCustomer,
   updateCustomer,
-  toggleCustomerActive,
+  PAGE_SIZE_OPTIONS,
+  DEFAULT_PAGE_SIZE,
 } from '../services/customerService';
 import { getRestaurants } from '../services/restaurantService';
 import { canAccess, PERMISSIONS } from '../config/permissions';
+import ActionMenu from '../components/ActionMenu';
+import Pagination from '../components/Pagination';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -33,18 +37,20 @@ const RESERVATION_STATUS_CLASS = {
   NO_SHOW: 'cancelled',
 };
 
-/** Etiquetas de estado del cliente */
-const STATUS_CONFIG = {
-  true: { label: 'Activo', className: 'available' },
-  false: { label: 'Inactivo', className: 'maintenance' },
-};
+/** Milisegundos de espera antes de consultar al escribir en el buscador. */
+const SEARCH_DEBOUNCE_MS = 350;
 
-/** Opciones de filtro por estado */
-const STATUS_FILTERS = [
-  { value: '', label: 'Todos los estados' },
-  { value: 'true', label: 'Activos' },
-  { value: 'false', label: 'Inactivos' },
-];
+/** Página vacía inicial: la pantalla nunca trabaja con datos indefinidos. */
+const EMPTY_PAGE = {
+  content: [],
+  page: 0,
+  size: DEFAULT_PAGE_SIZE,
+  totalElements: 0,
+  totalPages: 0,
+  first: true,
+  last: true,
+  empty: true,
+};
 
 /** Estado inicial del formulario */
 const INITIAL_FORM = {
@@ -98,17 +104,10 @@ const formatDate = (dateStr) => {
   }
 };
 
-/** Obtiene la clase de badge para el estado del cliente */
-const getStatusBadgeClass = (active) => {
-  const config = active !== false ? STATUS_CONFIG.true : STATUS_CONFIG.false;
-  return `badge-status ${config.className}`;
-};
-
-/** Obtiene la etiqueta de estado del cliente */
-const getStatusLabel = (active) => {
-  const config = active !== false ? STATUS_CONFIG.true : STATUS_CONFIG.false;
-  return config.label;
-};
+// Aquí vivían getStatusBadgeClass y getStatusLabel, que pintaban el estado del
+// cliente a partir de `customer.active`. Ese campo no existe en la entidad
+// Customer ni lo devuelve el backend, así que la comparación `active !== false`
+// daba siempre «Activo» para todo el mundo.
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
@@ -117,18 +116,29 @@ const getStatusLabel = (active) => {
 const Customers = () => {
   const { user } = useAuth();
 
-  // ─── Estados de datos ──────────────────────────────────────────────────
-  const [customers, setCustomers] = useState([]);
-  const [restaurants, setRestaurants] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState('');
-  // ─── Filtros ───────────────────────────────────────────────────────────
+  // ─── Consulta al backend: página, tamaño, texto, filtros y orden ───────
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(DEFAULT_PAGE_SIZE);
   const [searchQuery, setSearchQuery] = useState('');
+  const [search, setSearch] = useState('');
   const [filterRestaurantId, setFilterRestaurantId] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
   // Segmento activo elegido desde las tarjetas de cifras ('' = todos).
   const [segment, setSegment] = useState('');
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // ─── Estados de datos ──────────────────────────────────────────────────
+  const [pageData, setPageData] = useState(EMPTY_PAGE);
+  const [restaurants, setRestaurants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
+
+  // ─── Cifras de las tarjetas ────────────────────────────────────────────
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // ─── Modal de formulario (crear/editar) ────────────────────────────────
   const [showFormModal, setShowFormModal] = useState(false);
@@ -144,14 +154,11 @@ const Customers = () => {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState(null);
 
-  // ─── Modal de cambio de estado (desactivar/reactivar) ──────────────────
-  const [showToggleModal, setShowToggleModal] = useState(false);
-  const [togglingCustomer, setTogglingCustomer] = useState(null);
-  const [toggling, setToggling] = useState(false);
-  const [togglingError, setTogglingError] = useState(null);
-
   // Safe access
-  const safeCustomers = useMemo(() => Array.isArray(customers) ? customers : [], [customers]);
+  const safeCustomers = useMemo(
+    () => (Array.isArray(pageData.content) ? pageData.content : []),
+    [pageData]
+  );
   const safeRestaurants = useMemo(() => Array.isArray(restaurants) ? restaurants : [], [restaurants]);
 
   // ─── Permisos del usuario actual ───────────────────────────────────────
@@ -170,34 +177,90 @@ const Customers = () => {
     fetchRestaurantsList();
   }, []);
 
-  // ─── Cargar clientes ──────────────────────────────────────────────────
-  const fetchCustomers = useCallback(async (params = {}) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getCustomers(params);
-      setCustomers(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // ─── Carga y búsqueda ─────────────────────────────────────────────────────
-  // El backend filtra por texto y por restaurante (CustomerController), así que
-  // la búsqueda recorre TODOS los clientes y no solo los que hubiera cargados.
-  // El debounce evita una consulta por pulsación; que la vista ya no se
-  // desmonte al refrescar (ver isInitialLoad) es lo que hace esto indoloro.
+  // ─── Debounce del buscador ─────────────────────────────────────────────
+  // Cambiar el texto vuelve a la primera página, pero conserva segmento,
+  // restaurante, orden y tamaño. Los dos estados se actualizan juntos para
+  // lanzar UNA sola consulta.
   useEffect(() => {
     const timer = setTimeout(() => {
-      fetchCustomers({
-        search: searchQuery.trim() || undefined,
-        restaurantId: filterRestaurantId || undefined,
-      });
-    }, 300);
+      setSearch(searchQuery.trim());
+      setPage(0);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [searchQuery, filterRestaurantId, fetchCustomers]);
+  }, [searchQuery]);
+
+  // ─── Cargar la página ──────────────────────────────────────────────────
+  // El backend resuelve texto, restaurante, segmento, orden y paginación.
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getCustomers({
+          page,
+          size,
+          search,
+          restaurantId: filterRestaurantId || undefined,
+          segment: segment || undefined,
+          sort: sortField,
+          direction: sortDirection,
+        });
+        if (cancelled) return;
+
+        // La página pedida puede quedarse vacía: se retrocede en vez de mostrar
+        // una tabla vacía sin explicación.
+        if (data.content.length === 0 && data.totalElements > 0 && page > 0) {
+          setPage(Math.max(0, Math.min(page - 1, Math.max(0, data.totalPages - 1))));
+          return;
+        }
+
+        setPageData(data);
+      } catch (err) {
+        if (!cancelled) setError(getErrorMessage(err));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setIsInitialLoad(false);
+        }
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page, size, search, filterRestaurantId, segment, sortField, sortDirection, refreshKey]);
+
+  // ─── Cargar las cifras ─────────────────────────────────────────────────
+  // Vienen de una consulta agregada: contar la página daría un número sin
+  // sentido, y es justo lo que hacía la versión anterior sobre la lista entera.
+  // No dependen del segmento elegido: si cambiaran al pulsar una tarjeta, las
+  // otras tres se moverían bajo el dedo.
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setStatsLoading(true);
+      try {
+        const data = await getCustomerStats(filterRestaurantId || undefined);
+        if (!cancelled) setStats(data);
+      } catch {
+        // Un fallo de cifras no debe tapar la tabla.
+        if (!cancelled) setStats(null);
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [filterRestaurantId, refreshKey]);
+
+  const refresh = useCallback(() => setRefreshKey((key) => key + 1), []);
 
   // ─── Limpiar mensajes ─────────────────────────────────────────────────
   useEffect(() => {
@@ -208,83 +271,72 @@ const Customers = () => {
   }, [successMessage]);
 
   // ══════════════════════════════════════════════════════════════════════════
-  // STATS
+  // ESTADO DE LA VISTA
   // ══════════════════════════════════════════════════════════════════════════
 
-  // ─── Segmentos ────────────────────────────────────────────────────────────
-  // Cada KPI es un segmento de la clientela. Se define UNA sola vez: la cifra
-  // de la tarjeta y las filas que aparecen al pulsarla salen de la misma
-  // función, así que no pueden discrepar.
-  const segmentPredicates = useMemo(() => {
-    const ahora = new Date();
-    const inicioDeMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-    const limite = new Date(ahora.getFullYear(), ahora.getMonth() - 3, ahora.getDate());
-
-    return {
-      // Ha vuelto al menos una vez.
-      recurrentes: (c) => (c.totalReservations ?? 0) > 1,
-      nuevos: (c) => {
-        if (!c.createdAt) return false;
-        const alta = new Date(c.createdAt);
-        return !Number.isNaN(alta.getTime()) && alta >= inicioDeMes;
-      },
-      // Última visita hace más de 3 meses. Quien no ha venido nunca queda fuera
-      // a propósito: es otro segmento, no un cliente que se enfría.
-      sinVenir: (c) => {
-        if (!c.lastReservationDate) return false;
-        const ultima = new Date(c.lastReservationDate);
-        return !Number.isNaN(ultima.getTime()) && ultima < limite;
-      },
-    };
-  }, []);
-
-  // Las cifras anteriores (Activos, Con Email) no podían diferir nunca del
-  // total: no existe el campo `active` y el email es obligatorio. Estas cuatro
-  // sí varían y cada una lleva a una acción distinta.
-  // Se calculan siempre sobre la lista completa, no sobre el segmento elegido:
-  // si no, al pulsar una tarjeta las otras tres cambiarían bajo el dedo.
-  const stats = useMemo(() => ({
-    total: safeCustomers.length,
-    recurrentes: safeCustomers.filter(segmentPredicates.recurrentes).length,
-    nuevosEsteMes: safeCustomers.filter(segmentPredicates.nuevos).length,
-    sinVenir: safeCustomers.filter(segmentPredicates.sinVenir).length,
-  }), [safeCustomers, segmentPredicates]);
-
-  // ─── Estado de la vista ───────────────────────────────────────────────────
-  // Solo la PRIMERA carga oculta la vista. En las siguientes (al escribir en
-  // el buscador o cambiar un filtro) se conserva en pantalla: antes `loading`
-  // desmontaba el bloque entero —buscador incluido—, de modo que el campo
-  // perdía el foco y la pantalla parpadeaba en cada pulsación.
-  const isInitialLoad = loading && safeCustomers.length === 0 && !error;
-
-  const hasActiveFilters = Boolean(searchQuery || filterRestaurantId || filterStatus !== '' || segment);
-
-  // ─── Filtrado de la tabla ─────────────────────────────────────────────────
-  // El texto y el restaurante los filtra el backend. Aquí quedan el segmento
-  // elegido en las tarjetas y el estado (que no existe en el backend: la
-  // entidad Customer no tiene campo `active` ni lo expone su DTO).
-  const filteredCustomers = useMemo(() => {
-    let list = safeCustomers;
-
-    const bySegment = segmentPredicates[segment];
-    if (bySegment) list = list.filter(bySegment);
-
-    if (filterStatus !== '') {
-      list = list.filter((customer) => String(customer?.active !== false) === filterStatus);
-    }
-
-    return list;
-  }, [safeCustomers, segment, segmentPredicates, filterStatus]);
+  // Texto, restaurante, segmento, orden y paginación los resuelve el backend.
+  // Aquí ya no queda ningún filtrado en cliente: antes el segmento se aplicaba
+  // sobre la lista descargada, de modo que al paginar habría filtrado solo la
+  // página. La tabla pinta exactamente lo que devuelve el servidor.
+  const hasActiveFilters = Boolean(search || filterRestaurantId || segment);
 
   const handleClearFilters = () => {
     setSearchQuery('');
     setFilterRestaurantId('');
-    setFilterStatus('');
     setSegment('');
+    setPage(0);
   };
 
   /** Pulsar la tarjeta ya activa la desactiva: es un interruptor, no un menú. */
-  const toggleSegment = (value) => setSegment((actual) => (actual === value ? '' : value));
+  const toggleSegment = (value) => {
+    setSegment((actual) => (actual === value ? '' : value));
+    setPage(0);
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ORDEN
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setPage(0);
+  };
+
+  /** Cabecera ordenable, con el mismo indicador que el resto de paneles. */
+  const sortableHeader = (field, label, extraClass = '') => {
+    const isSorted = sortField === field;
+    return (
+      <th
+        className={`is-sortable${isSorted ? ' is-sorted' : ''}${extraClass ? ` ${extraClass}` : ''}`}
+        aria-sort={isSorted ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <button type="button" className="sort-button" onClick={() => handleSort(field)}>
+          <span>{label}</span>
+          <svg
+            className="sort-indicator"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {isSorted && sortDirection === 'desc' ? (
+              <polyline points="6 9 12 15 18 9" />
+            ) : (
+              <polyline points="6 15 12 9 18 15" />
+            )}
+          </svg>
+        </button>
+      </th>
+    );
+  };
 
   // ══════════════════════════════════════════════════════════════════════════
   // NOMBRES DE RESTAURANTES
@@ -410,9 +462,8 @@ const Customers = () => {
       }
 
       handleCloseFormModal();
-      // Recargar con los filtros actuales
-      // Se recarga la lista completa; los filtros se aplican en el cliente.
-      fetchCustomers();
+      // Solo se recarga la página actual, no la lista completa.
+      refresh();
     } catch (err) {
       const msg = getErrorMessage(err);
       setFormErrors({ submit: msg });
@@ -460,43 +511,97 @@ const Customers = () => {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // MODAL DE CAMBIO DE ESTADO
+  // ACCIONES DE FILA
   // ══════════════════════════════════════════════════════════════════════════
 
-  const handleOpenToggle = (customer) => {
-    if (!customer) return;
-    setTogglingCustomer(customer);
-    setTogglingError(null);
-    setShowToggleModal(true);
-  };
-
-  const handleCloseToggle = () => {
-    setShowToggleModal(false);
-    setTogglingCustomer(null);
-    setTogglingError(null);
-  };
-
-  const handleConfirmToggle = async () => {
-    if (!togglingCustomer) return;
-
-    setToggling(true);
-    setTogglingError(null);
+  /** Copia al portapapeles con respaldo para navegadores sin Clipboard API. */
+  const copyToClipboard = async (text) => {
+    if (!text) return false;
     try {
-      await toggleCustomerActive(togglingCustomer.id);
-      const newStatus = togglingCustomer.active !== false ? 'desactivado' : 'reactivado';
-      setSuccessMessage(`Cliente ${newStatus} correctamente.`);
-      setShowToggleModal(false);
-      setTogglingCustomer(null);
-
-      // Recargar con los filtros actuales
-      // Se recarga la lista completa; los filtros se aplican en el cliente.
-      fetchCustomers();
-    } catch (err) {
-      setTogglingError(getErrorMessage(err));
-    } finally {
-      setToggling(false);
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return true;
+      } catch {
+        return false;
+      }
     }
   };
+
+  const handleCopyEmail = async (customer) => {
+    const copied = await copyToClipboard(customer?.email);
+    if (copied) {
+      setSuccessMessage('Email copiado al portapapeles.');
+    } else {
+      setError('No se pudo copiar el email.');
+    }
+  };
+
+  /** Solo acciones que el backend soporta de verdad. */
+  const buildActions = (customer) => {
+    const actions = [
+      {
+        key: 'detail',
+        label: 'Ver detalles',
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        ),
+        onSelect: () => handleOpenDetail(customer),
+      },
+    ];
+
+    if (canManage) {
+      actions.push({
+        key: 'edit',
+        label: 'Editar cliente',
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        ),
+        onSelect: () => handleOpenEdit(customer),
+      });
+    }
+
+    actions.push({
+      key: 'copy-email',
+      label: 'Copiar email',
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      ),
+      onSelect: () => handleCopyEmail(customer),
+      disabled: !customer?.email,
+      separatorBefore: true,
+    });
+
+    return actions;
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ESTADOS DERIVADOS DE LA VISTA
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // Sin clientes en absoluto: se muestra el estado vacío completo. Si hay
+  // filtros puestos se mantiene la vista con el buscador, porque si no el
+  // usuario se quedaba sin forma de borrar su búsqueda.
+  const showEmptyDatabase =
+    !isInitialLoad && !error && pageData.totalElements === 0 && !hasActiveFilters;
+  const showNoResults = !loading && !error && safeCustomers.length === 0 && hasActiveFilters;
+  const showTable = !isInitialLoad && !error && !showEmptyDatabase;
 
   // ══════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -550,19 +655,41 @@ const Customers = () => {
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span className="flex-grow-1">{error}</span>
-          <button className="btn btn-outline-danger btn-sm ms-2" onClick={() => fetchCustomers()} type="button">
+          <button className="btn btn-outline-danger btn-sm ms-2" onClick={refresh} type="button">
             Reintentar
           </button>
         </div>
       )}
 
-      {/* ═══ Loading ═══════════════════════════════════════════════════════ */}
-      {isInitialLoad && (
-        <div className="loading-state">
-          <div className="spinner-border mb-3" role="status" style={{ width: '2.25rem', height: '2.25rem' }}>
-            <span className="visually-hidden">Cargando...</span>
+      {/* ═══ Carga inicial ═════════════════════════════════════════════════
+          Un esqueleto con la forma de la tabla reserva el espacio y adelanta
+          qué va a aparecer; el spinner centrado no hacía ninguna de las dos. */}
+      {isInitialLoad && !error && (
+        <div className="app-card" aria-busy="true">
+          <div className="app-table-wrapper">
+            <table className="app-table">
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Restaurante</th>
+                  <th>Reservas</th>
+                  <th>Última reserva</th>
+                  <th className="col-actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 6 }, (_, row) => (
+                  <tr key={row}>
+                    {Array.from({ length: 5 }, (_, cell) => (
+                      <td key={cell}>
+                        <span className="skeleton skeleton-line" style={{ width: '70%' }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <p className="text-muted mb-0">Cargando clientes...</p>
         </div>
       )}
 
@@ -570,7 +697,7 @@ const Customers = () => {
           Solo cuando no hay ningún cliente Y no hay filtros puestos. Si la
           búsqueda no devuelve nada se mantiene la vista con el buscador: de
           lo contrario el usuario se quedaba sin forma de borrar su búsqueda. */}
-      {!isInitialLoad && !error && safeCustomers.length === 0 && !hasActiveFilters && (
+      {showEmptyDatabase && (
         <div className="app-card">
           <div className="empty-state">
             <div className="empty-state-icon">
@@ -593,7 +720,7 @@ const Customers = () => {
       )}
 
       {/* ═══ Data View ═════════════════════════════════════════════════════ */}
-      {!isInitialLoad && !error && (safeCustomers.length > 0 || hasActiveFilters) && (
+      {showTable && (
         <>
           {/* ─── Segmentos ──────────────────────────────────────────────────
               Cada tarjeta filtra la tabla por su segmento. Son interruptores:
@@ -615,7 +742,7 @@ const Customers = () => {
                 </svg>
               </span>
               <span className="stat-card-info">
-                <span className="stat-card-value">{stats.total}</span>
+                <span className="stat-card-value">{statsLoading ? "—" : (stats?.total ?? "—")}</span>
                 <span className="stat-card-label">Total Clientes</span>
               </span>
             </button>
@@ -636,7 +763,7 @@ const Customers = () => {
                 </svg>
               </span>
               <span className="stat-card-info">
-                <span className="stat-card-value">{stats.recurrentes}</span>
+                <span className="stat-card-value">{statsLoading ? "—" : (stats?.recurrentes ?? "—")}</span>
                 <span className="stat-card-label">Recurrentes</span>
               </span>
             </button>
@@ -657,7 +784,7 @@ const Customers = () => {
                 </svg>
               </span>
               <span className="stat-card-info">
-                <span className="stat-card-value">{stats.nuevosEsteMes}</span>
+                <span className="stat-card-value">{statsLoading ? "—" : (stats?.nuevosEsteMes ?? "—")}</span>
                 <span className="stat-card-label">Nuevos este mes</span>
               </span>
             </button>
@@ -677,7 +804,7 @@ const Customers = () => {
                 </svg>
               </span>
               <span className="stat-card-info">
-                <span className="stat-card-value">{stats.sinVenir}</span>
+                <span className="stat-card-value">{statsLoading ? "—" : (stats?.sinVenir ?? "—")}</span>
                 <span className="stat-card-label">Sin venir en 3 meses</span>
               </span>
             </button>
@@ -716,7 +843,10 @@ const Customers = () => {
               className="form-select form-select-sm"
               style={{ maxWidth: '220px' }}
               value={filterRestaurantId}
-              onChange={(e) => setFilterRestaurantId(e.target.value)}
+              onChange={(e) => {
+                setFilterRestaurantId(e.target.value);
+                setPage(0);
+              }}
               aria-label="Filtrar por restaurante"
             >
               <option value="">Todos los restaurantes</option>
@@ -727,20 +857,16 @@ const Customers = () => {
               ))}
             </select>
 
-            {/* Filtro por estado */}
-            <select
-              className="form-select form-select-sm"
-              style={{ maxWidth: '180px' }}
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              aria-label="Filtrar por estado"
-            >
-              {STATUS_FILTERS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            {/* Aquí había un filtro por estado activo/inactivo. Se retira: la
+                entidad Customer no tiene campo `active`, así que «Inactivos»
+                devolvía siempre cero y «Activos» devolvía todo. */}
+
+            {loading && (
+              <span className="d-flex align-items-center gap-2 text-muted" style={{ fontSize: 'var(--text-xs)' }}>
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                Actualizando…
+              </span>
+            )}
           </div>
 
           {/* ─── Table ──────────────────────────────────────────────────── */}
@@ -749,32 +875,20 @@ const Customers = () => {
               <table className="app-table">
                 <thead>
                   <tr>
-                    <th>Cliente</th>
-                    <th>Contacto</th>
-                    <th>Restaurante(s)</th>
+                    {sortableHeader('name', 'Cliente')}
+                    <th>Restaurante</th>
                     <th>Reservas</th>
                     <th>Última reserva</th>
-                    <th>Estado</th>
                     <th className="col-actions">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Cargando y todavía sin filas que mostrar */}
-                  {loading && filteredCustomers.length === 0 && (
+                  {showNoResults ? (
                     <tr className="no-results">
-                      <td colSpan={7} className="text-center text-muted py-4">Cargando…</td>
-                    </tr>
-                  )}
-                  {/* Sin resultados de búsqueda/filtros.
-                      La condición anterior (safeCustomers.length > 0 && customers.length === 0)
-                      no podía cumplirse nunca —safeCustomers deriva de customers—,
-                      así que este aviso jamás llegaba a verse. */}
-                  {!loading && filteredCustomers.length === 0 && (
-                    <tr className="no-results">
-                      <td colSpan={7} className="text-center text-muted py-4">
+                      <td colSpan={5}>
                         <div className="mb-2">
-                          {searchQuery
-                            ? `Ningún cliente coincide con "${searchQuery}".`
+                          {search
+                            ? `Ningún cliente coincide con «${search}».`
                             : 'Ningún cliente coincide con los filtros seleccionados.'}
                         </div>
                         <button className="btn btn-secondary btn-sm" onClick={handleClearFilters} type="button">
@@ -782,141 +896,85 @@ const Customers = () => {
                         </button>
                       </td>
                     </tr>
-                  )}
-                  {/* Filas */}
-                  {filteredCustomers.map((customer, index) => {
-                    const customerId = customer?.id ?? index;
-                    const fullName = getFullName(customer);
-                    const email = customer?.email || '';
-                    const phone = customer?.phone || '';
-                    const totalRes = customer?.totalReservations ?? 0;
-                    const lastDate = customer?.lastReservationDate || '';
-                    const lastTime = customer?.lastReservationTime || '';
-                    const isActive = customer?.active !== false;
-                    const restaurantNames = getCustomerRestaurants(customer);
+                  ) : (
+                    safeCustomers.map((customer) => {
+                      const fullName = getFullName(customer);
+                      const email = customer?.email || '';
+                      const phone = customer?.phone || '';
+                      const totalRes = customer?.totalReservations ?? 0;
+                      const lastDate = customer?.lastReservationDate || '';
+                      const restaurantNames = getCustomerRestaurants(customer);
 
-                    return (
-                      <tr key={customerId}>
-                        {/* Cliente (nombre + email) */}
-                        <td>
-                          <div className="crm-customer-name">{fullName}</div>
-                          {email && (
-                            <div className="crm-customer-contact">
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                <polyline points="22,6 12,13 2,6" />
-                              </svg>
-                              <span className="text-truncate">{email}</span>
+                      return (
+                        <tr key={customer.id}>
+                          {/* Cliente: nombre con el contacto como línea secundaria */}
+                          <td>
+                            <div className="cell-primary">
+                              <span className="cell-primary-title">{fullName}</span>
+                              <span className="cell-primary-meta">
+                                {[email, phone].filter(Boolean).join(' · ') || '—'}
+                              </span>
                             </div>
-                          )}
-                        </td>
+                          </td>
 
-                        {/* Contacto (teléfono) */}
-                        <td>
-                          {phone ? (
-                            <span className="d-inline-flex align-items-center gap-1">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-muted)' }}>
-                                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                              </svg>
-                              {phone}
-                            </span>
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
-                        </td>
-
-                        {/* Restaurante(s) */}
-                        <td>
-                          {restaurantNames.length > 0 ? (
-                            <div className="crm-restaurants-cell">
-                              {restaurantNames.map((name, i) => (
-                                <span key={i} className="crm-restaurant-badge">{name}</span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
-                        </td>
-
-                        {/* Reservas */}
-                        <td className="fw-semibold">{totalRes > 0 ? totalRes : <span className="text-muted fw-normal">0</span>}</td>
-
-                        {/* Última reserva */}
-                        <td>
-                          {lastDate ? (
-                            <span className="crm-last-reservation">
-                              <span className="crm-last-date">{formatDate(lastDate)}</span>
-                              {lastTime && <span className="crm-last-time">{formatTime(lastTime)}</span>}
-                            </span>
-                          ) : (
-                            <span className="text-muted">Sin reservas</span>
-                          )}
-                        </td>
-
-                        {/* Estado */}
-                        <td>
-                          <span className={getStatusBadgeClass(isActive)}>
-                            {getStatusLabel(isActive)}
-                          </span>
-                        </td>
-
-                        {/* Acciones */}
-                        <td className="col-actions">
-                          <div className="d-flex justify-content-end gap-1">
-                            <button
-                              className="btn-icon btn-view"
-                              onClick={() => handleOpenDetail(customer)}
-                              title="Ver detalle del cliente"
-                              type="button"
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                <circle cx="12" cy="12" r="3" />
-                              </svg>
-                            </button>
-
-                            {canManage && (
-                              <>
-                                <button
-                                  className="btn-icon btn-edit"
-                                  onClick={() => handleOpenEdit(customer)}
-                                  title="Editar cliente"
-                                  type="button"
-                                >
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                  </svg>
-                                </button>
-
-                                <button
-                                  className={`btn-icon ${isActive ? 'btn-delete' : 'btn-activate'}`}
-                                  onClick={() => handleOpenToggle(customer)}
-                                  title={isActive ? 'Desactivar cliente' : 'Reactivar cliente'}
-                                  type="button"
-                                >
-                                  {isActive ? (
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <circle cx="12" cy="12" r="10" />
-                                      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                                    </svg>
-                                  ) : (
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <circle cx="12" cy="12" r="10" />
-                                      <polyline points="12 6 12 12 16 14" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </>
+                          {/* Restaurante */}
+                          <td>
+                            {restaurantNames.length > 0 ? (
+                              <div className="crm-restaurants-cell">
+                                {restaurantNames.map((name, i) => (
+                                  <span key={i} className="crm-restaurant-badge">{name}</span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-muted">—</span>
                             )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          </td>
+
+                          {/* Reservas */}
+                          <td className="fw-semibold">
+                            {totalRes > 0 ? totalRes : <span className="text-muted fw-normal">0</span>}
+                          </td>
+
+                          {/* Última reserva */}
+                          <td className="text-nowrap">
+                            {lastDate ? (
+                              <span className="crm-last-date">{formatDate(lastDate)}</span>
+                            ) : (
+                              <span className="text-muted">Sin reservas</span>
+                            )}
+                          </td>
+
+                          {/* Acciones */}
+                          <td className="col-actions">
+                            <div className="d-flex justify-content-end">
+                              <ActionMenu
+                                items={buildActions(customer)}
+                                label={`Acciones de ${fullName}`}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
+
+            <Pagination
+              page={pageData.page}
+              size={size}
+              totalElements={pageData.totalElements}
+              totalPages={pageData.totalPages}
+              sizeOptions={PAGE_SIZE_OPTIONS}
+              itemLabel="clientes"
+              disabled={loading}
+              onPageChange={setPage}
+              onSizeChange={(newSize) => {
+                setSize(newSize);
+                setPage(0);
+              }}
+            />
           </div>
         </>
       )}
@@ -1109,12 +1167,6 @@ const Customers = () => {
                           <span className="crm-detail-value">{detailCustomer.phone || '—'}</span>
                         </div>
                         <div className="crm-detail-field">
-                          <span className="crm-detail-label">Estado</span>
-                          <span className={getStatusBadgeClass(detailCustomer.active !== false)}>
-                            {getStatusLabel(detailCustomer.active !== false)}
-                          </span>
-                        </div>
-                        <div className="crm-detail-field">
                           <span className="crm-detail-label">Restaurantes asociados</span>
                           <span className="crm-detail-value">
                             {getRestaurantsDisplay(detailCustomer) || '—'}
@@ -1249,93 +1301,9 @@ const Customers = () => {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════════
-          MODAL: Confirmar cambio de estado (desactivar/reactivar)
-          ══════════════════════════════════════════════════════════════════ */}
-      {showToggleModal && togglingCustomer && (
-        <div className="modal d-block" tabIndex="-1" role="dialog" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header border-0">
-                <h5 className="modal-title">
-                  {togglingCustomer.active !== false ? 'Desactivar Cliente' : 'Reactivar Cliente'}
-                </h5>
-                <button type="button" className="btn-close" onClick={handleCloseToggle} aria-label="Cerrar" />
-              </div>
-
-              <div className="modal-body text-center py-4">
-                <div className="mb-3">
-                  <svg
-                    width="44" height="44" viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={togglingCustomer.active !== false ? '#ef4444' : 'var(--success)'}
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    {togglingCustomer.active !== false ? (
-                      <>
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                      </>
-                    ) : (
-                      <>
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
-                      </>
-                    )}
-                  </svg>
-                </div>
-
-                <h6 className="mb-2">
-                  {togglingCustomer.active !== false
-                    ? '¿Estás seguro de desactivar este cliente?'
-                    : '¿Estás seguro de reactivar este cliente?'}
-                </h6>
-                <p className="text-muted mb-1">
-                  <strong>{getFullName(togglingCustomer)}</strong>
-                </p>
-                {togglingCustomer.email && (
-                  <p className="text-muted small mb-0">{togglingCustomer.email}</p>
-                )}
-                <p className="text-muted small mt-2 mb-0">
-                  {togglingCustomer.active !== false
-                    ? 'El cliente dejará de estar visible en listados activos, pero su historial de reservas se conservará.'
-                    : 'El cliente volverá a estar visible en listados activos.'}
-                </p>
-
-                {togglingError && (
-                  <div className="alert alert-danger py-2 mt-3 mb-0" role="alert">
-                    {togglingError}
-                  </div>
-                )}
-              </div>
-
-              <div className="modal-footer border-0 justify-content-center gap-2">
-                <button
-                  type="button"
-                  className="btn btn-secondary px-4"
-                  onClick={handleCloseToggle}
-                  disabled={toggling}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className={`btn px-4 d-flex align-items-center gap-2 ${togglingCustomer.active !== false ? 'btn-danger' : 'btn-success'}`}
-                  onClick={handleConfirmToggle}
-                  disabled={toggling}
-                >
-                  {toggling && (
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  )}
-                  {togglingCustomer.active !== false ? 'Desactivar' : 'Reactivar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Aquí estaba el modal de desactivar/reactivar cliente. Llamaba a
+          PATCH /customers/{id}/active, un endpoint que no existe, así que
+          siempre fallaba. Se retira con el resto del estado inexistente. */}
     </div>
   );
 };

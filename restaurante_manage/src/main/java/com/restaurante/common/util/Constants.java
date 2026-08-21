@@ -22,6 +22,14 @@ public final class Constants {
     // Restaurants
     public static final String RESTAURANTS_PATH = API_BASE_PATH + "/restaurants";
 
+    /**
+     * Listado de restaurantes del panel de administración de la plataforma.
+     * Separado de {@link #RESTAURANTS_PATH}, que es público y lo consumen los
+     * desplegables de varias pantallas: este exige autenticación y rol
+     * SUPER_ADMIN o ADMIN.
+     */
+    public static final String ADMIN_RESTAURANTS_PATH = API_BASE_PATH + "/admin/restaurants";
+
     // Tables
     public static final String TABLES_PATH = API_BASE_PATH + "/tables";
 

@@ -2,9 +2,12 @@ package com.restaurante.customer.service;
 
 import com.restaurante.common.exception.AccessDeniedException;
 import com.restaurante.common.security.CurrentUserService;
+import com.restaurante.customer.dto.CustomerListItem;
 import com.restaurante.customer.dto.CustomerMapper;
 import com.restaurante.customer.dto.CustomerRequest;
 import com.restaurante.customer.dto.CustomerResponse;
+import com.restaurante.customer.dto.CustomerSegment;
+import com.restaurante.customer.dto.CustomerStats;
 import com.restaurante.customer.entity.Customer;
 import com.restaurante.customer.repository.CustomerRepository;
 import com.restaurante.reservation.dto.ReservationMapper;
@@ -14,6 +17,7 @@ import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,6 +26,8 @@ import org.mockito.quality.Strictness;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -107,71 +113,158 @@ class CustomerServiceTest {
     // La consulta en sí se verifica contra H2 en CustomerSearchRepositoryTest;
     // aquí se comprueba qué argumentos le pasa el servicio.
 
+    /** Atajo: el repositorio devuelve una página vacía para cualquier consulta. */
+    private void stubEmptyPage() {
+        when(customerRepository.searchForList(anyBoolean(), anySet(), any(), any(),
+                anyBoolean(), any(), any(), any()))
+                .thenReturn(Page.empty());
+    }
+
     @Test
     void findAll_usuarioSinRestaurantesVisibles_noConsultaSiquieraElRepositorio() {
         // [-1] es el convenio de CurrentUserService para "no ve ningún restaurante"
         when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(-1L));
 
-        Page<CustomerResponse> result = service.findAll(Pageable.unpaged(), "andrea", null);
+        Page<CustomerListItem> result = service.findAll(Pageable.unpaged(), "andrea", null, null);
 
         assertTrue(result.isEmpty());
-        verify(customerRepository, never()).search(anyBoolean(), anySet(), any(), any(), any());
+        verify(customerRepository, never()).searchForList(anyBoolean(), anySet(), any(), any(),
+                anyBoolean(), any(), any(), any());
     }
 
     @Test
     void findAll_superAdmin_consultaSinRestriccionDeAlcance() {
         when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of());
         when(currentUserService.isSuperAdmin()).thenReturn(true);
-        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
-                .thenReturn(Page.empty());
+        stubEmptyPage();
 
-        service.findAll(Pageable.unpaged(), null, null);
+        service.findAll(Pageable.unpaged(), null, null, null);
 
-        verify(customerRepository).search(eq(true), anySet(), isNull(), isNull(), any());
+        verify(customerRepository).searchForList(eq(true), anySet(), isNull(), isNull(),
+                eq(false), isNull(), isNull(), any());
     }
 
     @Test
     void findAll_usuarioConAsignaciones_acotaAsusRestaurantes() {
         when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
-        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
-                .thenReturn(Page.empty());
+        stubEmptyPage();
 
-        service.findAll(Pageable.unpaged(), null, null);
+        service.findAll(Pageable.unpaged(), null, null, null);
 
-        verify(customerRepository).search(eq(false), eq(Set.of(OWN_RESTAURANT)), isNull(), isNull(), any());
+        verify(customerRepository).searchForList(eq(false), eq(Set.of(OWN_RESTAURANT)), isNull(),
+                isNull(), eq(false), isNull(), isNull(), any());
     }
 
     @Test
     void findAll_normalizaElTextoAminusculasYComodines() {
         when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
-        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
-                .thenReturn(Page.empty());
+        stubEmptyPage();
 
-        service.findAll(Pageable.unpaged(), "  AnDrea  ", null);
+        service.findAll(Pageable.unpaged(), "  AnDrea  ", null, null);
 
-        verify(customerRepository).search(anyBoolean(), anySet(), isNull(), eq("%andrea%"), any());
+        verify(customerRepository).searchForList(anyBoolean(), anySet(), isNull(), eq("%andrea%"),
+                anyBoolean(), any(), any(), any());
     }
 
     @Test
     void findAll_textoEnBlancoEquivaleAsinFiltro() {
         when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
-        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
-                .thenReturn(Page.empty());
+        stubEmptyPage();
 
-        service.findAll(Pageable.unpaged(), "   ", null);
+        service.findAll(Pageable.unpaged(), "   ", null, null);
 
-        verify(customerRepository).search(anyBoolean(), anySet(), isNull(), isNull(), any());
+        verify(customerRepository).searchForList(anyBoolean(), anySet(), isNull(), isNull(),
+                anyBoolean(), any(), any(), any());
     }
 
     @Test
     void findAll_escapaLosComodinesEscritosPorElUsuario() {
         when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
-        when(customerRepository.search(anyBoolean(), anySet(), any(), any(), any()))
-                .thenReturn(Page.empty());
+        stubEmptyPage();
 
-        service.findAll(Pageable.unpaged(), "100%", null);
+        service.findAll(Pageable.unpaged(), "100%", null, null);
 
         // Sin escapar, '%' convertiría la búsqueda en "devuélvelo todo".
-        verify(customerRepository).search(anyBoolean(), anySet(), isNull(), eq("%100!%%"), any());
+        verify(customerRepository).searchForList(anyBoolean(), anySet(), isNull(), eq("%100!%%"),
+                anyBoolean(), any(), any(), any());
+    }
+
+    // ─── Segmentos: cada uno activa UN solo parámetro de la consulta ─────────
+    // Antes se calculaban en el navegador sobre la lista completa; al paginar
+    // habrían pasado a filtrar solo la página.
+
+    @Test
+    void findAll_segmentoRecurrentes_activaSoloElContadorDeReservas() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        stubEmptyPage();
+
+        service.findAll(Pageable.unpaged(), null, null, CustomerSegment.RECURRENTES);
+
+        verify(customerRepository).searchForList(anyBoolean(), anySet(), isNull(), isNull(),
+                eq(true), isNull(), isNull(), any());
+    }
+
+    @Test
+    void findAll_segmentoNuevos_acotaDesdeElDiaUnoDelMes() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        stubEmptyPage();
+
+        service.findAll(Pageable.unpaged(), null, null, CustomerSegment.NUEVOS);
+
+        ArgumentCaptor<LocalDateTime> desde = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(customerRepository).searchForList(anyBoolean(), anySet(), isNull(), isNull(),
+                eq(false), desde.capture(), isNull(), any());
+        assertEquals(LocalDate.now().withDayOfMonth(1).atStartOfDay(), desde.getValue());
+    }
+
+    @Test
+    void findAll_segmentoSinVenir_acotaATresMesesAtras() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        stubEmptyPage();
+
+        service.findAll(Pageable.unpaged(), null, null, CustomerSegment.SIN_VENIR);
+
+        ArgumentCaptor<LocalDate> limite = ArgumentCaptor.forClass(LocalDate.class);
+        verify(customerRepository).searchForList(anyBoolean(), anySet(), isNull(), isNull(),
+                eq(false), isNull(), limite.capture(), any());
+        assertEquals(LocalDate.now().minusMonths(3), limite.getValue());
+    }
+
+    // ─── Cifras de las tarjetas ─────────────────────────────────────────────
+
+    @Test
+    void stats_leeLaFilaDeLaConsultaAgregada() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        when(customerRepository.statsForList(anyBoolean(), anySet(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{487L, 120L, 33L, 61L}));
+
+        CustomerStats stats = service.stats(null);
+
+        assertEquals(487L, stats.getTotal());
+        assertEquals(120L, stats.getRecurrentes());
+        assertEquals(33L, stats.getNuevosEsteMes());
+        assertEquals(61L, stats.getSinVenir());
+    }
+
+    @Test
+    void stats_sinAlcanceDevuelveCerosSinConsultar() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(-1L));
+
+        CustomerStats stats = service.stats(null);
+
+        assertEquals(0L, stats.getTotal());
+        verify(customerRepository, never()).statsForList(anyBoolean(), anySet(), any(), any(), any());
+    }
+
+    @Test
+    void stats_filaVaciaDevuelveCeros() {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of(OWN_RESTAURANT));
+        when(customerRepository.statsForList(anyBoolean(), anySet(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of());
+
+        CustomerStats stats = service.stats(null);
+
+        assertEquals(0L, stats.getTotal());
+        assertEquals(0L, stats.getSinVenir());
     }
 }
