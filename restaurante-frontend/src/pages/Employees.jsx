@@ -9,10 +9,10 @@ import {
   PAGE_SIZE_OPTIONS,
   DEFAULT_PAGE_SIZE,
 } from '../services/userService';
-import { getRestaurants } from '../services/restaurantService';
 import { ROLES, ROLE_LABELS, canAccess, PERMISSIONS, normalizeRole } from '../config/permissions';
 import ActionMenu from '../components/ActionMenu';
 import Pagination from '../components/Pagination';
+import RestaurantMultiSelect from '../components/RestaurantMultiSelect';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -94,6 +94,22 @@ const formatDate = (dateStr) => {
   return d.toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
+/**
+ * Qué implica no asignar ningún restaurante. No es una advertencia inventada:
+ * es la regla que aplica CurrentUserService.getVisibleRestaurantIds() y que el
+ * formulario nunca había dicho en voz alta.
+ */
+const avisoSinRestaurantes = (rol) => {
+  const normalizado = normalizeRole(rol);
+  if (normalizado === ROLES.MANAGER) {
+    return 'Sin restaurantes asignados verá todos los del tenant.';
+  }
+  if (normalizado === ROLES.EMPLOYEE) {
+    return 'Sin restaurantes asignados no podrá ver ningún restaurante.';
+  }
+  return 'Un administrador ve todos los restaurantes de su tenant; la asignación no le afecta.';
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // FORMULARIO INICIAL
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -105,7 +121,7 @@ const INITIAL_FORM = {
   email: '',
   password: '',
   role: ROLES.EMPLOYEE,
-  restaurantIds: [],
+  restaurants: [],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -128,7 +144,6 @@ const Employees = () => {
 
   // ─── Estados de datos ──────────────────────────────────────────────────
   const [pageData, setPageData] = useState(EMPTY_PAGE);
-  const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState(null);
@@ -144,7 +159,6 @@ const Employees = () => {
   const [formData, setFormData] = useState({ ...INITIAL_FORM });
   const [submitting, setSubmitting] = useState(false);
   const [formErrors, setFormErrors] = useState({});
-  const [loadingRestaurants, setLoadingRestaurants] = useState(false);
 
   // ─── Modal de eliminación ───────────────────────────────────────────────
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -157,28 +171,10 @@ const Employees = () => {
     () => (Array.isArray(pageData.content) ? pageData.content : []),
     [pageData]
   );
-  const safeRestaurants = useMemo(() => Array.isArray(restaurants) ? restaurants : [], [restaurants]);
-
   // ─── Rol del usuario actual ────────────────────────────────────────────
   const currentRole = user?.role || ROLES.EMPLOYEE;
   const assignableRoles = getAssignableRoles(currentRole);
   const canManageEmployees = canAccess(user, PERMISSIONS.MANAGE_EMPLOYEES);
-
-  // ─── Cargar restaurantes (una vez al montar) ───────────────────────────
-  useEffect(() => {
-    const fetchRestaurantsList = async () => {
-      setLoadingRestaurants(true);
-      try {
-        const data = await getRestaurants();
-        setRestaurants(Array.isArray(data) ? data : []);
-      } catch {
-        setRestaurants([]);
-      } finally {
-        setLoadingRestaurants(false);
-      }
-    };
-    fetchRestaurantsList();
-  }, []);
 
   // ─── Debounce del buscador ─────────────────────────────────────────────
   // Cambiar el texto vuelve a la primera página, pero conserva filtros, orden y
@@ -347,9 +343,9 @@ const Employees = () => {
       email: emp.email || '',
       password: '',
       role: getPrimaryRole(emp) || ROLES.EMPLOYEE,
-      restaurantIds: Array.isArray(emp.assignedRestaurantIds) && emp.assignedRestaurantIds.length > 0
-        ? Array.from(emp.assignedRestaurantIds)
-        : (emp.primaryRestaurantId ? [emp.primaryRestaurantId] : []),
+      // La fila trae las parejas ya emparejadas por el backend; assignedRestaurantIds
+      // y restaurantNames son dos listas que no se corresponden entre sí.
+      restaurants: Array.isArray(emp.assignedRestaurants) ? [...emp.assignedRestaurants] : [],
     });
     setFormErrors({});
     setShowModal(true);
@@ -367,23 +363,9 @@ const Employees = () => {
   // ══════════════════════════════════════════════════════════════════════════
 
   const handleFormChange = (e) => {
-    const { name, value, type, checked } = e.target;
+    const { name, value } = e.target;
 
-    if (type === 'checkbox' && name === 'restaurantIds') {
-      const restId = Number(value);
-      setFormData((prev) => {
-        const current = [...prev.restaurantIds];
-        if (checked) {
-          if (!current.includes(restId)) current.push(restId);
-        } else {
-          const idx = current.indexOf(restId);
-          if (idx !== -1) current.splice(idx, 1);
-        }
-        return { ...prev, restaurantIds: current };
-      });
-    } else {
-      setFormData((prev) => ({ ...prev, [name]: value }));
-    }
+    setFormData((prev) => ({ ...prev, [name]: value }));
 
     if (formErrors[name]) {
       setFormErrors((prev) => {
@@ -454,7 +436,8 @@ const Employees = () => {
         username: (formData.username || '').trim(),
         email: (formData.email || '').trim(),
         roles: [formData.role],
-        restaurantIds: formData.restaurantIds,
+        // El backend sigue esperando identificadores; el nombre solo vive en la interfaz.
+        restaurantIds: formData.restaurants.map((r) => Number(r.id)),
       };
 
       // Contraseña: obligatoria al crear, opcional al editar.
@@ -1108,39 +1091,20 @@ const Employees = () => {
                     </div>
                   </div>
 
-                  <div className="row g-2 mb-3">
-                    {loadingRestaurants ? (
-                      <div className="col-12">
-                        <div className="d-flex align-items-center gap-2 text-muted" style={{ fontSize: '0.8125rem' }}>
-                          <div className="spinner-border spinner-border-sm" role="status" />
-                          Cargando restaurantes...
-                        </div>
-                      </div>
-                    ) : safeRestaurants.length === 0 ? (
-                      <div className="col-12">
-                        <p className="text-muted mb-0" style={{ fontSize: '0.8125rem' }}>
-                          No hay restaurantes disponibles para asignar.
-                        </p>
-                      </div>
-                    ) : (
-                      safeRestaurants.map((r) => (
-                        <div key={r.id} className="col-12 col-md-6">
-                          <div className="form-check">
-                            <input
-                              id={`emp-rest-${r.id}`}
-                              type="checkbox"
-                              className="form-check-input"
-                              name="restaurantIds"
-                              value={r.id}
-                              checked={formData.restaurantIds.includes(Number(r.id))}
-                              onChange={handleFormChange}
-                            />
-                            <label htmlFor={`emp-rest-${r.id}`} className="form-check-label" style={{ cursor: 'pointer', fontSize: '0.8125rem' }}>
-                              {r.name || 'No disponible'}
-                            </label>
-                          </div>
-                        </div>
-                      ))
+                  <div className="mb-3">
+                    <label htmlFor="emp-restaurantes" className="form-label">
+                      Restaurantes asignados
+                    </label>
+                    <RestaurantMultiSelect
+                      id="emp-restaurantes"
+                      value={formData.restaurants}
+                      onChange={(seleccion) =>
+                        setFormData((prev) => ({ ...prev, restaurants: seleccion }))
+                      }
+                      disabled={submitting}
+                    />
+                    {formData.restaurants.length === 0 && (
+                      <div className="form-text">{avisoSinRestaurantes(formData.role)}</div>
                     )}
                   </div>
                 </div>

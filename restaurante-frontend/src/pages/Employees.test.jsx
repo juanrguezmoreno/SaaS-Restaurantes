@@ -18,16 +18,21 @@ vi.mock('../services/restaurantService', () => ({
   getRestaurants: vi.fn().mockResolvedValue([{ id: 1, name: 'La Buena Mesa' }]),
 }));
 
+vi.mock('../services/adminRestaurantService', () => ({
+  getAdminRestaurants: vi.fn(),
+}));
+
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ user: { username: 'super.admin', role: 'SUPER_ADMIN' } }),
 }));
 
-import { getUsers, getUserStats, deleteUser } from '../services/userService';
+import { getUsers, getUserStats, createUser, deleteUser } from '../services/userService';
+import { getAdminRestaurants } from '../services/adminRestaurantService';
 import Employees from './Employees';
 
 // ─── Datos de apoyo ─────────────────────────────────────────────────────────
 
-const makeEmployee = (id) => ({
+const makeEmployee = (id, extra = {}) => ({
   id,
   username: `user${id}`,
   email: `user${id}@ejemplo.com`,
@@ -42,11 +47,13 @@ const makeEmployee = (id) => ({
   roles: [id <= 2 ? 'ROLE_MANAGER' : 'ROLE_EMPLOYEE'],
   restaurantNames: ['La Buena Mesa'],
   assignedRestaurantIds: [1],
+  assignedRestaurants: [{ id: 1, name: 'La Buena Mesa' }],
+  ...extra,
 });
 
 /** Página con los ids dados, de 40 elementos en total (2 páginas de 25). */
 const pageOf = (ids, overrides = {}) => ({
-  content: ids.map(makeEmployee),
+  content: ids.map((id) => makeEmployee(id)),
   page: 0,
   size: 25,
   totalElements: 40,
@@ -54,6 +61,19 @@ const pageOf = (ids, overrides = {}) => ({
   first: true,
   last: false,
   empty: false,
+  ...overrides,
+});
+
+/** Página con empleados ya construidos (para casos con datos a medida). */
+const pageWith = (content, overrides = {}) => ({
+  content,
+  page: 0,
+  size: 25,
+  totalElements: content.length,
+  totalPages: 1,
+  first: true,
+  last: true,
+  empty: content.length === 0,
   ...overrides,
 });
 
@@ -68,10 +88,23 @@ const emptyPage = () => ({
   empty: true,
 });
 
+/** Página de restaurantes que consulta el selector de búsqueda. */
+const paginaRestaurantes = (content) => ({
+  content,
+  page: 0,
+  size: 10,
+  totalElements: content.length,
+  totalPages: 1,
+  first: true,
+  last: true,
+  empty: content.length === 0,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   getUsers.mockResolvedValue(pageOf([1, 2, 3]));
   getUserStats.mockResolvedValue({ total: 40, active: 31, inactive: 9 });
+  getAdminRestaurants.mockResolvedValue(paginaRestaurantes([{ id: 3, name: 'Sushi Master' }]));
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -389,5 +422,75 @@ describe('Empleados — eliminación', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^eliminar$/i }));
 
     expect(await screen.findByText('No se puede eliminar')).toBeInTheDocument();
+  });
+});
+
+// ─── Restaurantes asignados: selector con búsqueda ─────────────────────────
+// Sustituye a la antigua rejilla de casillas: ahora las parejas id+nombre las
+// trae emparejadas el backend en `assignedRestaurants`.
+
+describe('Empleados — restaurantes asignados', () => {
+  it('el formulario de edición precarga los restaurantes asignados', async () => {
+    // La fila trae parejas id+nombre, no dos listas sueltas.
+    getUsers.mockResolvedValue(pageWith([
+      makeEmployee(5, { assignedRestaurants: [{ id: 3, name: 'Sushi Master' }] }),
+    ]));
+    render(<Employees />);
+    await screen.findByText('Nombre5 Apellido5');
+
+    await abrirMenuDeLaPrimeraFila();
+    await userEvent.click(screen.getByRole('menuitem', { name: /editar empleado/i }));
+
+    const dialogo = within(await screen.findByRole('dialog'));
+    expect(dialogo.getByText('Sushi Master')).toBeInTheDocument();
+    expect(dialogo.getByRole('button', { name: /quitar sushi master/i })).toBeInTheDocument();
+  });
+
+  it('al guardar sigue enviando restaurantIds', async () => {
+    render(<Employees />);
+    await screen.findByText('Nombre1 Apellido1');
+
+    await userEvent.click(screen.getByRole('button', { name: /nuevo empleado/i }));
+    const dialogo = within(await screen.findByRole('dialog'));
+
+    await userEvent.type(dialogo.getByLabelText(/nombre/i), 'Ana');
+    await userEvent.type(dialogo.getByLabelText(/usuario/i), 'ana.garcia');
+    await userEvent.type(dialogo.getByLabelText(/email/i), 'ana@ejemplo.com');
+    await userEvent.type(dialogo.getByLabelText(/contraseña/i), 'secreto1');
+    await userEvent.click(dialogo.getByLabelText(/buscar restaurante/i));
+    await userEvent.click(await screen.findByRole('option', { name: /sushi master/i }));
+    await userEvent.click(dialogo.getByRole('button', { name: /crear empleado/i }));
+
+    await waitFor(() => expect(createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ restaurantIds: [3] })
+    ));
+  });
+
+  it('el aviso del vacío cambia con el rol', async () => {
+    render(<Employees />);
+    await screen.findByText('Nombre1 Apellido1');
+
+    await userEvent.click(screen.getByRole('button', { name: /nuevo empleado/i }));
+    const dialogo = within(await screen.findByRole('dialog'));
+
+    await userEvent.selectOptions(dialogo.getByLabelText(/rol/i), 'EMPLOYEE');
+    expect(dialogo.getByText(/no podrá ver ningún restaurante/i)).toBeInTheDocument();
+
+    await userEvent.selectOptions(dialogo.getByLabelText(/rol/i), 'MANAGER');
+    expect(dialogo.getByText(/verá todos los del tenant/i)).toBeInTheDocument();
+  });
+
+  it('el aviso desaparece al elegir un restaurante', async () => {
+    render(<Employees />);
+    await screen.findByText('Nombre1 Apellido1');
+
+    await userEvent.click(screen.getByRole('button', { name: /nuevo empleado/i }));
+    const dialogo = within(await screen.findByRole('dialog'));
+
+    await userEvent.selectOptions(dialogo.getByLabelText(/rol/i), 'EMPLOYEE');
+    await userEvent.click(dialogo.getByLabelText(/buscar restaurante/i));
+    await userEvent.click(await screen.findByRole('option', { name: /sushi master/i }));
+
+    expect(dialogo.queryByText(/no podrá ver ningún restaurante/i)).not.toBeInTheDocument();
   });
 });
