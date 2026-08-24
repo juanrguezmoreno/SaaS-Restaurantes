@@ -59,6 +59,13 @@ public class AdminUserListItem {
     private List<Long> assignedRestaurantIds = new ArrayList<>();
 
     /**
+     * Restaurantes asignados con identificador y nombre emparejados. Lo usa el
+     * formulario de empleado, que se abre con los datos de la fila y necesita
+     * pintar el nombre de cada asignación.
+     */
+    private List<AssignedRestaurant> assignedRestaurants = new ArrayList<>();
+
+    /**
      * Constructor que usa la consulta de listado. Deja fuera las colecciones a
      * propósito.
      */
@@ -87,5 +94,6 @@ public class AdminUserListItem {
         this.roles = new ArrayList<>();
         this.restaurantNames = new ArrayList<>();
         this.assignedRestaurantIds = new ArrayList<>();
+        this.assignedRestaurants = new ArrayList<>();
     }
 }

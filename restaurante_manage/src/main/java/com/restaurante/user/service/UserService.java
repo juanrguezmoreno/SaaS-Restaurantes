@@ -12,6 +12,7 @@ import com.restaurante.role.repository.RoleRepository;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.dto.AdminUserListItem;
+import com.restaurante.user.dto.AssignedRestaurant;
 import com.restaurante.user.dto.UserMapper;
 import com.restaurante.user.dto.UserRequest;
 import com.restaurante.user.dto.UserResponse;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -136,33 +138,40 @@ public class UserService {
                 userRepository.findRoleNamesByUserIds(ids));
 
         List<Object[]> restaurantRows = userRepository.findAssignedRestaurantsByUserIds(ids);
-        Map<Long, List<Long>> assignedIdsByUser = new HashMap<>();
-        Map<Long, List<String>> assignedNamesByUser = new HashMap<>();
+        Map<Long, List<AssignedRestaurant>> assignedByUser = new HashMap<>();
         if (restaurantRows != null) {
             for (Object[] row : restaurantRows) {
-                if (row == null || row.length < 3 || row[0] == null) {
+                if (row == null || row.length < 3 || row[0] == null || row[1] == null) {
                     continue;
                 }
                 Long userId = ((Number) row[0]).longValue();
-                if (row[1] != null) {
-                    assignedIdsByUser.computeIfAbsent(userId, key -> new ArrayList<>())
-                            .add(((Number) row[1]).longValue());
-                }
-                if (row[2] != null) {
-                    assignedNamesByUser.computeIfAbsent(userId, key -> new ArrayList<>())
-                            .add(String.valueOf(row[2]));
-                }
+                Long restaurantId = ((Number) row[1]).longValue();
+                String restaurantName = row[2] != null ? String.valueOf(row[2]) : null;
+                assignedByUser.computeIfAbsent(userId, key -> new ArrayList<>())
+                        .add(new AssignedRestaurant(restaurantId, restaurantName));
             }
         }
-        assignedNamesByUser.values().forEach(java.util.Collections::sort);
+        // Se ordena por nombre COMO PAREJAS. Ordenar dos listas por separado era
+        // lo que dejaba cada nombre junto al identificador de otro restaurante.
+        assignedByUser.values().forEach(lista -> lista.sort(
+                Comparator.comparing(AssignedRestaurant::name,
+                        Comparator.nullsLast(String::compareToIgnoreCase))));
 
         page.getContent().forEach(item -> {
             item.setRoles(rolesByUser.getOrDefault(item.getId(), List.of()));
-            item.setAssignedRestaurantIds(assignedIdsByUser.getOrDefault(item.getId(), List.of()));
 
-            List<String> assigned = assignedNamesByUser.getOrDefault(item.getId(), List.of());
-            if (!assigned.isEmpty()) {
-                item.setRestaurantNames(assigned);
+            List<AssignedRestaurant> asignados = assignedByUser.getOrDefault(item.getId(), List.of());
+            item.setAssignedRestaurants(asignados);
+            item.setAssignedRestaurantIds(asignados.stream()
+                    .map(AssignedRestaurant::id)
+                    .toList());
+
+            List<String> nombres = asignados.stream()
+                    .map(AssignedRestaurant::name)
+                    .filter(Objects::nonNull)
+                    .toList();
+            if (!nombres.isEmpty()) {
+                item.setRestaurantNames(nombres);
             } else if (item.getPrimaryRestaurantName() != null) {
                 // Sin asignaciones explícitas se cae al restaurante principal, que
                 // es lo que mostraba la tabla antes de este cambio.
