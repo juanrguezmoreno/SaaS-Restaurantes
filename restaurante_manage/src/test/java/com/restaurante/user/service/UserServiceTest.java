@@ -8,6 +8,8 @@ import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
+import com.restaurante.user.dto.AdminUserListItem;
+import com.restaurante.user.dto.AssignedRestaurant;
 import com.restaurante.user.dto.UserMapper;
 import com.restaurante.user.dto.UserResponse;
 import com.restaurante.user.dto.UserUpdateRequest;
@@ -20,13 +22,21 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -172,5 +182,73 @@ class UserServiceTest {
         assertTrue(target.getDeleted());
         assertFalse(target.isEnabled());
         verify(userRepository).save(target);
+    }
+
+    // ─── findAll: emparejamiento de restaurantes asignados ─────────────────
+
+    /** Deja el repositorio devolviendo una página con esas filas y alcance de SUPER_ADMIN. */
+    private void stubPageWith(AdminUserListItem... filas) {
+        when(currentUserService.getVisibleRestaurantIds()).thenReturn(List.of());
+        when(currentUserService.isSuperAdmin()).thenReturn(true);
+        when(userRepository.searchForAdmin(
+                anyBoolean(),        // unrestricted
+                any(),               // tenantId
+                anyBoolean(),        // filterByRestaurants
+                anySet(),            // restaurantIds
+                anyBoolean(),        // filterByRole
+                any(),               // role
+                anyBoolean(),        // filterByEnabled
+                anyBoolean(),        // enabled
+                any(),               // search
+                any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(filas)));
+    }
+
+    @Test
+    void lasParejasDeRestaurantesAsignadosSeCorresponden() {
+        AdminUserListItem fila = new AdminUserListItem();
+        fila.setId(7L);
+        stubPageWith(fila);
+
+        // El id 10 es «Sushi Master» y el 20 es «Bar Central»: por nombre van al
+        // revés que por id. Emparejar dos listas ordenadas por separado daría
+        // «Bar Central» al id 10, que es el fallo que esto previene.
+        when(userRepository.findAssignedRestaurantsByUserIds(anySet()))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{7L, 10L, "Sushi Master"},
+                        new Object[]{7L, 20L, "Bar Central"}));
+        when(userRepository.findRoleNamesByUserIds(anySet())).thenReturn(List.of());
+
+        AdminUserListItem resultado = service
+                .findAll(PageRequest.of(0, 25), null, null, null)
+                .getContent()
+                .get(0);
+
+        assertThat(resultado.getAssignedRestaurants())
+                .extracting(AssignedRestaurant::id, AssignedRestaurant::name)
+                .containsExactly(
+                        tuple(20L, "Bar Central"),
+                        tuple(10L, "Sushi Master"));
+    }
+
+    @Test
+    void sinAsignacionesLasParejasVienenVacias() {
+        AdminUserListItem fila = new AdminUserListItem();
+        fila.setId(7L);
+        fila.setPrimaryRestaurantName("Restaurante principal");
+        stubPageWith(fila);
+
+        when(userRepository.findAssignedRestaurantsByUserIds(anySet())).thenReturn(List.of());
+        when(userRepository.findRoleNamesByUserIds(anySet())).thenReturn(List.of());
+
+        AdminUserListItem resultado = service
+                .findAll(PageRequest.of(0, 25), null, null, null)
+                .getContent()
+                .get(0);
+
+        // restaurantNames sigue cayendo al principal para la tabla del listado,
+        // pero las parejas reflejan la verdad: no hay asignaciones explícitas.
+        assertThat(resultado.getRestaurantNames()).containsExactly("Restaurante principal");
+        assertThat(resultado.getAssignedRestaurants()).isEmpty();
     }
 }
