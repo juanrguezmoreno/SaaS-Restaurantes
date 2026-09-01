@@ -24,6 +24,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
 
     Page<Restaurant> findByTenantIdAndDeletedFalse(Long tenantId, Pageable pageable);
 
+    long countByTenantIdAndDeletedFalse(Long tenantId);
+
     // Consultas para filtrar por IDs de restaurantes visibles
 
     @Query("SELECT r FROM Restaurant r WHERE r.id IN :ids AND r.deleted = false")

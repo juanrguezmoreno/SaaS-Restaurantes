@@ -34,6 +34,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByRoles_NameAndDeletedFalse(RoleName roleName);
 
+    long countByTenantIdAndDeletedFalse(Long tenantId);
+
     @Query("SELECT u FROM User u WHERE u.username = :username AND u.deleted = false")
     @EntityGraph(attributePaths = {"roles", "restaurant", "tenant"})
     Optional<User> findWithRolesAndRestaurantByUsername(@Param("username") String username);

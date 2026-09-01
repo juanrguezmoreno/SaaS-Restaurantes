@@ -143,6 +143,37 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(ApiResponse.error(mensaje));
     }
 
+    /**
+     * El plan del tenant no incluye la función. Se devuelve 403 con código para
+     * que el frontend abra el diálogo de mejora de plan en lugar de un error
+     * genérico. El mensaje nunca revela datos de facturación.
+     */
+    @ExceptionHandler(PlanUpgradeRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handlePlanUpgradeRequired(
+            PlanUpgradeRequiredException ex) {
+        Map<String, Object> detalle = new HashMap<>();
+        detalle.put("feature", ex.getFeature().name());
+        detalle.put("requiredPlan", ex.getRequiredPlan().name());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(
+                        PlanUpgradeRequiredException.CODE, ex.getMessage(), detalle));
+    }
+
+    @ExceptionHandler(PlanLimitReachedException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handlePlanLimitReached(
+            PlanLimitReachedException ex) {
+        Map<String, Object> detalle = new HashMap<>();
+        detalle.put("resource", ex.getResource().name());
+        detalle.put("limit", ex.getLimit());
+        detalle.put("current", ex.getCurrent());
+        detalle.put("requiredPlan", ex.getRequiredPlan().name());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(
+                        PlanLimitReachedException.CODE, ex.getMessage(), detalle));
+    }
+
     @ExceptionHandler(RateLimitExceededException.class)
     public ResponseEntity<ApiResponse<Void>> handleRateLimitExceededException(RateLimitExceededException ex) {
         return ResponseEntity
