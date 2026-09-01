@@ -55,6 +55,16 @@ public class Restaurant extends BaseEntity {
     @Column(name = "default_reservation_duration_minutes", nullable = false)
     private Integer defaultReservationDurationMinutes = 90;
 
+    /**
+     * Si el local está operativo bajo el plan contratado. Un tenant que baja de
+     * PRO a NORMAL con varios locales conserva TODOS sus datos: los sobrantes
+     * pasan a solo lectura con este flag en false, y se reactivan solos al
+     * volver a PRO. Nunca se borra ni se marca como eliminado un local por
+     * motivos de plan.
+     */
+    @Column(name = "active_under_plan", nullable = false)
+    private Boolean activeUnderPlan = true;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tenant_id")
     private Tenant tenant;

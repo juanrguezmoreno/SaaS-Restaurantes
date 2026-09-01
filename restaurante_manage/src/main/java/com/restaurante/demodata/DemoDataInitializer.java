@@ -5,6 +5,10 @@ import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.role.entity.Role;
 import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
+import com.restaurante.subscription.entity.Subscription;
+import com.restaurante.subscription.enums.PlanCode;
+import com.restaurante.subscription.enums.SubscriptionStatus;
+import com.restaurante.subscription.repository.SubscriptionRepository;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
@@ -51,6 +55,7 @@ public class DemoDataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final RestaurantRepository restaurantRepository;
     private final TenantRepository tenantRepository;
+    private final SubscriptionRepository subscriptionRepository;
     private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
 
@@ -84,6 +89,11 @@ public class DemoDataInitializer implements CommandLineRunner {
         Tenant demoGourmet = createTenantIfNotExists("Demo Gourmet", "demo-gourmet");
         Tenant legacyTest = createTenantIfNotExists("Legacy/Test", "legacy-test");
         log.info("[DemoData] Tenants creados/verificados: '{}' y '{}'", demoGourmet.getName(), legacyTest.getName());
+
+        createSubscriptionIfNotExists(demoGourmet, PlanCode.PRO);
+        // Legacy/Test se queda en NORMAL a propósito: así el perfil dev tiene un
+        // inquilino con el que probar los límites y el diálogo de mejora de plan.
+        createSubscriptionIfNotExists(legacyTest, PlanCode.NORMAL);
 
         // ────────────────────────────────────────────────────────────────
         // 3. ASIGNAR RESTAURANTES A TENANTS
@@ -177,6 +187,23 @@ public class DemoDataInitializer implements CommandLineRunner {
                     tenant.setSlug(slug);
                     return tenantRepository.save(tenant);
                 });
+    }
+
+    /**
+     * Los tenants demo reciben PRO activo. Sin esto, el perfil dev arrancaría con
+     * todo bloqueado por plan y parecería que la aplicación está rota.
+     */
+    private void createSubscriptionIfNotExists(Tenant tenant, PlanCode plan) {
+        if (subscriptionRepository.findByTenantIdAndDeletedFalse(tenant.getId()).isPresent()) {
+            return;
+        }
+        Subscription suscripcion = new Subscription();
+        suscripcion.setTenant(tenant);
+        suscripcion.setPlanCode(plan);
+        suscripcion.setStatus(SubscriptionStatus.ACTIVE);
+        suscripcion.setLegacyGrant(true);
+        subscriptionRepository.save(suscripcion);
+        log.info("[DemoData] Suscripción {} creada para el tenant '{}'", plan, tenant.getName());
     }
 
     private void assignRestaurantToTenant(List<Restaurant> restaurants, String restaurantName, Tenant tenant) {
