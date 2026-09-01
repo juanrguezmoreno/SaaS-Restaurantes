@@ -1,6 +1,7 @@
 package com.restaurante.user.service;
 
 import com.restaurante.common.exception.AccessDeniedException;
+import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.DuplicateResourceException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
@@ -398,10 +399,51 @@ public class UserService {
                 assigned.add(r);
             }
             user.setAssignedRestaurants(assigned);
+            heredarInquilinoDeRestaurantes(user, assigned);
         }
 
         User saved = userRepository.save(user);
         return userMapper.toResponse(saved);
+    }
+
+    /**
+     * Deduce el inquilino de un usuario a partir de los restaurantes que se le
+     * asignan.
+     *
+     * <p>El formulario de empleados solo envía {@code restaurantIds}: sin esta
+     * deducción, la cuenta se guardaba sin inquilino y su dueño no veía NINGÚN
+     * restaurante al entrar. Lo explícito manda: si el usuario ya tiene
+     * inquilino (porque se pidió uno, o porque ya lo tenía), no se toca.</p>
+     *
+     * <p>Mezclar restaurantes de inquilinos distintos se rechaza en vez de
+     * elegir uno: un usuario pertenece a un solo inquilino y la ambigüedad no
+     * se puede resolver sola sin arriesgarse a darle acceso al inquilino
+     * equivocado.</p>
+     */
+    private void heredarInquilinoDeRestaurantes(User user, Set<Restaurant> asignados) {
+        if (asignados == null || asignados.isEmpty()) {
+            return;
+        }
+        if (user.getTenant() != null) {
+            return;
+        }
+
+        Set<Long> tenantIds = asignados.stream()
+                .map(Restaurant::getTenant)
+                .filter(Objects::nonNull)
+                .map(Tenant::getId)
+                .collect(Collectors.toSet());
+
+        if (tenantIds.size() > 1) {
+            throw new BadRequestException(
+                    "Los restaurantes asignados pertenecen a inquilinos distintos");
+        }
+        if (tenantIds.size() == 1) {
+            Long tenantId = tenantIds.iterator().next();
+            Tenant tenant = tenantRepository.findByIdAndDeletedFalse(tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
+            user.setTenant(tenant);
+        }
     }
 
     private boolean requestsSuperAdminRole(Set<String> roleNames) {
@@ -485,6 +527,7 @@ public class UserService {
                 assigned.add(r);
             }
             user.setAssignedRestaurants(assigned);
+            heredarInquilinoDeRestaurantes(user, assigned);
         }
 
         User saved = userRepository.save(user);
