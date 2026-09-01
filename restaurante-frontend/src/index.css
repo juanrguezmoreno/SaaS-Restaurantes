@@ -148,25 +148,26 @@
    ??????????????????????????????????????????????????????????????????????????? */
 
 [data-theme="dark"] {
-  /* El tema oscuro también es cálido: mismo tono de tinta, no gris azulado.
-     Los acentos se aclaran (no se invierten) para conservar el contraste. */
+  /* De noche la tinta se enfría: el marrón oscuro del tema cálido ensuciaba el
+     lienzo, así que los neutros pasan a un azul noche desaturado. Los acentos
+     se aclaran (no se invierten) para conservar el contraste. */
 
   /* ─── Sidebar ─────────────────────────────────────────────────────────────
-     De noche se mantiene la tinta cálida: el verde profundo del día sobre un
-     lienzo ya oscuro perdería el contraste que lo hace legible. */
-  --sidebar-bg: #14110F;
-  --sidebar-hover: #292421;
+     Comparte el azul del lienzo: el verde profundo del día sobre un fondo ya
+     oscuro perdería el contraste que lo hace legible. */
+  --sidebar-bg: #0E1626;
+  --sidebar-hover: #1D2942;
   --sidebar-active-bg: rgba(111, 199, 164, 0.18);
-  --sidebar-text: #A8A29E;
-  --sidebar-text-active: #FAFAF9;
-  --sidebar-section-title: #78716C;
+  --sidebar-text: #9FB0C7;
+  --sidebar-text-active: #F4F8FD;
+  --sidebar-section-title: #6D7E97;
   --sidebar-border: rgba(255, 255, 255, 0.07);
   --sidebar-accent: #6FC7A4;
   --sidebar-accent-end: #A8E3C9;
 
   /* ─── Layout ──────────────────────────────────────────────────────────── */
-  --bg-body: #14110F;
-  --bg-card: #1F1B18;
+  --bg-body: #0E1626;
+  --bg-card: #162034;
 
   /* ─── Marca ───────────────────────────────────────────────────────────────
      Verde aclarado: sobre fondo oscuro el tono profundo no llegaría al mínimo
@@ -194,16 +195,16 @@
   --danger-text: #F87171;
 
   /* ─── Texto ───────────────────────────────────────────────────────────── */
-  --text-primary: #FAFAF9;
-  --text-secondary: #A8A29E;
-  --text-muted: #78716C;
-  --text-inverse: #1A1715;
+  --text-primary: #F4F8FD;
+  --text-secondary: #9FB0C7;
+  --text-muted: #6D7E97;
+  --text-inverse: #0E1626;
 
   /* ─── Hover ───────────────────────────────────────────────────────────── */
-  --hover-color: #2C2724;
+  --hover-color: #1D2942;
 
   /* ─── Bordes ──────────────────────────────────────────────────────────── */
-  --border: #332E2A;
+  --border: #27334C;
   --border-light: rgba(255, 255, 255, 0.07);
 
   /* ─── Sombras ─────────────────────────────────────────────────────────── */
@@ -214,12 +215,12 @@
   --shadow-xl: 0 24px 32px -8px rgba(0, 0, 0, 0.55), 0 8px 12px -6px rgba(0, 0, 0, 0.35);
 
   /* ─── Login ───────────────────────────────────────────────────────────── */
-  --login-bg-start: #1F1B18;
-  --login-bg-end: #100D0C;
+  --login-bg-start: #16203A;
+  --login-bg-end: #090F1B;
 
   /* ─── Página pública ──────────────────────────────────────────────────── */
-  --public-bg-start: #1F1B18;
-  --public-bg-end: #100D0C;
+  --public-bg-start: #16203A;
+  --public-bg-end: #090F1B;
 }
 
 /* En oscuro el relleno verde es claro: todo lo que va relleno de marca pasa a
