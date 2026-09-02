@@ -24,6 +24,7 @@ import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.restaurant.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -55,6 +56,7 @@ public class ReservationService {
     private final CurrentUserService currentUserService;
     private final ApplicationEventPublisher eventPublisher;
     private final AvailabilityService availabilityService;
+    private final RestaurantService restaurantService;
 
     /**
      * Matriz explícita de transiciones de estado permitidas. CANCELLED,
@@ -413,6 +415,7 @@ public class ReservationService {
             throw new BadRequestException("restaurantId es obligatorio");
         }
         currentUserService.validateRestaurantAccess(resolvedRestaurantId);
+        restaurantService.assertRestaurantWritable(resolvedRestaurantId);
 
         Customer customer = customerRepository.findByIdAndDeletedFalse(request.getCustomerId())
                 .orElseThrow(() -> new ResourceNotFoundException("Cliente", "id", request.getCustomerId()));
@@ -513,6 +516,7 @@ public class ReservationService {
         Reservation reservation = reservationRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reserva", "id", id));
         currentUserService.validateRestaurantAccess(reservation.getRestaurant().getId());
+        restaurantService.assertRestaurantWritable(reservation.getRestaurant().getId());
 
         if (request.getCustomerId() != null && !request.getCustomerId().equals(reservation.getCustomer().getId())) {
             Customer customer = customerRepository.findByIdAndDeletedFalse(request.getCustomerId())

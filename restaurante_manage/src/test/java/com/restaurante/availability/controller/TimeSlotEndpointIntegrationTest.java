@@ -5,6 +5,12 @@ import com.restaurante.diningtable.enums.TableStatus;
 import com.restaurante.diningtable.repository.DiningTableRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.subscription.entity.Subscription;
+import com.restaurante.subscription.enums.PlanCode;
+import com.restaurante.subscription.enums.SubscriptionStatus;
+import com.restaurante.subscription.repository.SubscriptionRepository;
+import com.restaurante.tenant.entity.Tenant;
+import com.restaurante.tenant.repository.TenantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,18 +43,37 @@ class TimeSlotEndpointIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private RestaurantRepository restaurantRepository;
     @Autowired private DiningTableRepository diningTableRepository;
+    @Autowired private TenantRepository tenantRepository;
+    @Autowired private SubscriptionRepository subscriptionRepository;
 
     private Long restauranteId;
     private String fecha;
 
     @BeforeEach
     void setUp() {
+        // Tenant propio con suscripción PRO activa: sigue siendo "otro tenant"
+        // distinto del de juan.admin para el test de aislamiento cross-tenant,
+        // pero ahora tiene suscripción, que es lo que exige la guarda del QR
+        // público desde la Task 5.
+        Tenant tenant = new Tenant();
+        tenant.setName("Franjas Test Tenant " + System.nanoTime());
+        tenant.setSlug("franjas-test-tenant-" + System.nanoTime());
+        tenant.setActive(true);
+        tenant = tenantRepository.save(tenant);
+
+        Subscription suscripcion = new Subscription();
+        suscripcion.setTenant(tenant);
+        suscripcion.setPlanCode(PlanCode.PRO);
+        suscripcion.setStatus(SubscriptionStatus.ACTIVE);
+        subscriptionRepository.save(suscripcion);
+
         Restaurant restaurante = new Restaurant();
         restaurante.setName("Franjas Test");
         restaurante.setOpeningTime(LocalTime.of(13, 0));
         restaurante.setClosingTime(LocalTime.of(16, 0));
         restaurante.setDefaultReservationDurationMinutes(90);
         restaurante.setPublicBookingEnabled(true);
+        restaurante.setTenant(tenant);
         restauranteId = restaurantRepository.save(restaurante).getId();
 
         DiningTable mesa = new DiningTable();

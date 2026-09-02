@@ -16,6 +16,8 @@ import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.subscription.service.EffectiveSubscription;
+import com.restaurante.subscription.service.EntitlementService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +38,7 @@ public class PublicReservationService {
     private final CustomerRepository customerRepository;
     private final ReservationRepository reservationRepository;
     private final AvailabilityService availabilityService;
+    private final EntitlementService entitlementService;
 
     @Value("${app.reservations.hold-expiration-minutes:720}")
     private int holdExpirationMinutes;
@@ -46,6 +49,7 @@ public class PublicReservationService {
     public PublicRestaurantResponse getPublicRestaurant(Long restaurantId) {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(restaurantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
+        assertReservasPublicasPermitidas(restaurant);
 
         return PublicRestaurantResponse.builder()
                 .id(restaurant.getId())
@@ -72,9 +76,7 @@ public class PublicReservationService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(restaurantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
 
-        if (Boolean.FALSE.equals(restaurant.getPublicBookingEnabled())) {
-            throw new BadRequestException("Este restaurante no acepta reservas públicas en este momento");
-        }
+        assertReservasPublicasPermitidas(restaurant);
 
         return availabilityService.getTimeSlots(restaurantId, date, partySize);
     }
@@ -95,11 +97,8 @@ public class PublicReservationService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(restaurantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
 
-        // 1b. Verificar que el restaurante permita reservas públicas
-        if (Boolean.FALSE.equals(restaurant.getPublicBookingEnabled())) {
-            throw new BadRequestException(
-                    "Este restaurante no acepta reservas públicas en este momento");
-        }
+        // 1b. Verificar que el restaurante y su tenant admitan reservas públicas
+        assertReservasPublicasPermitidas(restaurant);
 
         // 2. Buscar o crear cliente
         Customer customer = findOrCreateCustomer(restaurant, request);
@@ -222,5 +221,33 @@ public class PublicReservationService {
         Customer saved = customerRepository.save(customer);
         log.info("Cliente creado desde reserva pública: id={}, email={}", saved.getId(), saved.getEmail());
         return saved;
+    }
+
+    /**
+     * El acceso público depende de tres cosas: que el local acepte reservas, que
+     * su tenant tenga la suscripción en un estado que lo permita, y que el local
+     * no esté bloqueado por un cambio de plan.
+     *
+     * PAST_DUE sigue abierto a propósito: un pago fallido suele ser una tarjeta
+     * caducada, y cortar el QR castigaría a los clientes finales del restaurante
+     * mientras Stripe reintenta el cobro.
+     */
+    private void assertReservasPublicasPermitidas(Restaurant restaurant) {
+        if (Boolean.FALSE.equals(restaurant.getPublicBookingEnabled())) {
+            throw new BadRequestException(
+                    "Este restaurante no acepta reservas públicas en este momento");
+        }
+        if (Boolean.FALSE.equals(restaurant.getActiveUnderPlan())) {
+            throw new BadRequestException(
+                    "Este restaurante no acepta reservas online en este momento");
+        }
+        Long tenantId = restaurant.getTenant() != null ? restaurant.getTenant().getId() : null;
+        EffectiveSubscription suscripcion = entitlementService.resolve(tenantId);
+        if (suscripcion.status() == null || !suscripcion.status().allowsPublicBooking()) {
+            // Mensaje neutro a propósito: al cliente final del restaurante nunca
+            // se le cuenta que hay un problema de pago de su restaurante.
+            throw new BadRequestException(
+                    "Este restaurante no acepta reservas online en este momento");
+        }
     }
 }

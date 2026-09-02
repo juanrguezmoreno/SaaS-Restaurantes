@@ -13,6 +13,12 @@ import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.security.userdetails.UserPrincipal;
+import com.restaurante.subscription.entity.Subscription;
+import com.restaurante.subscription.enums.PlanCode;
+import com.restaurante.subscription.enums.SubscriptionStatus;
+import com.restaurante.subscription.repository.SubscriptionRepository;
+import com.restaurante.tenant.entity.Tenant;
+import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
 import com.restaurante.user.repository.UserRepository;
 import org.hibernate.Hibernate;
@@ -58,6 +64,8 @@ class ReservationConcurrencyIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private PublicReservationService publicReservationService;
+    @Autowired private TenantRepository tenantRepository;
+    @Autowired private SubscriptionRepository subscriptionRepository;
 
     private Restaurant restaurant;
     private DiningTable table;
@@ -82,9 +90,24 @@ class ReservationConcurrencyIntegrationTest {
             return user;
         });
 
+        // Tenant con suscripción PRO activa: la guarda del QR público (Task 5)
+        // exige que el tenant tenga una suscripción vigente.
+        Tenant tenant = new Tenant();
+        tenant.setName("Concurrencia Test Tenant " + System.nanoTime());
+        tenant.setSlug("concurrencia-test-tenant-" + System.nanoTime());
+        tenant.setActive(true);
+        tenant = tenantRepository.save(tenant);
+
+        Subscription suscripcion = new Subscription();
+        suscripcion.setTenant(tenant);
+        suscripcion.setPlanCode(PlanCode.PRO);
+        suscripcion.setStatus(SubscriptionStatus.ACTIVE);
+        subscriptionRepository.save(suscripcion);
+
         restaurant = new Restaurant();
         restaurant.setName("Concurrencia Test");
         restaurant.setDefaultReservationDurationMinutes(90);
+        restaurant.setTenant(tenant);
         restaurant = restaurantRepository.save(restaurant);
 
         table = new DiningTable();

@@ -1,6 +1,7 @@
 package com.restaurante.restaurant.service;
 
 import com.restaurante.common.exception.AccessDeniedException;
+import com.restaurante.common.exception.PlanUpgradeRequiredException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.restaurant.dto.RestaurantMapper;
@@ -8,6 +9,8 @@ import com.restaurante.restaurant.dto.RestaurantRequest;
 import com.restaurante.restaurant.dto.RestaurantResponse;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.subscription.enums.Feature;
+import com.restaurante.subscription.enums.PlanCode;
 import com.restaurante.subscription.enums.Resource;
 import com.restaurante.subscription.service.EntitlementService;
 import com.restaurante.tenant.entity.Tenant;
@@ -109,6 +112,7 @@ public class RestaurantService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", id));
         currentUserService.validateRestaurantAccess(id);
+        assertRestaurantWritable(id);
         restaurantMapper.updateEntity(restaurant, request);
         Restaurant saved = restaurantRepository.save(restaurant);
         return restaurantMapper.toResponse(saved);
@@ -119,8 +123,27 @@ public class RestaurantService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", id));
         currentUserService.validateRestaurantAccess(id);
+        assertRestaurantWritable(id);
         restaurant.setDeleted(true);
         restaurant.setDeletedAt(LocalDateTime.now());
         restaurantRepository.save(restaurant);
+    }
+
+    /**
+     * Un local desactivado por el plan (por ejemplo, tras bajar de PRO a NORMAL)
+     * queda en SOLO LECTURA: se consulta y se exporta, pero no se modifica ni
+     * genera reservas nuevas. Sus datos permanecen intactos y vuelve a estar
+     * operativo en cuanto se recupera el plan.
+     */
+    public void assertRestaurantWritable(Long restaurantId) {
+        Restaurant restaurante = restaurantRepository.findByIdAndDeletedFalse(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
+        if (Boolean.FALSE.equals(restaurante.getActiveUnderPlan())) {
+            throw new PlanUpgradeRequiredException(
+                    Feature.MULTI_RESTAURANT,
+                    PlanCode.PRO,
+                    "Este local está inactivo con tu plan actual. Sus datos se conservan;"
+                            + " actualiza a Pro para volver a operarlo.");
+        }
     }
 }
