@@ -65,6 +65,7 @@ public class StripeWebhookService {
     private final SubscriptionService subscriptionService;
     private final StripeGateway stripeGateway;
     private final TransactionTemplate transactionTemplate;
+    private final PlanReconciliationService planReconciliationService;
 
     public void handle(String payload, String signatureHeader) {
         if (stripeProperties.getWebhookSecret() == null
@@ -169,6 +170,10 @@ public class StripeWebhookService {
         StripeSubscriptionSnapshot instantanea = stripeGatewayFetch(subscriptionId.get());
         subscriptionService.applySnapshot(entidad, instantanea, eventoEn);
         subscriptionRepository.save(entidad);
+
+        // El plan acaba de cambiar: ajustar qué locales quedan operativos.
+        // Nunca borra datos, sólo alterna activeUnderPlan.
+        planReconciliationService.reconcile(entidad.getTenant().getId());
     }
 
     /**

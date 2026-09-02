@@ -8,6 +8,7 @@ import com.restaurante.subscription.enums.Resource;
 import com.restaurante.subscription.repository.SubscriptionRepository;
 import com.restaurante.subscription.service.EffectiveSubscription;
 import com.restaurante.subscription.service.EntitlementService;
+import com.restaurante.subscription.service.PlanReconciliationService;
 import com.restaurante.subscription.service.SubscriptionService;
 import com.restaurante.subscription.stripe.StripeProperties;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +41,7 @@ public class BillingController {
     private final CurrentUserService currentUserService;
     private final StripeProperties stripeProperties;
     private final SubscriptionService subscriptionService;
+    private final PlanReconciliationService planReconciliationService;
 
     @GetMapping(Constants.BILLING_PLANS_SUBPATH)
     @Operation(summary = "Catálogo de planes disponibles")
@@ -125,5 +127,15 @@ public class BillingController {
     public ResponseEntity<ApiResponse<SubscriptionResponse>> reactivate() {
         return ResponseEntity.ok(ApiResponse.success(
                 "Suscripción reactivada", subscriptionService.reactivate()));
+    }
+
+    @PostMapping(Constants.BILLING_ACTIVE_RESTAURANT_SUBPATH)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Elegir qué local queda operativo con el plan actual")
+    public ResponseEntity<ApiResponse<Void>> activeRestaurant(
+            @Valid @RequestBody ActiveRestaurantRequest request) {
+        planReconciliationService.chooseActiveRestaurant(
+                currentUserService.getCurrentTenantId(), request.getRestaurantId());
+        return ResponseEntity.ok(ApiResponse.success("Local activo actualizado", null));
     }
 }

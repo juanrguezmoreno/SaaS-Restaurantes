@@ -41,6 +41,7 @@ public class SubscriptionService {
     private final CurrentUserService currentUserService;
     private final StripeGateway stripeGateway;
     private final StripeProperties stripeProperties;
+    private final PlanReconciliationService planReconciliationService;
 
     @Value("${app.frontend.base-url}")
     private String frontendBaseUrl;
@@ -141,7 +142,11 @@ public class SubscriptionService {
         StripeSubscriptionSnapshot instantanea = stripeGateway.updateSubscriptionPrice(
                 suscripcion.getStripeSubscriptionId(), stripeProperties.priceIdFor(nuevoPlan));
         applySnapshot(suscripcion, instantanea, LocalDateTime.now());
-        return SubscriptionMapper.toResponse(subscriptionRepository.save(suscripcion));
+        Subscription guardada = subscriptionRepository.save(suscripcion);
+        // El plan acaba de cambiar: ajustar qué locales quedan operativos.
+        // Nunca borra datos, sólo alterna activeUnderPlan.
+        planReconciliationService.reconcile(guardada.getTenant().getId());
+        return SubscriptionMapper.toResponse(guardada);
     }
 
     @Transactional
@@ -156,7 +161,11 @@ public class SubscriptionService {
         StripeSubscriptionSnapshot instantanea = stripeGateway.cancelSubscription(
                 suscripcion.getStripeSubscriptionId(), atPeriodEnd);
         applySnapshot(suscripcion, instantanea, LocalDateTime.now());
-        return SubscriptionMapper.toResponse(subscriptionRepository.save(suscripcion));
+        Subscription guardada = subscriptionRepository.save(suscripcion);
+        // El plan acaba de cambiar: ajustar qué locales quedan operativos.
+        // Nunca borra datos, sólo alterna activeUnderPlan.
+        planReconciliationService.reconcile(guardada.getTenant().getId());
+        return SubscriptionMapper.toResponse(guardada);
     }
 
     @Transactional
@@ -174,7 +183,11 @@ public class SubscriptionService {
         StripeSubscriptionSnapshot instantanea =
                 stripeGateway.reactivateSubscription(suscripcion.getStripeSubscriptionId());
         applySnapshot(suscripcion, instantanea, LocalDateTime.now());
-        return SubscriptionMapper.toResponse(subscriptionRepository.save(suscripcion));
+        Subscription guardada = subscriptionRepository.save(suscripcion);
+        // El plan acaba de cambiar: ajustar qué locales quedan operativos.
+        // Nunca borra datos, sólo alterna activeUnderPlan.
+        planReconciliationService.reconcile(guardada.getTenant().getId());
+        return SubscriptionMapper.toResponse(guardada);
     }
 
     /**

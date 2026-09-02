@@ -22,6 +22,13 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
 
     List<Restaurant> findByTenantIdAndDeletedFalse(Long tenantId);
 
+    /**
+     * Locales vivos de un tenant ordenados por antigüedad (menor id primero).
+     * Es el orden determinista que usa la reconciliación de planes para decidir
+     * qué locales quedan activos al bajar de cuota.
+     */
+    List<Restaurant> findByTenantIdAndDeletedFalseOrderByIdAsc(Long tenantId);
+
     Page<Restaurant> findByTenantIdAndDeletedFalse(Long tenantId, Pageable pageable);
 
     long countByTenantIdAndDeletedFalse(Long tenantId);
