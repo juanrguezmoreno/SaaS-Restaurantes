@@ -8,9 +8,11 @@ import com.restaurante.subscription.enums.Resource;
 import com.restaurante.subscription.repository.SubscriptionRepository;
 import com.restaurante.subscription.service.EffectiveSubscription;
 import com.restaurante.subscription.service.EntitlementService;
+import com.restaurante.subscription.service.SubscriptionService;
 import com.restaurante.subscription.stripe.StripeProperties;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -37,6 +39,7 @@ public class BillingController {
     private final SubscriptionRepository subscriptionRepository;
     private final CurrentUserService currentUserService;
     private final StripeProperties stripeProperties;
+    private final SubscriptionService subscriptionService;
 
     @GetMapping(Constants.BILLING_PLANS_SUBPATH)
     @Operation(summary = "Catálogo de planes disponibles")
@@ -78,5 +81,49 @@ public class BillingController {
                 subscriptionRepository.findByTenantIdAndDeletedFalse(tenantId)
                         .map(SubscriptionMapper::toResponse)
                         .orElseGet(SubscriptionMapper::empty)));
+    }
+
+    @PostMapping(Constants.BILLING_CHECKOUT_SUBPATH)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Iniciar la contratación de un plan")
+    public ResponseEntity<ApiResponse<BillingSessionResponse>> checkout(
+            @Valid @RequestBody CheckoutRequest request) {
+        String url = subscriptionService.createCheckoutSession(request.getPlanCode());
+        return ResponseEntity.ok(ApiResponse.success(new BillingSessionResponse(url)));
+    }
+
+    @PostMapping(Constants.BILLING_PORTAL_SUBPATH)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Abrir el portal de cliente de Stripe")
+    public ResponseEntity<ApiResponse<BillingSessionResponse>> portal() {
+        return ResponseEntity.ok(ApiResponse.success(
+                new BillingSessionResponse(subscriptionService.createPortalSession())));
+    }
+
+    @PostMapping(Constants.BILLING_CHANGE_PLAN_SUBPATH)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Cambiar de plan")
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> changePlan(
+            @Valid @RequestBody CheckoutRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Plan actualizado", subscriptionService.changePlan(request.getPlanCode())));
+    }
+
+    @PostMapping(Constants.BILLING_CANCEL_SUBPATH)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Cancelar la suscripción")
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> cancel(
+            @RequestBody(required = false) CancelSubscriptionRequest request) {
+        boolean alFinalDelPeriodo = request == null || request.isAtPeriodEnd();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Suscripción cancelada", subscriptionService.cancel(alFinalDelPeriodo)));
+    }
+
+    @PostMapping(Constants.BILLING_REACTIVATE_SUBPATH)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Operation(summary = "Deshacer una cancelación programada")
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> reactivate() {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Suscripción reactivada", subscriptionService.reactivate()));
     }
 }
