@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.restaurante.common.exception.InvalidWebhookSignatureException;
+import com.restaurante.common.exception.WebhookSecretNotConfiguredException;
 import com.restaurante.subscription.entity.ProcessedStripeEvent;
 import com.restaurante.subscription.entity.Subscription;
 import com.restaurante.subscription.repository.ProcessedStripeEventRepository;
@@ -70,7 +71,11 @@ public class StripeWebhookService {
                 || stripeProperties.getWebhookSecret().isBlank()) {
             // Fail closed: sin secreto no se acepta NADA. Aceptar sin verificar
             // sería dejar que cualquiera regale planes con una petición HTTP.
-            throw new InvalidWebhookSignatureException(
+            // No es InvalidWebhookSignatureException: la petición de Stripe es
+            // legítima, el fallo es nuestro (despliegue sin el secreto
+            // configurado), así que el handler debe responder 503 y no 400 para
+            // que Stripe reintente el evento hasta que se configure el secreto.
+            throw new WebhookSecretNotConfiguredException(
                     "STRIPE_WEBHOOK_SECRET no está configurado: no se procesa ningún webhook");
         }
 
@@ -89,7 +94,17 @@ public class StripeWebhookService {
         try {
             transactionTemplate.executeWithoutResult(estado -> procesar(evento));
         } catch (DataIntegrityViolationException e) {
-            // Idempotencia: la inserción violó la UNIQUE, el evento ya se procesó.
+            // La UNIQUE que salta puede ser la de stripe_processed_events (evento
+            // duplicado, caso normal) o la de subscriptions.stripe_subscription_id
+            // (dos inquilinos distintos intentando quedarse con el mismo id de
+            // suscripción de Stripe: una colisión real que NO debe silenciarse).
+            // Sólo se trata como duplicado si el evento ya está en la bitácora;
+            // si no lo está, se relanza para que responda 500 y Stripe reintente,
+            // en vez de perder el evento devolviendo 200 con el mensaje engañoso
+            // de "ya procesado".
+            if (!processedEventRepository.existsByStripeEventId(evento.getId())) {
+                throw e;
+            }
             log.info("[Stripe] Evento {} ({}) ya procesado; se ignora",
                     evento.getId(), evento.getType());
         }
@@ -229,12 +244,25 @@ public class StripeWebhookService {
 
         String clienteGuardado = suscripcion.get().getStripeCustomerId();
         Optional<String> clienteDelEvento = textoDelJson(evento, "customer");
-        if (clienteGuardado != null && clienteDelEvento.isPresent()
-                && !clienteGuardado.equals(clienteDelEvento.get())) {
-            log.warn("[Seguridad] El evento {} pretende asociar la suscripción {} del cliente"
-                            + " {} al inquilino {}, cuyo cliente en Stripe es otro; se descarta",
-                    evento.getId(), subscriptionId, clienteDelEvento.get(), tenantId.get());
-            return Optional.empty();
+        if (clienteGuardado != null) {
+            // Falla cerrado: si ya había un cliente de Stripe guardado, el del
+            // evento tiene que poder leerse y coincidir. Que no se pueda leer
+            // (por ejemplo porque "customer" llegó expandido como objeto en vez
+            // de como id) no es motivo para omitir la comprobación: sería una
+            // forma trivial de saltársela en silencio.
+            if (clienteDelEvento.isEmpty()) {
+                log.warn("[Seguridad] El evento {} pretende asociar la suscripción {} al"
+                                + " inquilino {}, pero no se puede leer el cliente de Stripe"
+                                + " del evento para verificarlo; se descarta",
+                        evento.getId(), subscriptionId, tenantId.get());
+                return Optional.empty();
+            }
+            if (!clienteGuardado.equals(clienteDelEvento.get())) {
+                log.warn("[Seguridad] El evento {} pretende asociar la suscripción {} del cliente"
+                                + " {} al inquilino {}, cuyo cliente en Stripe es otro; se descarta",
+                        evento.getId(), subscriptionId, clienteDelEvento.get(), tenantId.get());
+                return Optional.empty();
+            }
         }
         return suscripcion;
     }

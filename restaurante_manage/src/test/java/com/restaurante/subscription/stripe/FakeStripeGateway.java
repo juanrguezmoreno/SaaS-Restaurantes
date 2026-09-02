@@ -20,6 +20,7 @@ public class FakeStripeGateway implements StripeGateway {
     private final List<CheckoutRequest> checkoutRequests = new ArrayList<>();
     private StripeSubscriptionSnapshot nextSnapshot;
     private String nextCustomerId = "cus_fake_1";
+    private int fetchSubscriptionInvocations = 0;
 
     public void setNextSnapshot(StripeSubscriptionSnapshot snapshot) {
         this.nextSnapshot = snapshot;
@@ -33,10 +34,16 @@ public class FakeStripeGateway implements StripeGateway {
         return checkoutRequests.isEmpty() ? null : checkoutRequests.get(checkoutRequests.size() - 1);
     }
 
+    /** Cuántas veces se ha llamado a fetchSubscription; sirve para comprobar idempotencia. */
+    public int getFetchSubscriptionInvocations() {
+        return fetchSubscriptionInvocations;
+    }
+
     public void reset() {
         checkoutRequests.clear();
         nextSnapshot = null;
         nextCustomerId = "cus_fake_1";
+        fetchSubscriptionInvocations = 0;
     }
 
     @Override
@@ -75,6 +82,7 @@ public class FakeStripeGateway implements StripeGateway {
 
     @Override
     public StripeSubscriptionSnapshot fetchSubscription(String subscriptionId) {
+        fetchSubscriptionInvocations++;
         return snapshotOSimulado(subscriptionId, null, "active", false);
     }
 

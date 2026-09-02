@@ -246,6 +246,9 @@ class StripeWebhookEndpointIntegrationTest {
         }
 
         assertEquals(1, processedStripeEventRepository.count());
+        // No basta con que la bitácora tenga una sola fila: hay que comprobar que
+        // el EFECTO (releer la suscripción en Stripe) tampoco se repitió.
+        assertEquals(1, fakeStripeGateway.getFetchSubscriptionInvocations());
     }
 
     @Test

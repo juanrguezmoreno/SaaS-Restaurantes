@@ -147,12 +147,33 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(InvalidWebhookSignatureException.class)
     public ResponseEntity<ApiResponse<Void>> handleInvalidWebhookSignature(
             InvalidWebhookSignatureException ex) {
-        // 400 a propósito: Stripe NO reintenta los 4xx, y una firma inválida no
-        // mejora reintentándola. Se registra como incidencia de seguridad.
+        // 400 a propósito: Stripe reintenta ante cualquier respuesta que no sea
+        // 2xx, así que no es eso lo que evita el reintento. Se devuelve 400
+        // porque la petición en sí es inválida (firma que no corresponde al
+        // cuerpo) y reintentarla no la va a arreglar. Se registra como
+        // incidencia de seguridad.
         log.warn("[Seguridad] Webhook de Stripe rechazado: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(InvalidWebhookSignatureException.CODE, "Firma inválida"));
+    }
+
+    /**
+     * STRIPE_WEBHOOK_SECRET no está configurado: el fallo es nuestro (despliegue
+     * incompleto), no del emisor de la petición. Se responde 503, no 400, para
+     * que Stripe reintente el evento; así, en cuanto se configure el secreto,
+     * el estado de pago del inquilino se acaba aplicando en vez de perderse.
+     * Se registra como incidencia de configuración, no de seguridad.
+     */
+    @ExceptionHandler(WebhookSecretNotConfiguredException.class)
+    public ResponseEntity<ApiResponse<Void>> handleWebhookSecretNotConfigured(
+            WebhookSecretNotConfiguredException ex) {
+        log.error("[Config] Webhook de Stripe recibido sin STRIPE_WEBHOOK_SECRET configurado: {}",
+                ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.error(WebhookSecretNotConfiguredException.CODE,
+                        "El servicio de facturación no está disponible ahora mismo"));
     }
 
     /**
