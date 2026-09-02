@@ -144,6 +144,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(ApiResponse.error(mensaje));
     }
 
+    @ExceptionHandler(InvalidWebhookSignatureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidWebhookSignature(
+            InvalidWebhookSignatureException ex) {
+        // 400 a propósito: Stripe NO reintenta los 4xx, y una firma inválida no
+        // mejora reintentándola. Se registra como incidencia de seguridad.
+        log.warn("[Seguridad] Webhook de Stripe rechazado: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(InvalidWebhookSignatureException.CODE, "Firma inválida"));
+    }
+
     /**
      * El plan del tenant no incluye la función. Se devuelve 403 con código para
      * que el frontend abra el diálogo de mejora de plan en lugar de un error
