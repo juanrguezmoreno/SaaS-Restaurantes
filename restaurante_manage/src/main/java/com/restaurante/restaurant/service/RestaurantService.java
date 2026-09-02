@@ -8,6 +8,8 @@ import com.restaurante.restaurant.dto.RestaurantRequest;
 import com.restaurante.restaurant.dto.RestaurantResponse;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.subscription.enums.Resource;
+import com.restaurante.subscription.service.EntitlementService;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
@@ -30,6 +32,7 @@ public class RestaurantService {
     private final RestaurantMapper restaurantMapper;
     private final CurrentUserService currentUserService;
     private final TenantRepository tenantRepository;
+    private final EntitlementService entitlementService;
 
     public Page<RestaurantResponse> findAll(Pageable pageable) {
         // Obtener los IDs de restaurantes visibles según el rol y asignaciones
@@ -80,6 +83,10 @@ public class RestaurantService {
 
     @Transactional
     public RestaurantResponse create(RestaurantRequest request) {
+        // La cuota se comprueba ANTES de construir nada: crear el local y luego
+        // deshacerlo dejaría huecos en el autoincremento y ruido en los logs.
+        entitlementService.requireCapacity(Resource.RESTAURANT);
+
         Restaurant restaurant = restaurantMapper.toEntity(request);
 
         // Asignar tenant: usar el del usuario autenticado
