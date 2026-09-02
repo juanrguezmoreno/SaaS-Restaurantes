@@ -22,6 +22,7 @@
         <jjwt.version>0.12.6</jjwt.version>
         <springdoc.version>2.6.0</springdoc.version>
         <lombok.version>1.18.34</lombok.version>
+        <stripe.version>33.4.1</stripe.version>
     </properties>
 
     <dependencies>
@@ -47,6 +48,14 @@
             <groupId>com.resend</groupId>
             <artifactId>resend-java</artifactId>
             <version>4.4.0</version>
+        </dependency>
+
+        <!-- Cobros recurrentes. Librería fuertemente tipada: fija internamente la
+             versión de la API de Stripe contra la que se compiló. -->
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+            <version>${stripe.version}</version>
         </dependency>
 
         <!-- MySQL -->

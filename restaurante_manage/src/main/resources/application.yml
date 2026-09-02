@@ -98,6 +98,16 @@ app:
     # Origen del frontend, usado para construir el enlace de recuperación
     # ({base-url}/reset-password?token=...). En producción define FRONTEND_URL.
     base-url: ${FRONTEND_URL:http://localhost:5173}
+  stripe:
+    # Claves de Stripe. SIN valor por defecto a propósito: si no están definidas,
+    # el cobro queda deshabilitado (no roto) y los endpoints de billing lo dicen.
+    # Nunca escribir estos valores aquí: sólo por variable de entorno.
+    secret-key: ${STRIPE_SECRET_KEY:}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+    price-normal-monthly: ${STRIPE_PRICE_NORMAL_MONTHLY:}
+    price-pro-monthly: ${STRIPE_PRICE_PRO_MONTHLY:}
+    # Días de prueba gratuita al contratar. 0 desactiva el periodo de prueba.
+    trial-days: ${STRIPE_TRIAL_DAYS:14}
 
 springdoc:
   api-docs:

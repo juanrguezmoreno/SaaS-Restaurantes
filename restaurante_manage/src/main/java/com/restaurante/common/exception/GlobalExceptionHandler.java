@@ -181,6 +181,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(ApiResponse.error(ex.getMessage()));
     }
 
+    /**
+     * Fallo al hablar con Stripe (red, timeout, respuesta de error de la API).
+     * Se traduce a 502: el problema es del proveedor de pago, no de la petición.
+     */
+    @ExceptionHandler(com.restaurante.subscription.stripe.StripeOperationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStripeOperation(
+            com.restaurante.subscription.stripe.StripeOperationException ex) {
+        // El detalle va al log, no a la respuesta: puede contener identificadores
+        // internos de Stripe que no deben salir al cliente.
+        log.error("Error al operar con Stripe: {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error("BILLING_PROVIDER_ERROR",
+                        "No se pudo completar la operación de pago. Inténtalo de nuevo."));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGlobalException(Exception ex) {
         log.error("Error no manejado: {}", ex.getMessage(), ex);
