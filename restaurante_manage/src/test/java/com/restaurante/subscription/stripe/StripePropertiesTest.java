@@ -43,11 +43,11 @@ class StripePropertiesTest {
         assertFalse(sinNada.isEnabled());
 
         StripeProperties soloClave = conPrecios(null, null);
-        soloClave.setSecretKey("sk_test_123");
+        soloClave.setSecretKey("clave-de-prueba-no-stripe");
         assertFalse(soloClave.isEnabled());
 
         StripeProperties completa = conPrecios("price_normal", "price_pro");
-        completa.setSecretKey("sk_test_123");
+        completa.setSecretKey("clave-de-prueba-no-stripe");
         assertTrue(completa.isEnabled());
     }
 }

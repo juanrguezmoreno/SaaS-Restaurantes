@@ -1,6 +1,7 @@
 package com.restaurante.common.exception;
 
 import com.restaurante.common.dto.ApiResponse;
+import com.restaurante.subscription.stripe.StripeOperationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -185,9 +186,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      * Fallo al hablar con Stripe (red, timeout, respuesta de error de la API).
      * Se traduce a 502: el problema es del proveedor de pago, no de la petición.
      */
-    @ExceptionHandler(com.restaurante.subscription.stripe.StripeOperationException.class)
+    @ExceptionHandler(StripeOperationException.class)
     public ResponseEntity<ApiResponse<Void>> handleStripeOperation(
-            com.restaurante.subscription.stripe.StripeOperationException ex) {
+            StripeOperationException ex) {
         // El detalle va al log, no a la respuesta: puede contener identificadores
         // internos de Stripe que no deben salir al cliente.
         log.error("Error al operar con Stripe: {}", ex.getMessage(), ex);
