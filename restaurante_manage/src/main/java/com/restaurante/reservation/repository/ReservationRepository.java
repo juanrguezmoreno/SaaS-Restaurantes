@@ -229,4 +229,37 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                 @Param("restaurantIds") Set<Long> restaurantIds,
                                 @Param("restaurantId") Long restaurantId,
                                 @Param("today") LocalDate today);
+
+    // ─── Exportación CSV (plan Pro) ───────────────────────────────────────
+
+    /**
+     * Reservas para exportar a CSV, en el mismo alcance multi-tenant que el
+     * resto de consultas del panel.
+     *
+     * <p>Sigue el convenio de {@code CurrentUserService.getVisibleRestaurantIds()}:
+     * {@code restaurantIds} vacío significa "sin filtro de ID" (solo se aplica
+     * el filtro de tenant); no vacío filtra por esos restaurantes concretos.
+     * {@code tenantId} nulo significa SUPER_ADMIN, sin restricción de tenant.</p>
+     *
+     * @param tenantId      tenant del usuario, o nulo para SUPER_ADMIN.
+     * @param restaurantIds restaurantes visibles; vacío = sin filtro de ID.
+     * @param desde         fecha mínima inclusive, o nula para no acotar.
+     * @param hasta         fecha máxima inclusive, o nula para no acotar.
+     */
+    @Query("""
+            SELECT r FROM Reservation r
+            JOIN FETCH r.customer c
+            JOIN FETCH r.restaurant rest
+            LEFT JOIN FETCH r.diningTable t
+            WHERE r.deleted = false
+              AND (:tenantId IS NULL OR rest.tenant.id = :tenantId)
+              AND (:restaurantIds IS NULL OR rest.id IN :restaurantIds)
+              AND (:desde IS NULL OR r.reservationDate >= :desde)
+              AND (:hasta IS NULL OR r.reservationDate <= :hasta)
+            ORDER BY r.reservationDate DESC, r.reservationTime DESC
+            """)
+    List<Reservation> findForExport(@Param("tenantId") Long tenantId,
+                                    @Param("restaurantIds") Set<Long> restaurantIds,
+                                    @Param("desde") LocalDate desde,
+                                    @Param("hasta") LocalDate hasta);
 }

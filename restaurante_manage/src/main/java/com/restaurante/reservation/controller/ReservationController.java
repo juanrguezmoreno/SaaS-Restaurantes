@@ -12,6 +12,7 @@ import com.restaurante.reservation.dto.ReservationStats;
 import com.restaurante.reservation.dto.ReservationStatusUpdateRequest;
 import com.restaurante.reservation.dto.ReservationView;
 import com.restaurante.reservation.enums.ReservationStatus;
+import com.restaurante.reservation.service.ReservationExportService;
 import com.restaurante.reservation.service.ReservationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -24,6 +25,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -40,6 +42,7 @@ import java.time.LocalDate;
 public class ReservationController {
 
     private final ReservationService reservationService;
+    private final ReservationExportService reservationExportService;
 
     /** Tope de tamaño de página, para que nadie pida la tabla entera. */
     private static final int MAX_PAGE_SIZE = 100;
@@ -139,6 +142,24 @@ public class ReservationController {
             throw new BadRequestException("Estado no válido: '" + status
                     + "'. Valores admitidos: PENDING, CONFIRMED, CANCELLED, COMPLETED, NO_SHOW.");
         }
+    }
+
+    @GetMapping(Constants.RESERVATIONS_EXPORT_SUBPATH)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MANAGER')")
+    @Operation(summary = "Exportar reservas a CSV (requiere plan Pro)")
+    public ResponseEntity<String> export(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+
+        String csv = reservationExportService.exportToCsv(from, to);
+        String nombre = "reservas-" + LocalDate.now() + ".csv";
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "text/csv; charset=UTF-8")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + nombre + "\"")
+                .body(csv);
     }
 
     @GetMapping("/{id}")

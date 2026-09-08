@@ -51,6 +51,9 @@ public final class Constants {
     // Reservations
     public static final String RESERVATIONS_PATH = API_BASE_PATH + "/reservations";
 
+    /** Exportación CSV de reservas. Requiere el plan Pro. */
+    public static final String RESERVATIONS_EXPORT_SUBPATH = "/export";
+
     // Public
     public static final String PUBLIC_PATH = API_BASE_PATH + "/public";
 
