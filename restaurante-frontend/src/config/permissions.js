@@ -50,6 +50,9 @@ export const PERMISSIONS = {
   MANAGE_TABLES: 'MANAGE_TABLES',
   VIEW_EMPLOYEES: 'VIEW_EMPLOYEES',
   MANAGE_EMPLOYEES: 'MANAGE_EMPLOYEES',
+
+  // ── Facturación ──
+  MANAGE_BILLING: 'MANAGE_BILLING',
 };
 
 /**
@@ -104,6 +107,7 @@ export const ROUTE_PERMISSIONS = {
   '/customers': PERMISSIONS.VIEW_CUSTOMERS,
   '/restaurants': PERMISSIONS.VIEW_RESTAURANTS,
   '/employees': PERMISSIONS.VIEW_EMPLOYEES,
+  '/settings/billing': PERMISSIONS.MANAGE_BILLING,
 };
 
 /**
@@ -117,6 +121,7 @@ export const SIDEBAR_PERMISSIONS = {
   '/customers': PERMISSIONS.VIEW_CUSTOMERS,
   '/restaurants': PERMISSIONS.VIEW_RESTAURANTS,
   '/employees': PERMISSIONS.VIEW_EMPLOYEES,
+  '/settings/billing': PERMISSIONS.MANAGE_BILLING,
 };
 
 /**
@@ -192,6 +197,7 @@ const DENIED_MESSAGES = {
   [PERMISSIONS.VIEW_EMPLOYEES]: 'No tienes permisos para acceder a la gestión de empleados.',
   [PERMISSIONS.MANAGE_EMPLOYEES]: 'No tienes permisos para gestionar empleados.',
   [PERMISSIONS.VIEW_FLOOR_PLAN]: 'El plano de sala está disponible para perfiles operativos.',
+  [PERMISSIONS.MANAGE_BILLING]: 'La facturación solo está disponible para administradores.',
 };
 
 /**
