@@ -503,6 +503,8 @@ h1, h2, h3,
 
 .sidebar-nav .nav-item {
   margin-bottom: 1px;
+  display: flex;
+  align-items: center;
 }
 
 .sidebar-nav .nav-link {
@@ -517,6 +519,40 @@ h1, h2, h3,
   border-radius: var(--radius-md);
   transition: all 0.15s ease;
   position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Candado discreto: la función sigue siendo pulsable, sólo avisa de que hace
+   falta el plan Pro. Esconderla del todo o desactivarla sin explicar sería
+   peor que mostrarla con este aviso. */
+.sidebar-lock-badge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 0.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--sidebar-text);
+  opacity: 0.6;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sidebar-lock-badge:hover {
+  opacity: 1;
+  background-color: var(--sidebar-hover);
+  color: var(--sidebar-text-active);
+}
+
+.sidebar-lock-badge svg {
+  width: 14px;
+  height: 14px;
 }
 
 .sidebar-nav .nav-link:hover {
