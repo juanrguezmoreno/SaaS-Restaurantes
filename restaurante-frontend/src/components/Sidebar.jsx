@@ -58,6 +58,15 @@ const icons = {
       <circle cx="16" cy="15.5" r="2" />
     </svg>
   ),
+  // Tarjeta con banda de pago: se distingue de Restaurantes y Empleados sin
+  // reutilizar ninguna de sus siluetas.
+  billing: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="5" width="19" height="14" rx="2" />
+      <line x1="2.5" y1="10" x2="21.5" y2="10" />
+      <line x1="6" y1="15" x2="10" y2="15" />
+    </svg>
+  ),
 };
 
 // ─── Grupos de navegación ──────────────────────────────────────────────────
@@ -82,6 +91,7 @@ const navGroups = [
     items: [
       { path: '/restaurants', label: 'Restaurantes', icon: 'restaurants' },
       { path: '/employees', label: 'Empleados', icon: 'employees' },
+      { path: '/settings/billing', label: 'Facturación', icon: 'billing' },
     ],
   },
 ];

@@ -13,6 +13,7 @@ import Reservations from './pages/Reservations';
 import Restaurants from './pages/Restaurants';
 import RestaurantSettings from './pages/RestaurantSettings';
 import FloorPlan from './pages/FloorPlan';
+import Billing from './pages/Billing';
 import PublicReservation from './pages/PublicReservation';
 import { PERMISSIONS } from './config/permissions';
 
@@ -47,6 +48,7 @@ function App() {
         <Route path="/restaurants" element={<PermissionRoute permission={PERMISSIONS.VIEW_RESTAURANTS}><Restaurants /></PermissionRoute>} />
         <Route path="/restaurants/:restaurantId/configuracion" element={<PermissionRoute permission={PERMISSIONS.MANAGE_RESTAURANTS}><RestaurantSettings /></PermissionRoute>} />
         <Route path="/employees" element={<PermissionRoute permission={PERMISSIONS.VIEW_EMPLOYEES}><Employees /></PermissionRoute>} />
+        <Route path="/settings/billing" element={<PermissionRoute permission={PERMISSIONS.MANAGE_BILLING}><Billing /></PermissionRoute>} />
       </Route>
 
       {/* Redirecciones — /inicio es la ruta canónica; /dashboard, /analytics y /tables
