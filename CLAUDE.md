@@ -36,15 +36,17 @@ pnpm install
 pnpm dev        # Vite dev server on http://localhost:5173
 pnpm build
 pnpm lint       # eslint
+pnpm test       # vitest run (~150 tests)
+pnpm test:watch # vitest, watch mode
 ```
 
-There are no frontend tests. The API URL is hardcoded to `http://localhost:8080/api/v1` in `src/api/axios.js` and `src/api/publicAxios.js`. Backend CORS only allows origin `http://localhost:5173`.
+The API URL is hardcoded to `http://localhost:8080/api/v1` in `src/api/axios.js` and `src/api/publicAxios.js`. Backend CORS only allows origin `http://localhost:5173`.
 
 ## Architecture
 
 ### Backend: feature-package layout
 
-Each domain feature (`auth`, `restaurant`, `diningtable`, `reservation`, `customer`, `employee`, `user`, `availability`, `dashboard`, `publicapi`, `tenant`, `role`) is a self-contained package with `controller/`, `service/`, `repository/`, `entity/`, `dto/` (request, response, and a static mapper class). Cross-cutting code lives in `common/` (ApiResponse/PagedResponse wrappers, GlobalExceptionHandler, JPA auditing, Constants) and `security/`. All URL paths and role names are constants in `common/util/Constants.java` — reference them, don't inline strings.
+Each domain feature (`auth`, `restaurant`, `diningtable`, `floorplan`, `reservation`, `serviceperiod`, `customer`, `employee`, `user`, `availability`, `notification`, `publicapi`, `tenant`, `role`, `subscription`) is a self-contained package with `controller/`, `service/`, `repository/`, `entity/`, `dto/` (request, response, and a static mapper class). Cross-cutting code lives in `common/` (ApiResponse/PagedResponse wrappers, GlobalExceptionHandler, JPA auditing, Constants) and `security/`. All URL paths and role names are constants in `common/util/Constants.java` — reference them, don't inline strings.
 
 ### Multi-tenancy and authorization (the core invariant)
 
@@ -61,7 +63,20 @@ Public (no-JWT) surface, defined in `SecurityConfig`: `/auth/**`, GET restaurant
 
 ### Entities
 
-All entities extend `common/audit/BaseEntity` (createdAt/updatedAt auditing + **soft delete** via `deleted`/`deletedAt`). Deletion is logical: repositories/queries must filter `deletedFalse` — see existing repository methods like `findByStatusAndDeletedFalse`. Hibernate `ddl-auto` is `update` (prod) / `create-drop` (dev); there are no migration scripts.
+All entities extend `common/audit/BaseEntity` (createdAt/updatedAt auditing + **soft delete** via `deleted`/`deletedAt`). Deletion is logical: repositories/queries must filter `deletedFalse` — see existing repository methods like `findByStatusAndDeletedFalse`.
+
+**Schema is managed by Flyway** (`restaurante_manage/src/main/resources/db/migration/`, `V1`…`V9`), not by Hibernate. `application.yml` sets `ddl-auto: validate` — Hibernate only checks entities match the schema Flyway already applied; it never creates or alters tables. Only the `dev` profile (`application-dev.yml`) uses H2 with `ddl-auto: create-drop` and Flyway disabled. Consequence: every new table needs **both** a Flyway migration (MySQL/prod, and what `mvn test` runs against outside `dev`) **and** a matching JPA entity — a mismatch between them makes the app fail to start in production, because `validate` rejects it at boot. Write the migration and the entity together, and verify startup against local MySQL (`localhost:3307`) before deploying.
+
+### Plans and entitlements
+
+The app is a paid SaaS with two plans per tenant, NORMAL and PRO, billed with Stripe. **`subscription/service/EntitlementService` is the single authority for what a tenant's plan allows** — the same role `CurrentUserService` plays for tenant isolation. Every feature/limit check goes through it (`hasFeature`, `require(Feature)`, `requireCapacity(Resource)`), never a hand-rolled `if (plan == PRO)`.
+
+- The plan → features/limits catalog lives in code, `subscription/catalog/PlanCatalog.java`, not in a database table. With `ddl-auto: validate` and no admin UI for it, a mis-seeded catalog table would silently strip every tenant's features; the code version is covered by a test that pins the plan × feature matrix, so an accidental change breaks the build instead of production.
+- The plan check happens in the **service layer**, next to the existing tenant check (`currentUserService.validateRestaurantAccess(...)` then `entitlements.require(...)`/`requireCapacity(...)`) — never only in the controller, and never only in the frontend. The frontend's `hasFeature`/candados are for UX only; the enforcement that matters is server-side.
+- Payment state (`Subscription.status`, `planCode`, etc.) is changed **only** by `StripeWebhookService`, driven by signature-verified Stripe webhooks. Nothing else writes to it — not an endpoint, not an admin action.
+- There are **three places that create a `User` account** — `POST /users`, `POST /auth/register`, and `POST /employees` (when it creates a linked user) — and all three must call `entitlementService.requireCapacity(Resource.USER_ACCOUNT)` before creating one. Missing it on one of them has already let a tenant exceed their account limit; when adding a fourth way to create a user, check this first.
+
+See `docs/billing-stripe-setup.md` for how to configure Stripe (products, prices, webhooks, environment variables) in local dev and in production.
 
 ### Frontend structure
 
