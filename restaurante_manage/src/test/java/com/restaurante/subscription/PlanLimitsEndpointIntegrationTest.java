@@ -49,6 +49,7 @@ class PlanLimitsEndpointIntegrationTest {
     @Autowired private SubscriptionRepository subscriptionRepository;
 
     private Tenant tenantNormal;
+    private Restaurant restauranteNormal;
     private String tokenAdminNormal;
     private String tokenAdminPro;
 
@@ -66,7 +67,7 @@ class PlanLimitsEndpointIntegrationTest {
         crearSuscripcion(tenantPro, PlanCode.PRO, SubscriptionStatus.ACTIVE);
 
         // El tenant NORMAL arranca ya en su límite: 1 local.
-        crearRestaurante("Local Unico", tenantNormal);
+        restauranteNormal = crearRestaurante("Local Unico", tenantNormal);
         crearRestaurante("Local Pro 1", tenantPro);
         crearRestaurante("Local Pro 2", tenantPro);
 
@@ -164,6 +165,58 @@ class PlanLimitsEndpointIntegrationTest {
         cuerpo.put("roles", Set.of("ROLE_EMPLOYEE"));
 
         mockMvc.perform(post("/api/v1/users")
+                        .header("Authorization", "Bearer " + tokenAdminNormal)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(cuerpo)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PLAN_LIMIT_REACHED"))
+                .andExpect(jsonPath("$.data.resource").value("USER_ACCOUNT"))
+                .andExpect(jsonPath("$.data.limit").value(5));
+    }
+
+    @Test
+    @DisplayName("NORMAL en su límite no puede registrar una sexta cuenta vía /auth/register")
+    void normalNoPuedeRegistrarSextaCuentaViaAuthRegister() throws Exception {
+        // Ya existe admin.normal; se añaden 4 más hasta llegar al tope de 5.
+        for (int i = 1; i <= 4; i++) {
+            crearAdmin("relleno" + i, "relleno" + i + "@test.com", tenantNormal);
+        }
+
+        Map<String, Object> cuerpo = new HashMap<>();
+        cuerpo.put("name", "sexto.register");
+        cuerpo.put("email", "sexto.register@test.com");
+        cuerpo.put("password", "Password123!");
+        cuerpo.put("role", "EMPLOYEE");
+        cuerpo.put("restaurantId", restauranteNormal.getId());
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .header("Authorization", "Bearer " + tokenAdminNormal)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(cuerpo)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PLAN_LIMIT_REACHED"))
+                .andExpect(jsonPath("$.data.resource").value("USER_ACCOUNT"))
+                .andExpect(jsonPath("$.data.limit").value(5));
+    }
+
+    @Test
+    @DisplayName("NORMAL en su límite no puede crear un empleado con acceso al sistema (createUser=true)")
+    void normalNoPuedeCrearEmpleadoConAccesoSistemaEnSuLimite() throws Exception {
+        // Ya existe admin.normal; se añaden 4 más hasta llegar al tope de 5.
+        for (int i = 1; i <= 4; i++) {
+            crearAdmin("relleno" + i, "relleno" + i + "@test.com", tenantNormal);
+        }
+
+        Map<String, Object> cuerpo = new HashMap<>();
+        cuerpo.put("firstName", "Sexto");
+        cuerpo.put("lastName", "Empleado");
+        cuerpo.put("email", "sexto.empleado@test.com");
+        cuerpo.put("position", "Camarero");
+        cuerpo.put("restaurantIds", Set.of(restauranteNormal.getId()));
+        cuerpo.put("createUser", true);
+        cuerpo.put("systemRole", "EMPLOYEE");
+
+        mockMvc.perform(post("/api/v1/employees")
                         .header("Authorization", "Bearer " + tokenAdminNormal)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(cuerpo)))

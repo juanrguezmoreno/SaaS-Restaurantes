@@ -108,6 +108,12 @@ app:
     price-pro-monthly: ${STRIPE_PRICE_PRO_MONTHLY:}
     # Días de prueba gratuita al contratar. 0 desactiva el periodo de prueba.
     trial-days: ${STRIPE_TRIAL_DAYS:14}
+    # Timeouts agresivos hacia la API de Stripe, en milisegundos. El webhook la
+    # invoca dentro de una transacción de BD, así que no se puede depender de los
+    # 30 s/80 s por defecto de stripe-java sin arriesgar retener la pool de
+    # conexiones minutos enteros ante una degradación de Stripe.
+    connect-timeout-ms: ${STRIPE_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${STRIPE_READ_TIMEOUT_MS:15000}
 
 springdoc:
   api-docs:

@@ -12,6 +12,7 @@ import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.role.entity.Role;
 import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
+import com.restaurante.subscription.service.EntitlementService;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
@@ -54,6 +55,8 @@ class EmployeeServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private EmployeeMapper employeeMapper;
     @Mock private CurrentUserService currentUserService;
+    // No hace falta stub: por defecto no hace nada (no lanza), como si hubiera cuota libre.
+    @Mock private EntitlementService entitlementService;
 
     @InjectMocks private EmployeeService service;
 

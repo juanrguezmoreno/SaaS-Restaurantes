@@ -26,6 +26,18 @@ public class StripeProperties {
     private String priceNormalMonthly;
     private String priceProMonthly;
     private int trialDays = 14;
+    /**
+     * Timeout de conexión al llamar a Stripe, en milisegundos. Por defecto agresivo
+     * (muy por debajo de los 30 s de stripe-java) porque StripeWebhookService invoca
+     * al gateway dentro de una transacción de base de datos: si Stripe se degrada,
+     * no queremos retener una conexión de la pool de BD minutos enteros.
+     */
+    private int connectTimeoutMs = 5000;
+    /**
+     * Timeout de lectura de la respuesta de Stripe, en milisegundos. Mismo motivo
+     * que connectTimeoutMs: acotar cuánto puede bloquear una transacción abierta.
+     */
+    private int readTimeoutMs = 15000;
 
     public boolean isEnabled() {
         return tieneValor(secretKey)

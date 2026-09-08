@@ -40,15 +40,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
 @TestPropertySource(properties = {
-        "app.stripe.secret-key=sk_test_falsa",
-        "app.stripe.webhook-secret=whsec_test_falsa",
+        "app.stripe.secret-key=clave-de-prueba",
+        "app.stripe.webhook-secret=secreto-de-webhook-de-prueba",
         "app.stripe.price-normal-monthly=price_normal_test",
         "app.stripe.price-pro-monthly=price_pro_test",
         "app.stripe.trial-days=14"
 })
 class StripeWebhookEndpointIntegrationTest {
 
-    private static final String SECRETO = "whsec_test_falsa";
+    private static final String SECRETO = "secreto-de-webhook-de-prueba";
     private static final String RUTA = "/api/v1/webhooks/stripe";
 
     /**

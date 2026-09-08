@@ -130,10 +130,22 @@ public class RestaurantService {
     }
 
     /**
-     * Un local desactivado por el plan (por ejemplo, tras bajar de PRO a NORMAL)
-     * queda en SOLO LECTURA: se consulta y se exporta, pero no se modifica ni
-     * genera reservas nuevas. Sus datos permanecen intactos y vuelve a estar
-     * operativo en cuanto se recupera el plan.
+     * Guarda que bloquea operaciones concretas sobre un local desactivado por el
+     * plan (por ejemplo, tras bajar de PRO a NORMAL). NO es un modo de solo
+     * lectura general: sólo cubre los puntos donde se invoca explícitamente.
+     *
+     * <p>Bloquea: {@link #update} y {@link #delete} del propio local, y la
+     * creación ({@code ReservationService.create}) y edición
+     * ({@code ReservationService.update}) de reservas en ese local.</p>
+     *
+     * <p>NO bloquea: crear ni editar mesas, clientes o empleados del local, ni
+     * {@code ReservationService.updateStatus}. Esto último es deliberado: hay
+     * que poder confirmar o cancelar reservas que ya se aceptaron cuando el
+     * local todavía estaba activo, aunque el plan haya bajado después. Impedirlo
+     * dejaría reservas aceptadas sin poder cerrarse.</p>
+     *
+     * <p>Sus datos permanecen intactos y el local vuelve a estar operativo en
+     * cuanto se recupera el plan.</p>
      */
     public void assertRestaurantWritable(Long restaurantId) {
         Restaurant restaurante = restaurantRepository.findByIdAndDeletedFalse(restaurantId)

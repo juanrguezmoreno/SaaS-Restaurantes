@@ -11,6 +11,10 @@ import com.restaurante.role.entity.Role;
 import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
 import com.restaurante.security.jwt.JwtTokenProvider;
+import com.restaurante.subscription.entity.Subscription;
+import com.restaurante.subscription.enums.PlanCode;
+import com.restaurante.subscription.enums.SubscriptionStatus;
+import com.restaurante.subscription.repository.SubscriptionRepository;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
@@ -75,6 +79,7 @@ class P0VulnerabilidadesEndpointIntegrationTest {
     @Autowired private RoleRepository roleRepository;
     @Autowired private CustomerRepository customerRepository;
     @Autowired private DiningTableRepository diningTableRepository;
+    @Autowired private SubscriptionRepository subscriptionRepository;
 
     private boolean seeded = false;
 
@@ -103,6 +108,15 @@ class P0VulnerabilidadesEndpointIntegrationTest {
         tenantA.setSlug("tenant-a-sectest");
         tenantA.setActive(true);
         tenantA = tenantRepository.save(tenantA);
+
+        // Plan PRO para el tenant A: estos tests ejercitan escalada de privilegios
+        // (P0-1) y aislamiento multi-tenant (P0-2), no límites de plan, así que se
+        // les da cuota de sobra para no chocar con EntitlementService.requireCapacity.
+        Subscription suscripcionA = new Subscription();
+        suscripcionA.setTenant(tenantA);
+        suscripcionA.setPlanCode(PlanCode.PRO);
+        suscripcionA.setStatus(SubscriptionStatus.ACTIVE);
+        subscriptionRepository.save(suscripcionA);
 
         Restaurant restaurantA = new Restaurant();
         restaurantA.setName("Restaurante A sectest");

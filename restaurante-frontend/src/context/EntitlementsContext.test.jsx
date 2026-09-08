@@ -9,13 +9,14 @@ vi.mock('./AuthContext', () => ({
 }));
 
 const Sonda = () => {
-  const { plan, loading, hasFeature, isAtLimit } = useEntitlements();
+  const { plan, loading, hasFeature, isAtLimit, refresh } = useEntitlements();
   if (loading) return <span>cargando</span>;
   return (
     <div>
       <span data-testid="plan">{plan}</span>
       <span data-testid="export">{String(hasFeature('EXPORT_DATA'))}</span>
       <span data-testid="tope-locales">{String(isAtLimit('RESTAURANT'))}</span>
+      <button onClick={refresh}>refrescar</button>
     </div>
   );
 };
@@ -52,12 +53,30 @@ describe('EntitlementsContext', () => {
     expect(screen.getByTestId('tope-locales')).toHaveTextContent('true');
   });
 
-  it('ante un fallo de red no concede ninguna feature', async () => {
-    billingService.getEntitlements.mockRejectedValue(new Error('sin red'));
+  it('ante un fallo de red en un refresh, las features ya concedidas desaparecen', async () => {
+    // Primero resuelve con un plan PRO ya con features concedidas: si el catch
+    // se quitase, o conservase el estado anterior en vez de cerrarlo, este test
+    // seguiría en verde con solo el estado inicial (que también parte vacío).
+    // Por eso se espera primero a tener features y SÓLO ENTONCES se provoca el
+    // fallo de red, para que la propiedad "cerrado por defecto" se compruebe de
+    // verdad tras haber tenido algo que perder.
+    billingService.getEntitlements.mockResolvedValueOnce({
+      plan: 'PRO', hasAccess: true, status: 'ACTIVE',
+      features: ['EXPORT_DATA', 'MULTI_RESTAURANT'],
+      limits: { maxRestaurants: null, maxUserAccounts: null },
+      usage: { RESTAURANT: 3, USER_ACCOUNT: 8 },
+    });
 
     render(<EntitlementsProvider><Sonda /></EntitlementsProvider>);
 
-    // Cerrado por defecto: un error de red nunca debe regalar funciones de pago.
+    await waitFor(() => expect(screen.getByTestId('export')).toHaveTextContent('true'));
+
+    billingService.getEntitlements.mockRejectedValueOnce(new Error('sin red'));
+    screen.getByRole('button', { name: 'refrescar' }).click();
+
+    // Cerrado por defecto: un error de red nunca debe conservar funciones de pago
+    // ya concedidas, deben desaparecer.
     await waitFor(() => expect(screen.getByTestId('export')).toHaveTextContent('false'));
+    expect(screen.getByTestId('plan')).toHaveTextContent('');
   });
 });

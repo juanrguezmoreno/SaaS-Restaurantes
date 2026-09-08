@@ -24,8 +24,16 @@ public class StripeGatewayImpl implements StripeGateway {
 
     public StripeGatewayImpl(StripeProperties properties) {
         this.properties = properties;
+        // Timeouts explícitos y agresivos (por defecto muy por debajo de los 30 s /
+        // 80 s de stripe-java): StripeWebhookService llama a este gateway dentro de
+        // una transacción de base de datos, así que una degradación de Stripe no
+        // debe poder retener una conexión de la pool durante minutos.
         this.client = properties.isEnabled()
-                ? new StripeClient(properties.getSecretKey())
+                ? StripeClient.builder()
+                        .setApiKey(properties.getSecretKey())
+                        .setConnectTimeout(properties.getConnectTimeoutMs())
+                        .setReadTimeout(properties.getReadTimeoutMs())
+                        .build()
                 : null;
     }
 

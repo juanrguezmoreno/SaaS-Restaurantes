@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
 @TestPropertySource(properties = {
-        "app.stripe.secret-key=sk_test_falsa",
+        "app.stripe.secret-key=clave-de-prueba",
         "app.stripe.webhook-secret=",
         "app.stripe.price-normal-monthly=price_normal_test",
         "app.stripe.price-pro-monthly=price_pro_test",
