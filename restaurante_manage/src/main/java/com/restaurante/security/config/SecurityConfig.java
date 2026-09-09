@@ -65,6 +65,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, Constants.RESTAURANTS_PATH + "/*").permitAll()
                         // Público: solicitudes de reserva pública (no requiere JWT)
                         .requestMatchers(Constants.PUBLIC_PATH + "/**").permitAll()
+                        // Webhook de Stripe: público por definición (lo llama Stripe, sin
+                        // JWT). La autenticidad NO la da la sesión, sino la verificación de
+                        // la firma HMAC dentro de StripeWebhookService.
+                        .requestMatchers(HttpMethod.POST, Constants.STRIPE_WEBHOOK_PATH).permitAll()
                         .anyRequest().authenticated()
                 )
                 .userDetailsService(customUserDetailsService)

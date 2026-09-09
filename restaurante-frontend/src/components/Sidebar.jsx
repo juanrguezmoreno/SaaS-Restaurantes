@@ -1,6 +1,27 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useEntitlements } from '../context/EntitlementsContext';
 import { canAccess, SIDEBAR_PERMISSIONS, ROLE_LABELS, normalizeRole } from '../config/permissions';
+
+// Candado discreto: icono de cerradura para las secciones cuyo aforo actual ya
+// agotó el límite del plan contratado. No sustituye al icono de la sección, se
+// añade al lado.
+const IconLock = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="10.5" width="16" height="10" rx="2" />
+    <path d="M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5" />
+  </svg>
+);
+
+/**
+ * Recurso de cuota asociado a cada ruta del sidebar. Sólo se marca con candado
+ * cuando ya se ha alcanzado el límite del plan: un candado sin una razón real
+ * detrás sería un aviso falso.
+ */
+const SIDEBAR_LIMIT_RESOURCE = {
+  '/restaurants': 'RESTAURANT',
+  '/employees': 'USER_ACCOUNT',
+};
 
 // ─── SVG icons para cada ruta ──────────────────────────────────────────────
 // Cada entrada necesita una silueta reconocible de un vistazo: antes Inicio y
@@ -58,6 +79,15 @@ const icons = {
       <circle cx="16" cy="15.5" r="2" />
     </svg>
   ),
+  // Tarjeta con banda de pago: se distingue de Restaurantes y Empleados sin
+  // reutilizar ninguna de sus siluetas.
+  billing: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="5" width="19" height="14" rx="2" />
+      <line x1="2.5" y1="10" x2="21.5" y2="10" />
+      <line x1="6" y1="15" x2="10" y2="15" />
+    </svg>
+  ),
 };
 
 // ─── Grupos de navegación ──────────────────────────────────────────────────
@@ -82,6 +112,7 @@ const navGroups = [
     items: [
       { path: '/restaurants', label: 'Restaurantes', icon: 'restaurants' },
       { path: '/employees', label: 'Empleados', icon: 'employees' },
+      { path: '/settings/billing', label: 'Facturación', icon: 'billing' },
     ],
   },
 ];
@@ -89,9 +120,28 @@ const navGroups = [
 const Sidebar = ({ show, onClose }) => {
   const { user } = useAuth();
   const location = useLocation();
+  const { limits, usage, isAtLimit } = useEntitlements();
 
   const handleLinkClick = () => {
     if (onClose) onClose();
+  };
+
+  /**
+   * Avisa del mismo modo que un 403 de plan del backend: el candado no
+   * autoriza ni bloquea nada por sí mismo, sólo abre la explicación. Quien
+   * decide de verdad sigue siendo el backend.
+   */
+  const explicarLimite = (resource) => {
+    const limit = resource === 'RESTAURANT' ? limits?.maxRestaurants : limits?.maxUserAccounts;
+    window.dispatchEvent(new CustomEvent('plan:upgrade-required', {
+      detail: {
+        code: 'PLAN_LIMIT_REACHED',
+        resource,
+        limit,
+        current: usage?.[resource],
+        requiredPlan: 'PRO',
+      },
+    }));
   };
 
   return (
@@ -144,6 +194,8 @@ const Sidebar = ({ show, onClose }) => {
                   <ul className="sidebar-nav-items">
                     {visibleItems.map((item) => {
                       const isActivePath = location.pathname === item.path;
+                      const resource = SIDEBAR_LIMIT_RESOURCE[item.path];
+                      const bloqueado = resource && isAtLimit(resource);
                       return (
                         <li key={item.path} className="nav-item">
                           <NavLink
@@ -154,6 +206,17 @@ const Sidebar = ({ show, onClose }) => {
                             {icons[item.icon]}
                             <span>{item.label}</span>
                           </NavLink>
+                          {bloqueado && (
+                            <button
+                              type="button"
+                              className="sidebar-lock-badge"
+                              title="Disponible en el plan Pro"
+                              aria-label={`${item.label}: has alcanzado el límite de tu plan`}
+                              onClick={() => explicarLimite(resource)}
+                            >
+                              <IconLock />
+                            </button>
+                          )}
                         </li>
                       );
                     })}

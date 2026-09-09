@@ -42,8 +42,17 @@ api.interceptors.response.use(
         window.dispatchEvent(new CustomEvent('auth:unauthorized'));
         // NO usar window.location.href — eso causa bucle de recarga infinito
       } else if (status === 403) {
-        // Sin permisos
-        console.error('Acceso denegado: no tienes permisos para este recurso.');
+        const { code, message, data } = error.response.data ?? {};
+        if (code === 'PLAN_UPGRADE_REQUIRED' || code === 'PLAN_LIMIT_REACHED') {
+          // Mismo patrón que auth:unauthorized: el interceptor no conoce la
+          // interfaz, sólo avisa; quien decide qué mostrar es el componente.
+          window.dispatchEvent(new CustomEvent('plan:upgrade-required', {
+            detail: { code, message, ...(data ?? {}) },
+          }));
+        } else {
+          // 403 por rol: no es un problema de plan y no debe ofrecer pagar.
+          console.error('Acceso denegado: no tienes permisos para este recurso.');
+        }
       } else if (status === 500) {
         console.error('Error interno del servidor. Intenta nuevamente más tarde.');
       }

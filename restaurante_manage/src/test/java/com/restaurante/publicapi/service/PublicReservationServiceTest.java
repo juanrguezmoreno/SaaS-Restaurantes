@@ -14,6 +14,11 @@ import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.subscription.catalog.PlanLimits;
+import com.restaurante.subscription.enums.PlanCode;
+import com.restaurante.subscription.enums.SubscriptionStatus;
+import com.restaurante.subscription.service.EffectiveSubscription;
+import com.restaurante.subscription.service.EntitlementService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +53,7 @@ class PublicReservationServiceTest {
     @Mock private CustomerRepository customerRepository;
     @Mock private ReservationRepository reservationRepository;
     @Mock private AvailabilityService availabilityService;
+    @Mock private EntitlementService entitlementService;
 
     @InjectMocks private PublicReservationService service;
 
@@ -60,6 +66,14 @@ class PublicReservationServiceTest {
         restaurant.setId(RESTAURANT_ID);
         restaurant.setName("La Buena Mesa");
         restaurant.setPublicBookingEnabled(true);
+        restaurant.setActiveUnderPlan(true);
+
+        // Sin suscripción de plan de por medio en este test unitario: se
+        // simula un tenant con plan PRO activo para que la guarda de
+        // assertReservasPublicasPermitidas() no interfiera con estos casos.
+        when(entitlementService.resolve(any()))
+                .thenReturn(new EffectiveSubscription(PlanCode.PRO, SubscriptionStatus.ACTIVE, true,
+                        PlanLimits.unlimited(), false, null, null, false));
 
         customer = new Customer();
         customer.setId(CUSTOMER_ID);

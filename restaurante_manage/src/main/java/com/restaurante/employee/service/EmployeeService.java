@@ -15,6 +15,8 @@ import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.role.entity.Role;
 import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
+import com.restaurante.subscription.enums.Resource;
+import com.restaurante.subscription.service.EntitlementService;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
@@ -47,6 +49,7 @@ public class EmployeeService {
     private final PasswordEncoder passwordEncoder;
     private final EmployeeMapper employeeMapper;
     private final CurrentUserService currentUserService;
+    private final EntitlementService entitlementService;
 
     /** P0-1: roles que un SUPER_ADMIN puede asignar a un empleado con acceso al sistema. */
     private static final Set<RoleName> SUPER_ADMIN_ASSIGNABLE_ROLES =
@@ -165,6 +168,11 @@ public class EmployeeService {
 
         // 4. Si createUser=true, crear también el User
         if (Boolean.TRUE.equals(request.getCreateUser())) {
+            // La cuota del plan es de cuentas de acceso (USER_ACCOUNT), no de fichas
+            // de personal: un empleado sin acceso al sistema no consume cuota, así
+            // que esta comprobación va dentro del bloque createUser y no antes.
+            entitlementService.requireCapacity(Resource.USER_ACCOUNT);
+
             if (email == null || email.isEmpty()) {
                 throw new BadRequestException("El email es obligatorio para crear acceso al sistema.");
             }

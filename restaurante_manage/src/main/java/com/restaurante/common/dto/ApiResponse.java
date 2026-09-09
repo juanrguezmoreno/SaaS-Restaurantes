@@ -17,6 +17,14 @@ public class ApiResponse<T> {
 
     private boolean success;
     private String message;
+
+    /**
+     * Código de error estable y legible por máquina (PLAN_UPGRADE_REQUIRED,
+     * PLAN_LIMIT_REACHED...). Sólo se rellena en los errores que el cliente debe
+     * distinguir por programa; el resto siguen llegando sin él.
+     */
+    private String code;
+
     private T data;
 
     @Builder.Default
@@ -42,6 +50,23 @@ public class ApiResponse<T> {
         return ApiResponse.<T>builder()
                 .success(false)
                 .message(message)
+                .build();
+    }
+
+    public static <T> ApiResponse<T> error(String code, String message) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .code(code)
+                .message(message)
+                .build();
+    }
+
+    public static <T> ApiResponse<T> error(String code, String message, T data) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .code(code)
+                .message(message)
+                .data(data)
                 .build();
     }
 }

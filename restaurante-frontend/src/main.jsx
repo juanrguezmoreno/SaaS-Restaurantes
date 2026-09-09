@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { EntitlementsProvider } from './context/EntitlementsContext';
 import App from './App.jsx';
 // Tipografías auto-alojadas (variable): sin peticiones a CDN externos y sin FOUT.
 // Instrument Sans = interfaz y datos; Bricolage Grotesque = títulos y marca.
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <App />
+          <EntitlementsProvider>
+            <App />
+          </EntitlementsProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

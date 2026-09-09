@@ -13,6 +13,8 @@ import com.restaurante.role.entity.Role;
 import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
 import com.restaurante.security.jwt.JwtTokenProvider;
+import com.restaurante.subscription.enums.Resource;
+import com.restaurante.subscription.service.EntitlementService;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
@@ -43,6 +45,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final CurrentUserService currentUserService;
+    private final EntitlementService entitlementService;
 
     public JwtResponse login(LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
@@ -142,6 +145,10 @@ public class AuthService {
                 && !tenant.getId().equals(restaurant.getTenant().getId())) {
             throw new BadRequestException("El restaurante no pertenece al tenant indicado");
         }
+
+        // Registrar por este endpoint también consume cuota: si no, sería la
+        // puerta trasera para saltarse el límite de cuentas del plan.
+        entitlementService.requireCapacity(Resource.USER_ACCOUNT);
 
         User user = new User();
         user.setUsername(username);

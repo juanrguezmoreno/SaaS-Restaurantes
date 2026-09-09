@@ -1,6 +1,7 @@
 package com.restaurante.restaurant.service;
 
 import com.restaurante.common.exception.AccessDeniedException;
+import com.restaurante.common.exception.PlanUpgradeRequiredException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
 import com.restaurante.restaurant.dto.RestaurantMapper;
@@ -8,6 +9,10 @@ import com.restaurante.restaurant.dto.RestaurantRequest;
 import com.restaurante.restaurant.dto.RestaurantResponse;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.subscription.enums.Feature;
+import com.restaurante.subscription.enums.PlanCode;
+import com.restaurante.subscription.enums.Resource;
+import com.restaurante.subscription.service.EntitlementService;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.entity.User;
@@ -30,6 +35,7 @@ public class RestaurantService {
     private final RestaurantMapper restaurantMapper;
     private final CurrentUserService currentUserService;
     private final TenantRepository tenantRepository;
+    private final EntitlementService entitlementService;
 
     public Page<RestaurantResponse> findAll(Pageable pageable) {
         // Obtener los IDs de restaurantes visibles según el rol y asignaciones
@@ -80,6 +86,10 @@ public class RestaurantService {
 
     @Transactional
     public RestaurantResponse create(RestaurantRequest request) {
+        // La cuota se comprueba ANTES de construir nada: crear el local y luego
+        // deshacerlo dejaría huecos en el autoincremento y ruido en los logs.
+        entitlementService.requireCapacity(Resource.RESTAURANT);
+
         Restaurant restaurant = restaurantMapper.toEntity(request);
 
         // Asignar tenant: usar el del usuario autenticado
@@ -102,6 +112,7 @@ public class RestaurantService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", id));
         currentUserService.validateRestaurantAccess(id);
+        assertRestaurantWritable(id);
         restaurantMapper.updateEntity(restaurant, request);
         Restaurant saved = restaurantRepository.save(restaurant);
         return restaurantMapper.toResponse(saved);
@@ -112,8 +123,39 @@ public class RestaurantService {
         Restaurant restaurant = restaurantRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", id));
         currentUserService.validateRestaurantAccess(id);
+        assertRestaurantWritable(id);
         restaurant.setDeleted(true);
         restaurant.setDeletedAt(LocalDateTime.now());
         restaurantRepository.save(restaurant);
+    }
+
+    /**
+     * Guarda que bloquea operaciones concretas sobre un local desactivado por el
+     * plan (por ejemplo, tras bajar de PRO a NORMAL). NO es un modo de solo
+     * lectura general: sólo cubre los puntos donde se invoca explícitamente.
+     *
+     * <p>Bloquea: {@link #update} y {@link #delete} del propio local, y la
+     * creación ({@code ReservationService.create}) y edición
+     * ({@code ReservationService.update}) de reservas en ese local.</p>
+     *
+     * <p>NO bloquea: crear ni editar mesas, clientes o empleados del local, ni
+     * {@code ReservationService.updateStatus}. Esto último es deliberado: hay
+     * que poder confirmar o cancelar reservas que ya se aceptaron cuando el
+     * local todavía estaba activo, aunque el plan haya bajado después. Impedirlo
+     * dejaría reservas aceptadas sin poder cerrarse.</p>
+     *
+     * <p>Sus datos permanecen intactos y el local vuelve a estar operativo en
+     * cuanto se recupera el plan.</p>
+     */
+    public void assertRestaurantWritable(Long restaurantId) {
+        Restaurant restaurante = restaurantRepository.findByIdAndDeletedFalse(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurante", "id", restaurantId));
+        if (Boolean.FALSE.equals(restaurante.getActiveUnderPlan())) {
+            throw new PlanUpgradeRequiredException(
+                    Feature.MULTI_RESTAURANT,
+                    PlanCode.PRO,
+                    "Este local está inactivo con tu plan actual. Sus datos se conservan;"
+                            + " actualiza a Pro para volver a operarlo.");
+        }
     }
 }

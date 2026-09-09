@@ -1,6 +1,7 @@
 package com.restaurante.user.service;
 
 import com.restaurante.common.exception.AccessDeniedException;
+import com.restaurante.common.exception.BadRequestException;
 import com.restaurante.common.exception.DuplicateResourceException;
 import com.restaurante.common.exception.ResourceNotFoundException;
 import com.restaurante.common.security.CurrentUserService;
@@ -9,6 +10,8 @@ import com.restaurante.restaurant.repository.RestaurantRepository;
 import com.restaurante.role.entity.Role;
 import com.restaurante.role.enums.RoleName;
 import com.restaurante.role.repository.RoleRepository;
+import com.restaurante.subscription.enums.Resource;
+import com.restaurante.subscription.service.EntitlementService;
 import com.restaurante.tenant.entity.Tenant;
 import com.restaurante.tenant.repository.TenantRepository;
 import com.restaurante.user.dto.AdminUserListItem;
@@ -50,6 +53,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final UserMapper userMapper;
     private final CurrentUserService currentUserService;
+    private final EntitlementService entitlementService;
 
     /**
      * Página de empleados visibles, con búsqueda y filtros opcionales.
@@ -341,6 +345,10 @@ public class UserService {
     public UserResponse create(UserRequest request) {
         validateUniqueFields(request);
 
+        // Cuota de cuentas del plan. Va después de las validaciones de unicidad
+        // para que un email duplicado siga dando 409 y no un 403 confuso.
+        entitlementService.requireCapacity(Resource.USER_ACCOUNT);
+
         boolean isSuperAdmin = currentUserService.isSuperAdmin();
 
         // SEC-01: un no-SUPER_ADMIN no puede crear usuarios en otro inquilino
@@ -398,10 +406,51 @@ public class UserService {
                 assigned.add(r);
             }
             user.setAssignedRestaurants(assigned);
+            heredarInquilinoDeRestaurantes(user, assigned);
         }
 
         User saved = userRepository.save(user);
         return userMapper.toResponse(saved);
+    }
+
+    /**
+     * Deduce el inquilino de un usuario a partir de los restaurantes que se le
+     * asignan.
+     *
+     * <p>El formulario de empleados solo envía {@code restaurantIds}: sin esta
+     * deducción, la cuenta se guardaba sin inquilino y su dueño no veía NINGÚN
+     * restaurante al entrar. Lo explícito manda: si el usuario ya tiene
+     * inquilino (porque se pidió uno, o porque ya lo tenía), no se toca.</p>
+     *
+     * <p>Mezclar restaurantes de inquilinos distintos se rechaza en vez de
+     * elegir uno: un usuario pertenece a un solo inquilino y la ambigüedad no
+     * se puede resolver sola sin arriesgarse a darle acceso al inquilino
+     * equivocado.</p>
+     */
+    private void heredarInquilinoDeRestaurantes(User user, Set<Restaurant> asignados) {
+        if (asignados == null || asignados.isEmpty()) {
+            return;
+        }
+        if (user.getTenant() != null) {
+            return;
+        }
+
+        Set<Long> tenantIds = asignados.stream()
+                .map(Restaurant::getTenant)
+                .filter(Objects::nonNull)
+                .map(Tenant::getId)
+                .collect(Collectors.toSet());
+
+        if (tenantIds.size() > 1) {
+            throw new BadRequestException(
+                    "Los restaurantes asignados pertenecen a inquilinos distintos");
+        }
+        if (tenantIds.size() == 1) {
+            Long tenantId = tenantIds.iterator().next();
+            Tenant tenant = tenantRepository.findByIdAndDeletedFalse(tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tenant", "id", tenantId));
+            user.setTenant(tenant);
+        }
     }
 
     private boolean requestsSuperAdminRole(Set<String> roleNames) {
@@ -485,6 +534,7 @@ public class UserService {
                 assigned.add(r);
             }
             user.setAssignedRestaurants(assigned);
+            heredarInquilinoDeRestaurantes(user, assigned);
         }
 
         User saved = userRepository.save(user);

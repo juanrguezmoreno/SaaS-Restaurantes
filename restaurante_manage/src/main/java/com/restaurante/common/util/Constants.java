@@ -51,6 +51,9 @@ public final class Constants {
     // Reservations
     public static final String RESERVATIONS_PATH = API_BASE_PATH + "/reservations";
 
+    /** Exportación CSV de reservas. Requiere el plan Pro. */
+    public static final String RESERVATIONS_EXPORT_SUBPATH = "/export";
+
     // Public
     public static final String PUBLIC_PATH = API_BASE_PATH + "/public";
 
@@ -64,6 +67,21 @@ public final class Constants {
     public static final String ROLE_MANAGER = "ROLE_MANAGER";
     public static final String ROLE_EMPLOYEE = "ROLE_EMPLOYEE";
     public static final String ROLE_CLIENT = "ROLE_CLIENT";
+
+    // Facturación y suscripciones
+    public static final String BILLING_PATH = API_BASE_PATH + "/billing";
+    public static final String BILLING_PLANS_SUBPATH = "/plans";
+    public static final String BILLING_ENTITLEMENTS_SUBPATH = "/entitlements";
+    public static final String BILLING_SUBSCRIPTION_SUBPATH = "/subscription";
+    public static final String BILLING_CHECKOUT_SUBPATH = "/checkout";
+    public static final String BILLING_PORTAL_SUBPATH = "/portal";
+    public static final String BILLING_CHANGE_PLAN_SUBPATH = "/change-plan";
+    public static final String BILLING_CANCEL_SUBPATH = "/cancel";
+    public static final String BILLING_REACTIVATE_SUBPATH = "/reactivate";
+    public static final String BILLING_ACTIVE_RESTAURANT_SUBPATH = "/active-restaurant";
+
+    /** Webhook de Stripe. Público y con verificación de firma obligatoria. */
+    public static final String STRIPE_WEBHOOK_PATH = API_BASE_PATH + "/webhooks/stripe";
 
     // Pagination defaults
     public static final String DEFAULT_PAGE = "0";

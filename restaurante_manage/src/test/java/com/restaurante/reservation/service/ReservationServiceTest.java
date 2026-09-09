@@ -18,6 +18,7 @@ import com.restaurante.reservation.enums.ReservationStatus;
 import com.restaurante.reservation.repository.ReservationRepository;
 import com.restaurante.restaurant.entity.Restaurant;
 import com.restaurante.restaurant.repository.RestaurantRepository;
+import com.restaurante.restaurant.service.RestaurantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,6 +61,7 @@ class ReservationServiceTest {
     @Mock private CurrentUserService currentUserService;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private AvailabilityService availabilityService;
+    @Mock private RestaurantService restaurantService;
 
     @InjectMocks private ReservationService service;
 

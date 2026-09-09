@@ -1,6 +1,7 @@
 package com.restaurante.common.exception;
 
 import com.restaurante.common.dto.ApiResponse;
+import com.restaurante.subscription.stripe.StripeOperationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -143,11 +144,90 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(ApiResponse.error(mensaje));
     }
 
+    @ExceptionHandler(InvalidWebhookSignatureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidWebhookSignature(
+            InvalidWebhookSignatureException ex) {
+        // 400 a propósito: Stripe reintenta ante cualquier respuesta que no sea
+        // 2xx, así que no es eso lo que evita el reintento. Se devuelve 400
+        // porque la petición en sí es inválida (firma que no corresponde al
+        // cuerpo) y reintentarla no la va a arreglar. Se registra como
+        // incidencia de seguridad.
+        log.warn("[Seguridad] Webhook de Stripe rechazado: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(InvalidWebhookSignatureException.CODE, "Firma inválida"));
+    }
+
+    /**
+     * STRIPE_WEBHOOK_SECRET no está configurado: el fallo es nuestro (despliegue
+     * incompleto), no del emisor de la petición. Se responde 503, no 400, para
+     * que Stripe reintente el evento; así, en cuanto se configure el secreto,
+     * el estado de pago del inquilino se acaba aplicando en vez de perderse.
+     * Se registra como incidencia de configuración, no de seguridad.
+     */
+    @ExceptionHandler(WebhookSecretNotConfiguredException.class)
+    public ResponseEntity<ApiResponse<Void>> handleWebhookSecretNotConfigured(
+            WebhookSecretNotConfiguredException ex) {
+        log.error("[Config] Webhook de Stripe recibido sin STRIPE_WEBHOOK_SECRET configurado: {}",
+                ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.error(WebhookSecretNotConfiguredException.CODE,
+                        "El servicio de facturación no está disponible ahora mismo"));
+    }
+
+    /**
+     * El plan del tenant no incluye la función. Se devuelve 403 con código para
+     * que el frontend abra el diálogo de mejora de plan en lugar de un error
+     * genérico. El mensaje nunca revela datos de facturación.
+     */
+    @ExceptionHandler(PlanUpgradeRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handlePlanUpgradeRequired(
+            PlanUpgradeRequiredException ex) {
+        Map<String, Object> detalle = new HashMap<>();
+        detalle.put("feature", ex.getFeature().name());
+        detalle.put("requiredPlan", ex.getRequiredPlan().name());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(
+                        PlanUpgradeRequiredException.CODE, ex.getMessage(), detalle));
+    }
+
+    @ExceptionHandler(PlanLimitReachedException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handlePlanLimitReached(
+            PlanLimitReachedException ex) {
+        Map<String, Object> detalle = new HashMap<>();
+        detalle.put("resource", ex.getResource().name());
+        detalle.put("limit", ex.getLimit());
+        detalle.put("current", ex.getCurrent());
+        detalle.put("requiredPlan", ex.getRequiredPlan().name());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(
+                        PlanLimitReachedException.CODE, ex.getMessage(), detalle));
+    }
+
     @ExceptionHandler(RateLimitExceededException.class)
     public ResponseEntity<ApiResponse<Void>> handleRateLimitExceededException(RateLimitExceededException ex) {
         return ResponseEntity
                 .status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /**
+     * Fallo al hablar con Stripe (red, timeout, respuesta de error de la API).
+     * Se traduce a 502: el problema es del proveedor de pago, no de la petición.
+     */
+    @ExceptionHandler(StripeOperationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStripeOperation(
+            StripeOperationException ex) {
+        // El detalle va al log, no a la respuesta: puede contener identificadores
+        // internos de Stripe que no deben salir al cliente.
+        log.error("Error al operar con Stripe: {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error("BILLING_PROVIDER_ERROR",
+                        "No se pudo completar la operación de pago. Inténtalo de nuevo."));
     }
 
     @ExceptionHandler(Exception.class)
